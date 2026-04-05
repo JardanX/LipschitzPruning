@@ -68,6 +68,20 @@ set(SHARED_SRC
         ext/imgui/backends/imgui_impl_glfw.cpp
 )
 
+set(HEADERS
+    include/constants.h
+    include/context.h
+    include/debug_plane.h
+    include/scene.h
+    include/utils.h
+)
+
+set(SHADER_SRCS_COMMON
+    eval.glsl
+    common.glsl
+    common_culling.glsl
+)
+
 foreach(src_file bin_file stage IN ZIP_LISTS SHADER_SRCS SHADER_BINS SHADER_STAGES)
     add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/${bin_file}" COMMAND ${Vulkan_GLSLC_EXECUTABLE} ARGS -fshader-stage=${stage} --target-spv=spv1.4 -g ${CMAKE_SOURCE_DIR}/shaders/${src_file} -o ${CMAKE_BINARY_DIR}/${bin_file} MAIN_DEPENDENCY ${CMAKE_SOURCE_DIR}/shaders/${src_file} DEPENDS ${CMAKE_SOURCE_DIR}/shaders/eval.glsl ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/common_culling.glsl ${CMAKE_SOURCE_DIR}/include/constants.h)
 endforeach()
@@ -75,7 +89,10 @@ endforeach()
 include_directories(PRIVATE include/ ext/imgui ext/json/include ext/rapidjson/include ext/glm)
 link_libraries(glfw vk-bootstrap Vulkan::Vulkan CLI11::CLI11)
 
-add_executable(LipschitzPruning src/main.cpp ${SHARED_SRC})
+add_executable(LipschitzPruning src/main.cpp ${SHARED_SRC} ${HEADERS})
 foreach(bin_file IN LISTS SHADER_BINS)
     target_sources(LipschitzPruning PRIVATE ${CMAKE_BINARY_DIR}/${bin_file})
+endforeach()
+foreach(src_file IN LISTS SHADER_SRCS_COMMON)
+    target_sources(LipschitzPruning PRIVATE ${CMAKE_SOURCE_DIR}/shaders/${src_file})
 endforeach()
