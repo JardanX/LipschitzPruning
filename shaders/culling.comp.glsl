@@ -37,7 +37,8 @@ layout(push_constant) uniform PushConstant {
     float viz_max;
     float alpha;
     int culling_enabled;
-    uint8_t num_samples_u8;
+    float gamma;
+    int num_samples;
 };
 
 #include "common_culling.glsl"

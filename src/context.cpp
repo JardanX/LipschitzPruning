@@ -117,7 +117,7 @@ int device_initialization(Init& init, bool gui) {
     VkPhysicalDeviceVulkan12Features features12{};
     features12.bufferDeviceAddress = true;
     features12.hostQueryReset = true;
-    features12.storagePushConstant8 = true;
+    //features12.storagePushConstant8 = true;
     features12.shaderFloat16 = true;
 
     VkPhysicalDeviceVulkan13Features features13{};
@@ -269,7 +269,7 @@ int create_render_pass(Init& init, RenderData& data) {
 
     VkAttachmentDescription depth_attachment = {
             .flags = 0,
-            .format = VK_FORMAT_D24_UNORM_S8_UINT,
+            .format = VK_FORMAT_D16_UNORM,
             .samples = VK_SAMPLE_COUNT_1_BIT,
             .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
             .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
@@ -606,7 +606,7 @@ void create_depth_buffers(Init& init, RenderData& data) {
             .pNext = nullptr,
             .flags = 0,
             .imageType = VK_IMAGE_TYPE_2D,
-            .format = VK_FORMAT_D24_UNORM_S8_UINT,
+            .format = VK_FORMAT_D16_UNORM,
             .extent = { init.swapchain.extent.width, init.swapchain.extent.height, 1},
             .mipLevels = 1,
             .arrayLayers = 1,
@@ -975,7 +975,7 @@ int draw_frame(Init& init, RenderData& data, bool gui) {
                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                    .image = data.depth_images[i].img,
                    .subresourceRange = {
-                           .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
+                           .aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
                            .baseMipLevel = 0,
                            .levelCount = 1,
                            .baseArrayLayer = 0,

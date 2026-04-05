@@ -52,7 +52,7 @@ void compute_pruning(vec3 cell_center, vec3 cell_size, int cell_idx) {
     int tmp_offset = -1;
 
     if (subgroupElect()) {
-        tmp_offset = atomicAdd(old_to_new_count.val, 32*num_nodes);
+        tmp_offset = atomicAdd(old_to_new_count.val, int(gl_SubgroupSize)*num_nodes);
     }
     tmp_offset = subgroupBroadcastFirst(tmp_offset);
 
@@ -105,20 +105,20 @@ void compute_pruning(vec3 cell_center, vec3 cell_size, int cell_idx) {
                 } else {
                     current_state = NODESTATE_SKIPPED;
                     if (s*left_val < s*right_val) {
-                        Tmp_state_write(tmp.tab[tmp_offset + 32*right_entry.idx + gl_SubgroupInvocationID], NODESTATE_INACTIVE);
+                        Tmp_state_write(tmp.tab[tmp_offset + gl_SubgroupSize*right_entry.idx + gl_SubgroupInvocationID], NODESTATE_INACTIVE);
                     } else {
-                        Tmp_state_write(tmp.tab[tmp_offset + 32*left_entry.idx + gl_SubgroupInvocationID], NODESTATE_INACTIVE);
+                        Tmp_state_write(tmp.tab[tmp_offset + gl_SubgroupSize*left_entry.idx + gl_SubgroupInvocationID], NODESTATE_INACTIVE);
                     }
                 }
 
-                tmp.tab[tmp_offset + 32*i + gl_SubgroupInvocationID] = Tmp(0);
-                Tmp_state_write(tmp.tab[tmp_offset + 32*i + gl_SubgroupInvocationID], current_state);
+                tmp.tab[tmp_offset + gl_SubgroupSize*i + gl_SubgroupInvocationID] = Tmp(0);
+                Tmp_state_write(tmp.tab[tmp_offset + gl_SubgroupSize*i + gl_SubgroupInvocationID], current_state);
                 //prim_dist[i] = 1e20;
             } else if (node.type == NODETYPE_PRIMITIVE) {
                 Primitive prim = prims.tab[node.idx_in_type];
                 d = eval_prim(cell_center, prim);
-                tmp.tab[tmp_offset + 32*i + gl_SubgroupInvocationID] = Tmp(0);
-                Tmp_state_write(tmp.tab[tmp_offset + 32*i + gl_SubgroupInvocationID], NODESTATE_ACTIVE);
+                tmp.tab[tmp_offset + gl_SubgroupSize*i + gl_SubgroupInvocationID] = Tmp(0);
+                Tmp_state_write(tmp.tab[tmp_offset + gl_SubgroupSize*i + gl_SubgroupInvocationID], NODESTATE_ACTIVE);
                 //prim_dist[i] = d;
             }
 
@@ -141,18 +141,19 @@ void compute_pruning(vec3 cell_center, vec3 cell_size, int cell_idx) {
     int cell_num_active = 0;
     for (int i = num_nodes-1; i >= 0; i--) {
 
-        Tmp tmp_i = tmp.tab[tmp_offset + 32*i + gl_SubgroupInvocationID];
+        Tmp tmp_i = tmp.tab[tmp_offset + gl_SubgroupSize*i + gl_SubgroupInvocationID];
 
         if (Tmp_state_get(tmp_i) == NODESTATE_INACTIVE) {
             Tmp_active_global_write(tmp_i, false);
             Tmp_inactive_ancestors_write(tmp_i, true);
-            tmp.tab[tmp_offset + 32*i + gl_SubgroupInvocationID] = tmp_i;
+            tmp.tab[tmp_offset + gl_SubgroupSize*i + gl_SubgroupInvocationID] = tmp_i;
         } else {
             uint16_t parent_idx = uint16_t(parents_in.tab[parent_offset+i]);
             Tmp tmp_parent;
-            if (parent_idx != uint16_t(INVALID_INDEX)) tmp_parent = tmp.tab[tmp_offset + 32*parent_idx + gl_SubgroupInvocationID];
+            if (parent_idx != uint16_t(INVALID_INDEX)) tmp_parent = tmp.tab[tmp_offset + gl_SubgroupSize*parent_idx + gl_SubgroupInvocationID];
             bool node_has_inactive_ancestors = parent_idx != uint16_t(INVALID_INDEX) ? Tmp_inactive_ancestors_get(tmp_parent) : false;
-            bool node_active_global = ((Tmp_state_get(tmp_i) == NODESTATE_ACTIVE) && !node_has_inactive_ancestors);
+            int local_state = Tmp_state_get(tmp_i);
+            bool node_active_global = (local_state == NODESTATE_ACTIVE) && !node_has_inactive_ancestors;
             if (node_active_global) cell_num_active += 1;
 
 
@@ -170,7 +171,7 @@ void compute_pruning(vec3 cell_center, vec3 cell_size, int cell_idx) {
             Tmp_active_global_write(tmp_i, node_active_global);
             Tmp_parent_write(tmp_i, new_parent_idx);
             Tmp_sign_write(tmp_i, node_sign == 1);
-            tmp.tab[tmp_offset + 32*i + gl_SubgroupInvocationID] = tmp_i;
+            tmp.tab[tmp_offset + gl_SubgroupSize*i + gl_SubgroupInvocationID] = tmp_i;
         }
     }
 
@@ -181,13 +182,13 @@ void compute_pruning(vec3 cell_center, vec3 cell_size, int cell_idx) {
 
     int out_idx = cell_num_active-1;
     for (int i = num_nodes-1; i >= 0; i--) {
-        Tmp tmp_i = tmp.tab[tmp_offset + 32*i + gl_SubgroupInvocationID];
+        Tmp tmp_i = tmp.tab[tmp_offset + gl_SubgroupSize*i + gl_SubgroupInvocationID];
         if (Tmp_active_global_get(tmp_i)) {
             active_nodes_out.tab[cell_offset + out_idx] = ActiveNode_make(ActiveNode_index(active_nodes_in.tab[parent_offset+i]), Tmp_sign_get(tmp_i));
-            old_to_new_scratch.tab[tmp_offset + i*32 + gl_SubgroupInvocationID] = uint16_t(out_idx);
+            old_to_new_scratch.tab[tmp_offset + i*gl_SubgroupSize + gl_SubgroupInvocationID] = uint16_t(out_idx);
 
             int new_parent_old_idx = Tmp_parent_get(tmp_i);
-            uint16_t new_parent_idx = new_parent_old_idx != INVALID_INDEX ? old_to_new_scratch.tab[tmp_offset + 32*new_parent_old_idx + gl_SubgroupInvocationID] : uint16_t(INVALID_INDEX);
+            uint16_t new_parent_idx = new_parent_old_idx != INVALID_INDEX ? old_to_new_scratch.tab[tmp_offset + gl_SubgroupSize*new_parent_old_idx + gl_SubgroupInvocationID] : uint16_t(INVALID_INDEX);
             parents_out.tab[cell_offset + out_idx] = new_parent_idx;
 
             out_idx--;

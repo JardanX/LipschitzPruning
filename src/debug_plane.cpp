@@ -143,7 +143,7 @@ void create_debug_plane_pipeline(Init& init, RenderData& data, VkPipeline& pipel
             .viewMask = 0,
             .colorAttachmentCount = 1,
             .pColorAttachmentFormats = &format,
-            .depthAttachmentFormat = VK_FORMAT_D24_UNORM_S8_UINT,
+            .depthAttachmentFormat = VK_FORMAT_D16_UNORM,
             .stencilAttachmentFormat = {}
     };
 
