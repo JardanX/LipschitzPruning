@@ -1782,6 +1782,12 @@ Timings Context::render(glm::vec3 cam_position, glm::vec3 cam_target) {
     TransferToBuffer(render_data.alloc, render_data.staging_buffer, cam_data, sizeof(cam_data));
     CopyBuffer(render_data, init, render_data.staging_buffer, render_data.cam_buffer, sizeof(cam_data));
 
+    int w, h;
+    glfwGetFramebufferSize(init.window, &w, &h);
+    if (w != init.swapchain.extent.width || h != init.swapchain.extent.height) {
+        recreate_swapchain(init, render_data);
+    }
+
     draw_frame(init, render_data, gui);
 
     return {
