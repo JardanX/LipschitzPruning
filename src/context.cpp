@@ -38,11 +38,23 @@ size_t g_mem_usage_baseline_tracing = 0;
 size_t g_mem_usage_baseline_pruning = 0;
 
 GLFWwindow* create_window_glfw(const char* window_name = "", bool resize = true) {
-    glfwInit();
+    if (!glfwInit()) {
+        const char* desc = nullptr;
+        glfwGetError(&desc);
+        fprintf(stderr, "Error during GLFW initialization: %s\n", desc);
+        abort();
+    }
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     if (!resize) glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-    return glfwCreateWindow(1024, 1024, window_name, NULL, NULL);
+    GLFWwindow* window = glfwCreateWindow(1024, 1024, window_name, NULL, NULL);
+    if (window == nullptr) {
+        const char* desc = nullptr;
+        glfwGetError(&desc);
+        fprintf(stderr, "Error while creating window: %s\n", desc);
+        abort();
+    }
+    return window;
 }
 
 void destroy_window_glfw(GLFWwindow* window) {
@@ -62,6 +74,9 @@ VkSurfaceKHR create_surface_glfw(VkInstance instance, GLFWwindow* window, VkAllo
             std::cout << "\n";
         }
         surface = VK_NULL_HANDLE;
+    }
+    if (surface == VK_NULL_HANDLE) {
+        abort();
     }
     return surface;
 }
@@ -165,8 +180,16 @@ int device_initialization(Init& init, bool gui) {
 
 int create_swapchain(Init& init, RenderData& data) {
 
+    int w, h;
+    glfwGetFramebufferSize(init.window, &w, &h);
     vkb::SwapchainBuilder swapchain_builder{ init.device };
-    auto swap_ret = swapchain_builder.set_old_swapchain(init.swapchain).set_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT).set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR).set_required_min_image_count(MAX_FRAMES_IN_FLIGHT).build();
+    auto swap_ret = swapchain_builder
+        .set_old_swapchain(init.swapchain)
+        .set_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT)
+        .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+        .set_required_min_image_count(MAX_FRAMES_IN_FLIGHT)
+        .set_desired_extent(w,h)
+        .build();
     if (!swap_ret) {
         std::cout << swap_ret.error().message() << " " << swap_ret.vk_result() << "\n";
         return -1;
