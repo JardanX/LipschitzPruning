@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-subbuild\CMakeFiles\ab91f99850e8173ac1cab08fc316ff9e\imnodes-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-subbuild\CMakeFiles\ab91f99850e8173ac1cab08fc316ff9e\imnodes-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-subbuild\CMakeFiles\ab91f99850e8173ac1cab08fc316ff9e\imnodes-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-subbuild\CMakeFiles\ab91f99850e8173ac1cab08fc316ff9e\imnodes-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-subbuild\CMakeFiles\ab91f99850e8173ac1cab08fc316ff9e\imnodes-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-subbuild\CMakeFiles\ab91f99850e8173ac1cab08fc316ff9e\imnodes-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-subbuild\CMakeFiles\ab91f99850e8173ac1cab08fc316ff9e\imnodes-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-subbuild\CMakeFiles\ab91f99850e8173ac1cab08fc316ff9e\imnodes-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-subbuild\CMakeFiles\d4f658e7a66554452ce0065d74d0fb5f\imnodes-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-subbuild\CMakeFiles\f946606eb9c7e3fbef91032ea9780f65\imnodes-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-subbuild\CMakeFiles\imnodes-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{6C3BB623-FEF5-3434-9E3D-8B3468B6F696}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

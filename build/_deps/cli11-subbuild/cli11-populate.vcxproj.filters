@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-subbuild\CMakeFiles\840f9619c5a8f837e3701e69863f0cc3\cli11-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-subbuild\CMakeFiles\840f9619c5a8f837e3701e69863f0cc3\cli11-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-subbuild\CMakeFiles\840f9619c5a8f837e3701e69863f0cc3\cli11-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-subbuild\CMakeFiles\840f9619c5a8f837e3701e69863f0cc3\cli11-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-subbuild\CMakeFiles\840f9619c5a8f837e3701e69863f0cc3\cli11-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-subbuild\CMakeFiles\840f9619c5a8f837e3701e69863f0cc3\cli11-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-subbuild\CMakeFiles\840f9619c5a8f837e3701e69863f0cc3\cli11-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-subbuild\CMakeFiles\840f9619c5a8f837e3701e69863f0cc3\cli11-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-subbuild\CMakeFiles\1e78642409c1b495d3c9905bb6b62049\cli11-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-subbuild\CMakeFiles\f43e1284128ffb07f2002ff708536a8b\cli11-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-subbuild\CMakeFiles\cli11-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{10D1F36E-8E2B-3BE6-B0AA-C601B180118C}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

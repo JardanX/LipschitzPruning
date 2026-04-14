@@ -1,0 +1,787 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|x64">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{37AE3D0C-8E4A-3021-9576-55EE753263C4}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <Platform>x64</Platform>
+    <ProjectName>LipschitzPruning</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\build\Debug\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">LipschitzPruning.dir\Debug\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">LipschitzPruning</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</GenerateManifest>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\build\Release\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">LipschitzPruning.dir\Release\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='Release|x64'">LipschitzPruning</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='Release|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</GenerateManifest>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\build\MinSizeRel\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">LipschitzPruning.dir\MinSizeRel\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">LipschitzPruning</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">true</GenerateManifest>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\build\RelWithDebInfo\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">LipschitzPruning.dir\RelWithDebInfo\</IntDir>
+    <TargetName Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">LipschitzPruning</TargetName>
+    <TargetExt Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">.exe</TargetExt>
+    <LinkIncremental Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</LinkIncremental>
+    <GenerateManifest Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">true</GenerateManifest>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /external:I "C:/VulkanSDK/1.4.341.1/include" /external:I "D:/Projects/GitHub/LipschitzPruning/build/_deps/cli11-src/include"</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>Disabled</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>Disabled</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;ImTextureID=ImU64;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;ImTextureID=ImU64;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Link>
+      <AdditionalDependencies>_deps\glfw-build\src\Debug\glfw3.lib;ext\vk-bootstrap\Debug\vk-bootstrap.lib;C:\VulkanSDK\1.4.341.1\Lib\vulkan-1.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <DataExecutionPrevention></DataExecutionPrevention>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
+      <ImportLibrary>D:/Projects/GitHub/LipschitzPruning/build/Debug/LipschitzPruning.lib</ImportLibrary>
+      <LinkErrorReporting></LinkErrorReporting>
+      <ProgramDataBaseFile>D:/Projects/GitHub/LipschitzPruning/build/Debug/LipschitzPruning.pdb</ProgramDataBaseFile>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
+      <SubSystem>Console</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /external:I "C:/VulkanSDK/1.4.341.1/include" /external:I "D:/Projects/GitHub/LipschitzPruning/build/_deps/cli11-src/include"</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Link>
+      <AdditionalDependencies>_deps\glfw-build\src\Release\glfw3.lib;ext\vk-bootstrap\Release\vk-bootstrap.lib;C:\VulkanSDK\1.4.341.1\Lib\vulkan-1.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <DataExecutionPrevention></DataExecutionPrevention>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
+      <ImportLibrary>D:/Projects/GitHub/LipschitzPruning/build/Release/LipschitzPruning.lib</ImportLibrary>
+      <LinkErrorReporting></LinkErrorReporting>
+      <ProgramDataBaseFile>D:/Projects/GitHub/LipschitzPruning/build/Release/LipschitzPruning.pdb</ProgramDataBaseFile>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
+      <SubSystem>Console</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /external:I "C:/VulkanSDK/1.4.341.1/include" /external:I "D:/Projects/GitHub/LipschitzPruning/build/_deps/cli11-src/include"</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>MinSpace</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <DebugInformationFormat>
+      </DebugInformationFormat>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Link>
+      <AdditionalDependencies>_deps\glfw-build\src\MinSizeRel\glfw3.lib;ext\vk-bootstrap\MinSizeRel\vk-bootstrap.lib;C:\VulkanSDK\1.4.341.1\Lib\vulkan-1.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <DataExecutionPrevention></DataExecutionPrevention>
+      <GenerateDebugInformation>false</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
+      <ImportLibrary>D:/Projects/GitHub/LipschitzPruning/build/MinSizeRel/LipschitzPruning.lib</ImportLibrary>
+      <LinkErrorReporting></LinkErrorReporting>
+      <ProgramDataBaseFile>D:/Projects/GitHub/LipschitzPruning/build/MinSizeRel/LipschitzPruning.pdb</ProgramDataBaseFile>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
+      <SubSystem>Console</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
+    <ClCompile>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /external:I "C:/VulkanSDK/1.4.341.1/include" /external:I "D:/Projects/GitHub/LipschitzPruning/build/_deps/cli11-src/include"</AdditionalOptions>
+      <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
+      <BufferSecurityCheck></BufferSecurityCheck>
+      <CallingConvention></CallingConvention>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <ExceptionHandling>Sync</ExceptionHandling>
+      <ExternalWarningLevel>TurnOffAllWarnings</ExternalWarningLevel>
+      <FloatingPointModel></FloatingPointModel>
+      <ForceConformanceInForLoopScope></ForceConformanceInForLoopScope>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <MinimalRebuild></MinimalRebuild>
+      <Optimization>MaxSpeed</Optimization>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <RemoveUnreferencedCodeData></RemoveUnreferencedCodeData>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <RuntimeTypeInfo>true</RuntimeTypeInfo>
+      <SupportJustMyCode></SupportJustMyCode>
+      <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
+      <UseFullPaths>false</UseFullPaths>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
+      <ObjectFileName>$(IntDir)</ObjectFileName>
+      <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
+    <Midl>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
+      <HeaderFileName>%(Filename).h</HeaderFileName>
+      <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
+      <InterfaceIdentifierFileName>%(Filename)_i.c</InterfaceIdentifierFileName>
+      <ProxyFileName>%(Filename)_p.c</ProxyFileName>
+    </Midl>
+    <Link>
+      <AdditionalDependencies>_deps\glfw-build\src\RelWithDebInfo\glfw3.lib;ext\vk-bootstrap\RelWithDebInfo\vk-bootstrap.lib;C:\VulkanSDK\1.4.341.1\Lib\vulkan-1.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;comdlg32.lib;advapi32.lib</AdditionalDependencies>
+      <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalOptions>%(AdditionalOptions) /machine:x64</AdditionalOptions>
+      <DataExecutionPrevention></DataExecutionPrevention>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <IgnoreSpecificDefaultLibraries>%(IgnoreSpecificDefaultLibraries)</IgnoreSpecificDefaultLibraries>
+      <ImageHasSafeExceptionHandlers></ImageHasSafeExceptionHandlers>
+      <ImportLibrary>D:/Projects/GitHub/LipschitzPruning/build/RelWithDebInfo/LipschitzPruning.lib</ImportLibrary>
+      <LinkErrorReporting></LinkErrorReporting>
+      <ProgramDataBaseFile>D:/Projects/GitHub/LipschitzPruning/build/RelWithDebInfo/LipschitzPruning.pdb</ProgramDataBaseFile>
+      <RandomizedBaseAddress></RandomizedBaseAddress>
+      <SubSystem>Console</SubSystem>
+    </Link>
+    <ProjectReference>
+      <LinkLibraryDependencies>false</LinkLibraryDependencies>
+    </ProjectReference>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\shaders\simple.vert.glsl">
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Generating vert.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=vert --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/simple.vert.glsl -o D:/Projects/GitHub/LipschitzPruning/build/vert.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\build\vert.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Generating vert.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=vert --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/simple.vert.glsl -o D:/Projects/GitHub/LipschitzPruning/build/vert.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\build\vert.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Generating vert.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=vert --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/simple.vert.glsl -o D:/Projects/GitHub/LipschitzPruning/build/vert.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\build\vert.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Generating vert.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=vert --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/simple.vert.glsl -o D:/Projects/GitHub/LipschitzPruning/build/vert.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\build\vert.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\shaders\simple.frag.glsl">
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Generating frag.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=frag --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/simple.frag.glsl -o D:/Projects/GitHub/LipschitzPruning/build/frag.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\build\frag.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Generating frag.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=frag --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/simple.frag.glsl -o D:/Projects/GitHub/LipschitzPruning/build/frag.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\build\frag.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Generating frag.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=frag --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/simple.frag.glsl -o D:/Projects/GitHub/LipschitzPruning/build/frag.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\build\frag.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Generating frag.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=frag --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/simple.frag.glsl -o D:/Projects/GitHub/LipschitzPruning/build/frag.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\build\frag.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\shaders\culling.comp.glsl">
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Generating culling.comp.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=comp --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/culling.comp.glsl -o D:/Projects/GitHub/LipschitzPruning/build/culling.comp.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\build\culling.comp.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Generating culling.comp.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=comp --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/culling.comp.glsl -o D:/Projects/GitHub/LipschitzPruning/build/culling.comp.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\build\culling.comp.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Generating culling.comp.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=comp --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/culling.comp.glsl -o D:/Projects/GitHub/LipschitzPruning/build/culling.comp.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\build\culling.comp.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Generating culling.comp.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=comp --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/culling.comp.glsl -o D:/Projects/GitHub/LipschitzPruning/build/culling.comp.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\build\culling.comp.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\shaders\plane.vert.glsl">
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Generating plane.vert.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=vert --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/plane.vert.glsl -o D:/Projects/GitHub/LipschitzPruning/build/plane.vert.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\build\plane.vert.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Generating plane.vert.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=vert --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/plane.vert.glsl -o D:/Projects/GitHub/LipschitzPruning/build/plane.vert.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\build\plane.vert.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Generating plane.vert.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=vert --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/plane.vert.glsl -o D:/Projects/GitHub/LipschitzPruning/build/plane.vert.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\build\plane.vert.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Generating plane.vert.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=vert --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/plane.vert.glsl -o D:/Projects/GitHub/LipschitzPruning/build/plane.vert.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\build\plane.vert.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\shaders\plane.frag.glsl">
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Generating plane.frag.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=frag --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/plane.frag.glsl -o D:/Projects/GitHub/LipschitzPruning/build/plane.frag.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\build\plane.frag.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Generating plane.frag.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=frag --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/plane.frag.glsl -o D:/Projects/GitHub/LipschitzPruning/build/plane.frag.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\build\plane.frag.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Generating plane.frag.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=frag --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/plane.frag.glsl -o D:/Projects/GitHub/LipschitzPruning/build/plane.frag.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\build\plane.frag.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Generating plane.frag.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=frag --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/plane.frag.glsl -o D:/Projects/GitHub/LipschitzPruning/build/plane.frag.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\build\plane.frag.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\shaders\dense_eval.comp.glsl">
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Generating dense_eval.comp.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=comp --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/dense_eval.comp.glsl -o D:/Projects/GitHub/LipschitzPruning/build/dense_eval.comp.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\build\dense_eval.comp.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Generating dense_eval.comp.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=comp --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/dense_eval.comp.glsl -o D:/Projects/GitHub/LipschitzPruning/build/dense_eval.comp.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\build\dense_eval.comp.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Generating dense_eval.comp.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=comp --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/dense_eval.comp.glsl -o D:/Projects/GitHub/LipschitzPruning/build/dense_eval.comp.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\build\dense_eval.comp.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Generating dense_eval.comp.spv</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=comp --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/dense_eval.comp.glsl -o D:/Projects/GitHub/LipschitzPruning/build/dense_eval.comp.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl;D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl;D:\Projects\GitHub\LipschitzPruning\include\constants.h;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\build\dense_eval.comp.spv</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule D:/Projects/GitHub/LipschitzPruning/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/LipschitzPruning -BD:/Projects/GitHub/LipschitzPruning/build --check-stamp-file D:/Projects/GitHub/LipschitzPruning/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\ExternalProject\shared_internal_commands.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent\CMakeLists.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\FindGit.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindVulkan.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\WindowsPaths.cmake;D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\4.3.0-rc1\CMakeCXXCompiler.cmake;D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\4.3.0-rc1\CMakeRCCompiler.cmake;D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\4.3.0-rc1\CMakeSystem.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule D:/Projects/GitHub/LipschitzPruning/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/LipschitzPruning -BD:/Projects/GitHub/LipschitzPruning/build --check-stamp-file D:/Projects/GitHub/LipschitzPruning/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\ExternalProject\shared_internal_commands.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent\CMakeLists.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\FindGit.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindVulkan.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\WindowsPaths.cmake;D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\4.3.0-rc1\CMakeCXXCompiler.cmake;D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\4.3.0-rc1\CMakeRCCompiler.cmake;D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\4.3.0-rc1\CMakeSystem.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Building Custom Rule D:/Projects/GitHub/LipschitzPruning/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/LipschitzPruning -BD:/Projects/GitHub/LipschitzPruning/build --check-stamp-file D:/Projects/GitHub/LipschitzPruning/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\ExternalProject\shared_internal_commands.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent\CMakeLists.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\FindGit.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindVulkan.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\WindowsPaths.cmake;D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\4.3.0-rc1\CMakeCXXCompiler.cmake;D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\4.3.0-rc1\CMakeRCCompiler.cmake;D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\4.3.0-rc1\CMakeSystem.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Building Custom Rule D:/Projects/GitHub/LipschitzPruning/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/LipschitzPruning -BD:/Projects/GitHub/LipschitzPruning/build --check-stamp-file D:/Projects/GitHub/LipschitzPruning/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCXXInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeCommonLanguageInclude.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeGenericSystem.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeInitializeConfigs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeLanguageInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeRCInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\CMakeSystemSpecificInitialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\CMakeCommonCompilerMacros.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Compiler\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\ExternalProject\shared_internal_commands.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FetchContent\CMakeLists.cmake.in;C:\Program Files\CMake\share\cmake-4.3\Modules\FindGit.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageHandleStandardArgs.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindPackageMessage.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\FindVulkan.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCXXLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Internal\CMakeCommonLinkerInformation.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Linker\MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Linker\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-Initialize.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC-CXX.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows-MSVC.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\Windows.cmake;C:\Program Files\CMake\share\cmake-4.3\Modules\Platform\WindowsPaths.cmake;D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\4.3.0-rc1\CMakeCXXCompiler.cmake;D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\4.3.0-rc1\CMakeRCCompiler.cmake;D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\4.3.0-rc1\CMakeSystem.cmake;%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\build\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\main.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\utils.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\debug_plane.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\context.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\scene.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\astral_adapter.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\imnodes_zoom_shim.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\SDF\Astral\UI\NodeGraph.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:/Projects/GitHub/LipschitzPruning/include/imnodes_zoom_shim.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:/Projects/GitHub/LipschitzPruning/include/imnodes_zoom_shim.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:/Projects/GitHub/LipschitzPruning/include/imnodes_zoom_shim.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:/Projects/GitHub/LipschitzPruning/include/imnodes_zoom_shim.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_draw.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_demo.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_tables.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\backends\imgui_impl_vulkan.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\backends\imgui_impl_glfw.cpp" />
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src\imnodes.cpp" />
+    <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\constants.h" />
+    <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\context.h" />
+    <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\debug_plane.h" />
+    <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\astral_adapter.h" />
+    <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\scene.h" />
+    <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\utils.h" />
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build\vert.spv">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build\frag.spv">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build\culling.comp.spv">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build\plane.vert.spv">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build\plane.frag.spv">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build\dense_eval.comp.spv">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl">
+    </None>
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <ProjectReference Include="D:\Projects\GitHub\LipschitzPruning\build\ZERO_CHECK.vcxproj">
+      <Project>{1E3D4A76-D728-3A21-91A3-E288716CCC5F}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-build\src\CLI11.vcxproj">
+      <Project>{4D8FA357-0A6B-3CD2-81DE-4F06810DEBB8}</Project>
+      <Name>CLI11</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+    <ProjectReference Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-build\src\glfw.vcxproj">
+      <Project>{1C4E365E-027A-3ADD-B619-B3C5B7547CF6}</Project>
+      <Name>glfw</Name>
+    </ProjectReference>
+    <ProjectReference Include="D:\Projects\GitHub\LipschitzPruning\build\ext\vk-bootstrap\vk-bootstrap.vcxproj">
+      <Project>{B0DFBD14-DD06-3BED-8F97-F5A7A14CCF4C}</Project>
+      <Name>vk-bootstrap</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

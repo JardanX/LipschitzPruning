@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/imnodes-populate"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/f946606eb9c7e3fbef91032ea9780f65/imnodes-populate.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/d4f658e7a66554452ce0065d74d0fb5f/imnodes-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/ab91f99850e8173ac1cab08fc316ff9e/imnodes-populate-build.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/ab91f99850e8173ac1cab08fc316ff9e/imnodes-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/ab91f99850e8173ac1cab08fc316ff9e/imnodes-populate-download.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/ab91f99850e8173ac1cab08fc316ff9e/imnodes-populate-install.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/ab91f99850e8173ac1cab08fc316ff9e/imnodes-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/ab91f99850e8173ac1cab08fc316ff9e/imnodes-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/ab91f99850e8173ac1cab08fc316ff9e/imnodes-populate-test.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/ab91f99850e8173ac1cab08fc316ff9e/imnodes-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"imnodes-populate"
+		],
+		"name" : "imnodes-populate"
+	}
+}

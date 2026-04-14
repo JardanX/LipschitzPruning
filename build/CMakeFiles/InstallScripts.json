@@ -1,0 +1,15 @@
+{
+	"InstallScripts" : 
+	[
+		"D:/Projects/GitHub/LipschitzPruning/build/cmake_install.cmake",
+		"D:/Projects/GitHub/LipschitzPruning/build/ext/vk-bootstrap/cmake_install.cmake",
+		"D:/Projects/GitHub/LipschitzPruning/build/_deps/cli11-build/cmake_install.cmake",
+		"D:/Projects/GitHub/LipschitzPruning/build/_deps/cli11-build/fuzz/cmake_install.cmake",
+		"D:/Projects/GitHub/LipschitzPruning/build/_deps/cli11-build/src/cmake_install.cmake",
+		"D:/Projects/GitHub/LipschitzPruning/build/_deps/cli11-build/single-include/cmake_install.cmake",
+		"D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-build/cmake_install.cmake",
+		"D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-build/src/cmake_install.cmake",
+		"D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-build/docs/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

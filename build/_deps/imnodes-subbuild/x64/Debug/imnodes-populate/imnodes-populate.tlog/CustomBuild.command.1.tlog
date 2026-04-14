@@ -1,0 +1,150 @@
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES-SUBBUILD\CMAKEFILES\AB91F99850E8173AC1CAB08FC316FF9E\IMNODES-POPULATE-MKDIR.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -Dcfgdir=/Debug -P D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/imnodes-populate-prefix/tmp/imnodes-populate-mkdirs.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/imnodes-populate-prefix/src/imnodes-populate-stamp/Debug/imnodes-populate-mkdir
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES-SUBBUILD\CMAKEFILES\AB91F99850E8173AC1CAB08FC316FF9E\IMNODES-POPULATE-DOWNLOAD.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/imnodes-populate-prefix/tmp/imnodes-populate-gitclone.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/imnodes-populate-prefix/src/imnodes-populate-stamp/Debug/imnodes-populate-download
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES-SUBBUILD\CMAKEFILES\AB91F99850E8173AC1CAB08FC316FF9E\IMNODES-POPULATE-UPDATE.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -Dcan_fetch=YES -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/imnodes-populate-prefix/tmp/imnodes-populate-gitupdate.cmake
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES-SUBBUILD\CMAKEFILES\AB91F99850E8173AC1CAB08FC316FF9E\IMNODES-POPULATE-PATCH.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/imnodes-populate-prefix/src/imnodes-populate-stamp/Debug/imnodes-populate-patch
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES-SUBBUILD\CMAKEFILES\AB91F99850E8173AC1CAB08FC316FF9E\IMNODES-POPULATE-CONFIGURE.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/imnodes-populate-prefix/src/imnodes-populate-stamp/Debug/imnodes-populate-configure
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES-SUBBUILD\CMAKEFILES\AB91F99850E8173AC1CAB08FC316FF9E\IMNODES-POPULATE-BUILD.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/imnodes-populate-prefix/src/imnodes-populate-stamp/Debug/imnodes-populate-build
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES-SUBBUILD\CMAKEFILES\AB91F99850E8173AC1CAB08FC316FF9E\IMNODES-POPULATE-INSTALL.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/imnodes-populate-prefix/src/imnodes-populate-stamp/Debug/imnodes-populate-install
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES-SUBBUILD\CMAKEFILES\AB91F99850E8173AC1CAB08FC316FF9E\IMNODES-POPULATE-TEST.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/imnodes-populate-prefix/src/imnodes-populate-stamp/Debug/imnodes-populate-test
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES-SUBBUILD\CMAKEFILES\D4F658E7A66554452CE0065D74D0FB5F\IMNODES-POPULATE-COMPLETE.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E make_directory D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/Debug
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/Debug/imnodes-populate-complete
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/imnodes-populate-prefix/src/imnodes-populate-stamp/Debug/imnodes-populate-done
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES-SUBBUILD\CMAKEFILES\F946606EB9C7E3FBEF91032EA9780F65\IMNODES-POPULATE.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES-SUBBUILD\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild -BD:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild --check-stamp-file D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes-subbuild/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

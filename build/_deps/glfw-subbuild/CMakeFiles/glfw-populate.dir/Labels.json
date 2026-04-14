@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-subbuild/CMakeFiles/glfw-populate"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-subbuild/CMakeFiles/0b3d95070ad904e32f1c24ae2b1bea64/glfw-populate.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-subbuild/CMakeFiles/f4e32b85eae075d74d001e7451e7514e/glfw-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-subbuild/CMakeFiles/97a94a2730d93e6426c483446e9fd798/glfw-populate-build.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-subbuild/CMakeFiles/97a94a2730d93e6426c483446e9fd798/glfw-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-subbuild/CMakeFiles/97a94a2730d93e6426c483446e9fd798/glfw-populate-download.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-subbuild/CMakeFiles/97a94a2730d93e6426c483446e9fd798/glfw-populate-install.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-subbuild/CMakeFiles/97a94a2730d93e6426c483446e9fd798/glfw-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-subbuild/CMakeFiles/97a94a2730d93e6426c483446e9fd798/glfw-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-subbuild/CMakeFiles/97a94a2730d93e6426c483446e9fd798/glfw-populate-test.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/glfw-subbuild/CMakeFiles/97a94a2730d93e6426c483446e9fd798/glfw-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"glfw-populate"
+		],
+		"name" : "glfw-populate"
+	}
+}

@@ -43,12 +43,58 @@ layout(push_constant) uniform PushConstant {
 
 #include "eval.glsl"
 
-vec2 smin_blend( float a, float b, float k )
-{
-    float h = max(k-abs(a-b), 0) / k;
-    float m = h*h*0.5;
-    float s = m*k*0.5;
-    return (a<b) ? vec2(a-s,m) : vec2(b-s,1-m);
+struct StackEntry {
+    float d;
+    vec3 col;
+};
+
+StackEntry combine_stack_entries_full(StackEntry left_entry, StackEntry right_entry, BinaryOp op) {
+    float a = left_entry.d;
+    float b = right_entry.d;
+    float k = BinaryOp_blend_factor(op);
+    float s = BinaryOp_sign(op);
+    float c_b = BinaryOp_cb(op);
+
+    float da = s * a;
+    float db = s * c_b * b;
+
+    float right_w;
+    float d;
+    if (k <= 0.0) {
+        bool use_right = db < da;
+        d = s * min(da, db);
+        right_w = use_right ? 1.0 : 0.0;
+    } else {
+        float left_w = clamp(0.5 + 0.5 * (db - da) / k, 0.0, 1.0);
+        d = s * (mix(db, da, left_w) - k * left_w * (1.0 - left_w));
+        right_w = 1.0 - left_w;
+    }
+
+    return StackEntry(d, mix(left_entry.col, right_entry.col, right_w));
+}
+
+StackEntry combine_stack_entries_active(StackEntry left_entry, StackEntry right_entry, BinaryOp op) {
+    float a = left_entry.d;
+    float b = right_entry.d;
+    float k = BinaryOp_blend_factor(op);
+    float s = BinaryOp_sign(op);
+
+    float da = s * a;
+    float db = s * b;
+
+    float right_w;
+    float d;
+    if (k <= 0.0) {
+        bool use_right = db < da;
+        d = s * min(da, db);
+        right_w = use_right ? 1.0 : 0.0;
+    } else {
+        float left_w = clamp(0.5 + 0.5 * (db - da) / k, 0.0, 1.0);
+        d = s * (mix(db, da, left_w) - k * left_w * (1.0 - left_w));
+        right_w = 1.0 - left_w;
+    }
+
+    return StackEntry(d, mix(left_entry.col, right_entry.col, right_w));
 }
 
 vec3 get_color_active(vec3 p, int cell_idx) {
@@ -59,10 +105,6 @@ vec3 get_color_active(vec3 p, int cell_idx) {
 
     const int STACK_DEPTH = 128;
 
-    struct StackEntry {
-        float d;
-        vec3 col;
-    };
     StackEntry stack[STACK_DEPTH];
     int stack_idx = 0;
 
@@ -73,35 +115,26 @@ vec3 get_color_active(vec3 p, int cell_idx) {
         int node_idx = ActiveNode_index(active_node);
 
         Node node = nodes.tab[node_idx];
-        float d;
-        vec3 albedo;
         if (node.type == NODETYPE_BINARY) {
             StackEntry left_entry = stack[stack_idx-2];
             StackEntry right_entry = stack[stack_idx-1];
-            float left_val = left_entry.d;
-            float right_val = right_entry.d;
             stack_idx -= 2;
             BinaryOp op = binary_ops.tab[node.idx_in_type];
-            float k = BinaryOp_blend_factor(op);
-            float s = BinaryOp_sign(op);
-            vec2 v = s*smin_blend(s*left_val, s*right_val, k);
-            d = v.x;
-            albedo = mix(left_entry.col, right_entry.col, v.y);
+            StackEntry entry = combine_stack_entries_active(left_entry, right_entry, op);
+            entry.d *= ActiveNode_sign(active_node) ? 1.0 : -1.0;
+            stack[stack_idx++] = entry;
         } else if (node.type == NODETYPE_PRIMITIVE) {
             Primitive prim = prims.tab[node.idx_in_type];
-            d = eval_prim(p, prim);
             float r = float((prim.color >> 0) & 0xff) / 255.f;
             float g = float((prim.color >> 8) & 0xff) / 255.f;
             float b = float((prim.color >> 16) & 0xff) / 255.f;
-            albedo = vec3(r,g,b);
+            float d = eval_prim(p, prim);
+            d *= ActiveNode_sign(active_node) ? 1 : -1;
+            if (stack_idx >= STACK_DEPTH) {
+                return vec3(0);
+            }
+            stack[stack_idx++] = StackEntry(d, vec3(r,g,b));
         }
-
-        d *= ActiveNode_sign(active_node) ? 1 : -1;
-        if (stack_idx >= STACK_DEPTH) {
-            //debugPrintfEXT("Stack overflow\n");
-            return vec3(0);
-        }
-        stack[stack_idx++] = StackEntry(d, albedo);
     }
 
     return stack[0].col;
@@ -110,10 +143,6 @@ vec3 get_color_active(vec3 p, int cell_idx) {
 vec3 get_color(vec3 p) {
     const int STACK_DEPTH = 128;
 
-    struct StackEntry {
-        float d;
-        vec3 col;
-    };
     StackEntry stack[STACK_DEPTH];
     int stack_idx = 0;
 
@@ -121,36 +150,23 @@ vec3 get_color(vec3 p) {
         int node_idx = i;
 
         Node node = nodes.tab[node_idx];
-        float d;
-        vec3 albedo;
         if (node.type == NODETYPE_BINARY) {
             StackEntry left_entry = stack[stack_idx-2];
             StackEntry right_entry = stack[stack_idx-1];
-            float left_val = left_entry.d;
-            float right_val = right_entry.d;
             stack_idx -= 2;
             BinaryOp op = binary_ops.tab[node.idx_in_type];
-            float k = BinaryOp_blend_factor(op);
-            float s = BinaryOp_sign(op);
-            uint typ = BinaryOp_op(op);
-            if (typ == OP_SUB) right_val *= -1;
-            vec2 v = s*smin_blend(s*left_val, s*right_val, k);
-            d = v.x;
-            albedo = mix(left_entry.col, right_entry.col, v.y);
+            stack[stack_idx++] = combine_stack_entries_full(left_entry, right_entry, op);
         } else if (node.type == NODETYPE_PRIMITIVE) {
             Primitive prim = prims.tab[node.idx_in_type];
-            d = eval_prim(p, prim);
             float r = float((prim.color >> 0) & 0xff) / 255.f;
             float g = float((prim.color >> 8) & 0xff) / 255.f;
             float b = float((prim.color >> 16) & 0xff) / 255.f;
-            albedo = vec3(r,g,b);
+            float d = eval_prim(p, prim);
+            if (stack_idx >= STACK_DEPTH) {
+                return vec3(0);
+            }
+            stack[stack_idx++] = StackEntry(d, vec3(r,g,b));
         }
-
-        if (stack_idx >= STACK_DEPTH) {
-            //debugPrintfEXT("Stack overflow\n");
-            return vec3(0);
-        }
-        stack[stack_idx++] = StackEntry(d, albedo);
     }
 
     return stack[0].col;
@@ -195,6 +211,49 @@ float ambient_occlusion(vec3 p, vec3 N, int cell_idx) {
 float hash(float uv)
 {
     return fract(sin(11.23 * uv) * 23758.5453);
+}
+
+float grid_mask(vec2 world_xz, float spacing) {
+    vec2 coord = world_xz / spacing;
+    vec2 dist = abs(fract(coord - 0.5) - 0.5) / max(fwidth(coord), vec2(1e-5));
+    return 1.0 - min(min(dist.x, dist.y), 1.0);
+}
+
+bool sample_ground_grid(vec3 ray_o, vec3 ray_d, inout vec3 color) {
+    if (cam.tab[5].y < 0.5) {
+        return false;
+    }
+    if (abs(ray_d.y) < 1e-5) {
+        return false;
+    }
+
+    float ground_y = cam.tab[5].x;
+    float t = (ground_y - ray_o.y) / ray_d.y;
+    if (t <= 0.0) {
+        return false;
+    }
+
+    vec3 world_pos = ray_o + ray_d * t;
+    float minor = grid_mask(world_pos.xz, 1.0);
+    float major = grid_mask(world_pos.xz, 10.0);
+    float axis = max(
+        1.0 - min(abs(world_pos.x) / max(fwidth(world_pos.x), 1e-5), 1.0),
+        1.0 - min(abs(world_pos.z) / max(fwidth(world_pos.z), 1e-5), 1.0)
+    );
+
+    float fade = exp(-length(world_pos.xz - ray_o.xz) * 0.035);
+    float alpha = max(minor * 0.16, major * 0.34);
+    alpha = max(alpha, axis * 0.5);
+    alpha *= fade;
+    if (alpha < 0.002) {
+        return false;
+    }
+
+    vec3 line_color = vec3(0.30, 0.33, 0.40);
+    line_color = mix(line_color, vec3(0.42, 0.46, 0.56), major);
+    line_color = mix(line_color, vec3(0.52, 0.62, 0.78), axis);
+    color = mix(cam.tab[3].rgb, line_color, clamp(alpha, 0.0, 1.0));
+    return true;
 }
 
 #define PI 3.1415
@@ -301,11 +360,12 @@ void main () {
 
     vec3 cam_pos = vec3(cam.tab[0]);
     vec3 cam_target = vec3(cam.tab[1]);
+    vec2 frag_coord = gl_FragCoord.xy - vec2(cam.tab[4].xy);
     
     outColor = vec4(0);
     
     PCG pcg;
-    init_pcg(pcg, uint64_t(gl_FragCoord.y) * uint64_t(u_Resolution.x) + uint64_t(gl_FragCoord.x));
+    init_pcg(pcg, uint64_t(frag_coord.y) * uint64_t(u_Resolution.x) + uint64_t(frag_coord.x));
 
     for (int sample_idx = 0; sample_idx < num_samples; sample_idx++) {
         
@@ -317,7 +377,7 @@ void main () {
         }
 
 
-	    vec2 uv = gl_FragCoord.xy / vec2(u_Resolution);
+    	    vec2 uv = frag_coord / vec2(u_Resolution);
         uv.y = 1 - uv.y;
         uv += (vec2(du,dv) * 2 - 1) * 0.5 / vec2(u_Resolution);
 
@@ -353,7 +413,9 @@ void main () {
 
         float t = 0;
         if (!BBoxIntersect(aabb_min.xyz, aabb_max.xyz, ray_o, ray_d, t)) {
-            outColor += vec4(cam.tab[3].rgb,1);
+            vec3 miss_color = cam.tab[3].rgb;
+            sample_ground_grid(ray_o, ray_d, miss_color);
+            outColor += vec4(miss_color,1);
             continue;
         }
         t += 1e-4;
@@ -469,7 +531,8 @@ void main () {
             //gl_FragDepth = p_clip.z / p_clip.w;
             //gl_FragDepth = 0.5;
         } else {
-            color = vec3(1);
+            color = cam.tab[3].rgb;
+            sample_ground_grid(ray_o, ray_d, color);
         }
 
 

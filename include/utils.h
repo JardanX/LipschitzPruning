@@ -8,6 +8,9 @@
 #include "vma/vk_mem_alloc.h"
 #include "constants.h"
 
+#include <string>
+#include <vector>
+
 #define _USE_MATH_DEFINES
 #include <math.h>
 
@@ -100,9 +103,11 @@ struct RenderData {
     std::vector<VkImageView> swapchain_image_views;
     std::vector<VkImage> render_images;
     std::vector<VkImageView> render_image_views;
+    std::vector<bool> render_image_initialized;
     std::vector<VkFramebuffer> framebuffers;
     std::vector<Image> depth_images;
     std::vector<VkImageView> depth_image_views;
+    std::vector<bool> depth_image_initialized;
 
     VkRenderPass render_pass;
     VkPipelineLayout pipeline_layout;
@@ -129,6 +134,8 @@ struct RenderData {
     size_t current_frame = 0;
 
     VkDescriptorPool descriptor_pool;
+    VkSampler viewport_sampler = VK_NULL_HANDLE;
+    std::vector<VkDescriptorSet> viewport_texture_sets;
     VkQueryPool query_pool;
 
     PushConstants push_constants;
@@ -172,17 +179,22 @@ struct RenderData {
     bool show_imgui = true;
     int num_samples = 1;
     glm::vec3 cam_pos;
-    float gamma = 1.2;
+    float gamma = 1.5;
     bool compute_culling = true;
     glm::vec3 sphere_albedo = glm::vec3(1,0,1);
-    glm::vec3 background_color = glm::vec3(1);
+    glm::vec3 background_color = glm::vec3(0.05f, 0.05f, 0.06f);
+    bool show_grid = true;
+    glm::ivec2 viewport_offset = glm::ivec2(0);
+    glm::ivec2 viewport_size = glm::ivec2(0);
 };
 
 enum PrimitiveType {
     PRIMITIVE_SPHERE = 0,
     PRIMITIVE_BOX = 1,
     PRIMITIVE_CYLINDER = 2,
-    PRIMITIVE_CONE = 3
+    PRIMITIVE_CONE = 3,
+    PRIMITIVE_TORUS = 4,
+    PRIMITIVE_CAPSULE = 5,
 };
 
 struct SphereData {
@@ -206,12 +218,28 @@ struct ConeData {
     float pad0, pad1;
 };
 
+struct TorusData {
+    float major_radius;
+    float minor_radius;
+    float pad0;
+    float pad1;
+};
+
+struct CapsuleData {
+    float radius;
+    float half_height;
+    float pad0;
+    float pad1;
+};
+
 struct Primitive {
     union {
         SphereData sphere;
         BoxData box;
         CylinderData cylinder;
         ConeData cone;
+        TorusData torus;
+        CapsuleData capsule;
     };
     glm::vec4 m_row0;
     glm::vec4 m_row1;

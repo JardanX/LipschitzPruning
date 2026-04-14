@@ -2,6 +2,8 @@
 #define PRIMITIVE_BOX 1
 #define PRIMITIVE_CYLINDER 2
 #define PRIMITIVE_CONE 3
+#define PRIMITIVE_TORUS 4
+#define PRIMITIVE_CAPSULE 5
 
 #define NODETYPE_BINARY 0
 #define NODETYPE_PRIMITIVE 1
@@ -339,11 +341,22 @@ float sdCone(vec3 position, float radius, float halfHeight) {
     return -min(d, p.y);
 }
 
+float sdTorus(vec3 p, vec2 t) {
+    vec2 q = vec2(length(p.xy) - t.x, p.z);
+    return length(q) - t.y;
+}
+
+float sdCapsule(vec3 p, float r, float h) {
+    p.z -= clamp(p.z, -h, h);
+    return length(p) - r;
+}
+
 float eval_prim(vec3 p, Primitive prim) {
     mat4x3 m = transpose(mat3x4(prim.m_row0, prim.m_row1, prim.m_row2));
     p = vec3(m * vec4(p, 1));
 
     float dist;
+    float distance_scale = prim.pad0 == 0.0 ? 1.0 : prim.pad0;
     if (prim.type == PRIMITIVE_SPHERE) {
         float r = prim.data.x;
         dist = length(p) - r;
@@ -369,9 +382,12 @@ float eval_prim(vec3 p, Primitive prim) {
         dist = min(max(d.x,d.y),0.0) + length(max(d,0.0));
     } else if (prim.type == PRIMITIVE_CONE) {
         dist = sdCone(p, prim.data.x, prim.data.y * 0.5);
+    } else if (prim.type == PRIMITIVE_TORUS) {
+        dist = sdTorus(p, vec2(prim.data.x, prim.data.y));
+    } else if (prim.type == PRIMITIVE_CAPSULE) {
+        dist = sdCapsule(p, prim.data.x, prim.data.y);
     } else {
         dist = 1e20;
     }
-    //dist -= prim.rounding;
-    return dist;
+    return dist * distance_scale;
 }

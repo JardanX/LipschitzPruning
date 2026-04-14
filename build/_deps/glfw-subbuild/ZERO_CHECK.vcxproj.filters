@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-subbuild\CMakeFiles\0b3d95070ad904e32f1c24ae2b1bea64\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{863AFDB7-5CF3-34ED-B906-C40E6E7113D1}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>
