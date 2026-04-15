@@ -7,6 +7,11 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_subdirectory(ext/vk-bootstrap)
 
 find_package(Vulkan REQUIRED)
+set(BLENDER_PYTHON_ROOT "D:/Blender/Blender/versions/blender-5.1.0-windows-x64/5.1/python" CACHE PATH "Preferred Blender Python root for addon builds")
+if (EXISTS "${BLENDER_PYTHON_ROOT}")
+    set(Python_ROOT_DIR "${BLENDER_PYTHON_ROOT}")
+    message(STATUS "Using Blender Python from ${BLENDER_PYTHON_ROOT}")
+endif()
 find_package(Python COMPONENTS Interpreter Development REQUIRED)
 
 include(FetchContent)
@@ -127,10 +132,16 @@ nanobind_add_module(lipschitz_pruning_native src/nanobind_module.cpp)
 target_link_libraries(lipschitz_pruning_native PRIVATE lipschitz_core)
 add_dependencies(lipschitz_pruning_native lipschitz_shaders)
 
-set(BLENDER_ADDON_DIR "${CMAKE_SOURCE_DIR}/blender_addon/lipschitz_pruning")
+set(BLENDER_ADDON_DIR "${CMAKE_SOURCE_DIR}/blender_addon/mathops_v2")
 set_target_properties(lipschitz_pruning_native PROPERTIES
     LIBRARY_OUTPUT_DIRECTORY "${BLENDER_ADDON_DIR}"
     RUNTIME_OUTPUT_DIRECTORY "${BLENDER_ADDON_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY_RELEASE "${BLENDER_ADDON_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${BLENDER_ADDON_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY_RELWITHDEBINFO "${BLENDER_ADDON_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${BLENDER_ADDON_DIR}"
+    LIBRARY_OUTPUT_DIRECTORY_DEBUG "${BLENDER_ADDON_DIR}"
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${BLENDER_ADDON_DIR}"
 )
 
 set(ADDON_COPY_COMMANDS

@@ -51,27 +51,27 @@ void TransferToBuffer(const VmaAllocator& alloc, const Buffer& buffer, const voi
     void* ptr;
     VK_CHECK(vmaMapMemory(alloc, buffer.alloc, (void**)&ptr));
     memcpy(ptr, data, size);
+    vmaFlushAllocation(alloc, buffer.alloc, 0, size);
     vmaUnmapMemory(alloc, buffer.alloc);
 }
 
 void TransferFromBuffer(const VmaAllocator& alloc, const Buffer& buffer, void* data, int size) {
     void* ptr;
     VK_CHECK(vmaMapMemory(alloc, buffer.alloc, (void**)&ptr));
+    vmaInvalidateAllocation(alloc, buffer.alloc, 0, size);
     memcpy(data, ptr, size);
     vmaUnmapMemory(alloc, buffer.alloc);
 }
 
+namespace {
+
+VkCommandBuffer begin_one_time_commands(const Init& init, const RenderData& render_data);
+void end_one_time_commands(const Init& init, const RenderData& render_data, VkCommandBuffer cmd_buf);
+
+}
+
 void CopyImageToBuffer(const RenderData& render_data, const Init& init, VkImage src, const Buffer& dst, int width, int height) {
-    VK_CHECK(vkDeviceWaitIdle(init.device));
-    VkCommandBufferBeginInfo begin_info = {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .pNext = nullptr,
-            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-            .pInheritanceInfo = nullptr
-    };
-    VkCommandBuffer cmd_buf = render_data.command_buffers[0];
-    VK_CHECK(vkResetCommandBuffer(cmd_buf, 0));
-    VK_CHECK(vkBeginCommandBuffer(cmd_buf, &begin_info));
+    VkCommandBuffer cmd_buf = begin_one_time_commands(init, render_data);
 
     VkImageMemoryBarrier2 barrier = {
             .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -154,43 +154,11 @@ void CopyImageToBuffer(const RenderData& render_data, const Init& init, VkImage 
     };
     vkCmdPipelineBarrier2(cmd_buf, &restore_dependency_info);
 
-    vkEndCommandBuffer(cmd_buf);
-
-    VkCommandBufferSubmitInfo cmd_buf_info = {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-            .pNext = nullptr,
-            .commandBuffer = cmd_buf,
-            .deviceMask = 0
-    };
-
-    VkSubmitInfo2 submit_info = {
-            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-            .pNext = 0,
-            .flags = 0,
-            .waitSemaphoreInfoCount = 0,
-            .pWaitSemaphoreInfos = nullptr,
-            .commandBufferInfoCount = 1,
-            .pCommandBufferInfos = &cmd_buf_info,
-            .signalSemaphoreInfoCount = 0,
-            .pSignalSemaphoreInfos = nullptr
-    };
-    VK_CHECK(vkQueueSubmit2(render_data.graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
-
-    VK_CHECK(vkDeviceWaitIdle(init.device));
-
+    end_one_time_commands(init, render_data, cmd_buf);
 }
 
 void CopyBuffer(const RenderData& render_data, const Init& init, const Buffer& src, const Buffer& dst, int size) {
-    VK_CHECK(vkDeviceWaitIdle(init.device));
-    VkCommandBufferBeginInfo begin_info = {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .pNext = nullptr,
-            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-            .pInheritanceInfo = nullptr
-    };
-    VkCommandBuffer cmd_buf = render_data.command_buffers[0];
-    VK_CHECK(vkResetCommandBuffer(cmd_buf, 0));
-    VK_CHECK(vkBeginCommandBuffer(cmd_buf, &begin_info));
+    VkCommandBuffer cmd_buf = begin_one_time_commands(init, render_data);
 
     VkBufferCopy copy = {
             .srcOffset = 0,
@@ -199,29 +167,7 @@ void CopyBuffer(const RenderData& render_data, const Init& init, const Buffer& s
     };
     vkCmdCopyBuffer(cmd_buf, src.buf, dst.buf, 1, &copy);
 
-    vkEndCommandBuffer(cmd_buf);
-
-    VkCommandBufferSubmitInfo cmd_buf_info = {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
-            .pNext = nullptr,
-            .commandBuffer = cmd_buf,
-            .deviceMask = 0
-    };
-
-    VkSubmitInfo2 submit_info = {
-            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
-            .pNext = 0,
-            .flags = 0,
-            .waitSemaphoreInfoCount = 0,
-            .pWaitSemaphoreInfos = nullptr,
-            .commandBufferInfoCount = 1,
-            .pCommandBufferInfos = &cmd_buf_info,
-            .signalSemaphoreInfoCount = 0,
-            .pSignalSemaphoreInfos = nullptr
-    };
-    VK_CHECK(vkQueueSubmit2(render_data.graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
-
-    VK_CHECK(vkDeviceWaitIdle(init.device));
+    end_one_time_commands(init, render_data, cmd_buf);
 }
 
 uint64_t GetBufferAddress(const Init& init, const Buffer& buffer) {
@@ -280,6 +226,69 @@ Pipeline create_compute_pipeline(Init& init, const char* shader_path, const char
 
 size_t g_memory_usage = 0;
 
+namespace {
+
+VkCommandBuffer begin_one_time_commands(const Init& init, const RenderData& render_data)
+{
+    VkCommandBufferAllocateInfo alloc_info = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .pNext = nullptr,
+            .commandPool = render_data.command_pool,
+            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1,
+    };
+    VkCommandBuffer cmd_buf = VK_NULL_HANDLE;
+    VK_CHECK(vkAllocateCommandBuffers(init.device.device, &alloc_info, &cmd_buf));
+
+    VkCommandBufferBeginInfo begin_info = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .pNext = nullptr,
+            .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+            .pInheritanceInfo = nullptr
+    };
+    VK_CHECK(vkBeginCommandBuffer(cmd_buf, &begin_info));
+    return cmd_buf;
+}
+
+void end_one_time_commands(const Init& init, const RenderData& render_data, VkCommandBuffer cmd_buf)
+{
+    VK_CHECK(vkEndCommandBuffer(cmd_buf));
+
+    VkFenceCreateInfo fence_info = {
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+    };
+    VkFence fence = VK_NULL_HANDLE;
+    VK_CHECK(vkCreateFence(init.device.device, &fence_info, nullptr, &fence));
+
+    VkCommandBufferSubmitInfo cmd_buf_info = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+            .pNext = nullptr,
+            .commandBuffer = cmd_buf,
+            .deviceMask = 0
+    };
+
+    VkSubmitInfo2 submit_info = {
+            .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+            .pNext = nullptr,
+            .flags = 0,
+            .waitSemaphoreInfoCount = 0,
+            .pWaitSemaphoreInfos = nullptr,
+            .commandBufferInfoCount = 1,
+            .pCommandBufferInfos = &cmd_buf_info,
+            .signalSemaphoreInfoCount = 0,
+            .pSignalSemaphoreInfos = nullptr
+    };
+    VK_CHECK(vkQueueSubmit2(render_data.graphics_queue, 1, &submit_info, fence));
+    VK_CHECK(vkWaitForFences(init.device.device, 1, &fence, VK_TRUE, UINT64_MAX));
+
+    vkDestroyFence(init.device.device, fence, nullptr);
+    vkFreeCommandBuffers(init.device.device, render_data.command_pool, 1, &cmd_buf);
+}
+
+}
+
 Buffer create_buffer(Init& init, RenderData& data, unsigned int size, VkBufferUsageFlags usage, const char* name) {
     g_memory_usage += size;
 
@@ -295,6 +304,44 @@ Buffer create_buffer(Init& init, RenderData& data, unsigned int size, VkBufferUs
     };
     VmaAllocationCreateInfo alloc_info{};
     alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
+
+    Buffer res{};
+    VK_CHECK(vmaCreateBuffer(data.alloc, &buffer_info, &alloc_info, &res.buf, &res.alloc, nullptr));
+
+    VkBufferDeviceAddressInfo addr_info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+            .pNext = nullptr,
+            .buffer = res.buf
+    };
+    res.address = vkGetBufferDeviceAddress(init.device.device, &addr_info);
+
+    VkDebugUtilsObjectNameInfoEXT name_info = {
+            .sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT,
+            .objectType = VK_OBJECT_TYPE_BUFFER,
+            .objectHandle = (uint64_t)res.buf,
+            .pObjectName = name
+    };
+    VK_CHECK(init.disp.setDebugUtilsObjectNameEXT(&name_info));
+
+    return res;
+}
+
+Buffer create_host_buffer(Init& init, RenderData& data, unsigned int size, VkBufferUsageFlags usage, const char* name) {
+    g_memory_usage += size;
+
+    VkBufferCreateInfo buffer_info = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .size = size,
+            .usage = usage,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 0,
+            .pQueueFamilyIndices = nullptr
+    };
+    VmaAllocationCreateInfo alloc_info{};
+    alloc_info.pool = data.host_visible_pool;
+    alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 
     Buffer res{};
     VK_CHECK(vmaCreateBuffer(data.alloc, &buffer_info, &alloc_info, &res.buf, &res.alloc, nullptr));

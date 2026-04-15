@@ -301,6 +301,8 @@ void main () {
 
     vec3 cam_pos = vec3(cam.tab[0]);
     vec3 cam_target = vec3(cam.tab[1]);
+    vec3 cam_up_hint = normalize(vec3(cam.tab[2]));
+    float tan_half_fov = max(cam.tab[2].w, 1e-4);
     
     outColor = vec4(0);
     
@@ -323,7 +325,7 @@ void main () {
 
 
         vec3 forward = normalize(cam_target-cam_pos);
-        vec3 right = normalize(cross(forward, vec3(0,1,0)));
+        vec3 right = normalize(cross(forward, cam_up_hint));
         vec3 up = normalize(cross(right, forward));
 
         mat3 ViewToWorld = mat3(right, up, forward);
@@ -333,9 +335,8 @@ void main () {
         // perspective
 
         vec3 ray_o = vec3(cam_pos);
-	    vec3 ray_d_viewspace = normalize(vec3(0,0,1) + vec3(uv*2-1, 0));
-	    ray_d_viewspace.x *= aspect;
-	    ray_d_viewspace = normalize(ray_d_viewspace);
+        vec2 screen = uv * 2 - 1;
+        vec3 ray_d_viewspace = normalize(vec3(screen.x * aspect * tan_half_fov, screen.y * tan_half_fov, 1));
         vec3 ray_d = ViewToWorld * ray_d_viewspace;
     #else
         // orthographic
@@ -353,7 +354,7 @@ void main () {
 
         float t = 0;
         if (!BBoxIntersect(aabb_min.xyz, aabb_max.xyz, ray_o, ray_d, t)) {
-            outColor += vec4(cam.tab[3].rgb,1);
+            outColor += vec4(cam.tab[3].rgb, alpha);
             continue;
         }
         t += 1e-4;
@@ -396,7 +397,8 @@ void main () {
             t += abs(d);
         }
         
-        vec3 color = vec3(0);
+        vec3 color = cam.tab[3].rgb;
+        float color_alpha = alpha;
         if (t >= 0) {
             vec3 p = ray_o + t * ray_d;
 
@@ -461,6 +463,7 @@ void main () {
                     color += albedo * dot(L,normal);
                 }
             }
+            color_alpha = 1;
             //color = vec3(ao);
             //color = vec3(ambient_occlusion(p, normal, cell_idx));
             //color = normal * 0.5 + 0.5;
@@ -468,13 +471,11 @@ void main () {
             //vec4 p_clip = world_to_clip * vec4(p, 1);
             //gl_FragDepth = p_clip.z / p_clip.w;
             //gl_FragDepth = 0.5;
-        } else {
-            color = vec3(1);
         }
 
 
-        outColor += vec4 (color, 1);
+        outColor += vec4(color, color_alpha);
     }
     outColor /= num_samples;
-    outColor = vec4(pow(outColor.rgb, vec3(gamma)), 1);
+    outColor = vec4(pow(outColor.rgb, vec3(gamma)), outColor.a);
 }

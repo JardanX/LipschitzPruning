@@ -96,6 +96,7 @@ struct Pipeline {
 
 struct RenderData {
     VmaAllocator alloc;
+    VmaPool host_visible_pool = nullptr;
     VkQueue graphics_queue;
     VkQueue present_queue;
     uint32_t graphics_queue_family;
@@ -265,6 +266,7 @@ void CopyImageToBuffer(const RenderData& render_data, const Init& init, VkImage 
 uint64_t GetBufferAddress(const Init& init, const Buffer& buffer);
 Pipeline create_compute_pipeline(Init& init, const char* shader_path, const char* shader_name, unsigned int push_constant_size);
 Buffer create_buffer(Init& init, RenderData& render_data, unsigned int size, VkBufferUsageFlags usage, const char* name);
+Buffer create_host_buffer(Init& init, RenderData& render_data, unsigned int size, VkBufferUsageFlags usage, const char* name);
 
 extern size_t g_memory_usage;
 

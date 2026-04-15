@@ -19,10 +19,18 @@ struct GPUNode {
     int idx_in_type;
 };
 
+int ConvertToGPUTree(int root_idx,
+                     const std::vector<CSGNode>& csg_nodes,
+                     std::vector<GPUNode>& gpu_nodes,
+                     std::vector<Primitive>& primitives,
+                     std::vector<BinaryOp>& binary_ops,
+                     std::vector<uint16_t>& parent,
+                     std::vector<uint16_t>& active_nodes);
+
 class Context {
 public:
     void initialize(bool gui, int final_grid_lvl, uint32_t width = WIDTH, uint32_t height = HEIGHT, int shading_mode = SHADING_MODE_SHADED);
-    Timings render(glm::vec3 cam_position, glm::vec3 cam_target=glm::vec3(0));
+    Timings render(glm::vec3 cam_position, glm::vec3 cam_target, glm::vec3 cam_up, float fov_y, bool collect_stats = true);
     void upload(const std::vector<CSGNode>& nodes, int root_idx);
     void alloc_input_buffers(int num_nodes);
     std::vector<uint8_t> readback_rgba();

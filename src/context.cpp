@@ -879,7 +879,7 @@ void set_push_constants(RenderData& data, int grid_lvl, bool first_lvl) {
     data.push_constants.gamma = data.gamma;
 }
 
-int draw_frame(Init& init, RenderData& data, bool gui) {
+int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
     init.disp.waitForFences(1, &data.in_flight_fences[data.current_frame], VK_TRUE, UINT64_MAX);
 
     uint32_t image_index = 0;
@@ -916,21 +916,27 @@ int draw_frame(Init& init, RenderData& data, bool gui) {
 
         vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, data.query_pool, 4);
 
-        VkBufferCopy region = {
-                .srcOffset = 0,
-                .dstOffset = 0,
-                .size = data.push_constants.num_nodes * sizeof(uint16_t)
-        };
-        vkCmdCopyBuffer(data.command_buffers[i], data.parents_init_buffer.buf, data.parents_buffer[data.input_idx].buf, 1, &region);
-        vkCmdCopyBuffer(data.command_buffers[i], data.active_nodes_init_buffer.buf, data.active_nodes_buffer[data.input_idx].buf, 1, &region);
-        vkCmdFillBuffer(data.command_buffers[i], data.active_count_buffer.buf, 0, 10 * sizeof(int), 0);
-        vkCmdFillBuffer(data.command_buffers[i], data.old_to_new_count_buffer.buf, 0, 10 * sizeof(int), 0);
+        if (data.culling_enabled && data.compute_culling) {
+            data.input_idx = 0;
+            data.output_idx = 1;
+            VkBufferCopy region = {
+                    .srcOffset = 0,
+                    .dstOffset = 0,
+                    .size = data.push_constants.num_nodes * sizeof(uint16_t)
+            };
+            vkCmdCopyBuffer(data.command_buffers[i], data.parents_init_buffer.buf, data.parents_buffer[data.input_idx].buf, 1, &region);
+            vkCmdCopyBuffer(data.command_buffers[i], data.active_nodes_init_buffer.buf, data.active_nodes_buffer[data.input_idx].buf, 1, &region);
+            vkCmdFillBuffer(data.command_buffers[i], data.active_count_buffer.buf, 0, 10 * sizeof(int), 0);
+            vkCmdFillBuffer(data.command_buffers[i], data.old_to_new_count_buffer.buf, 0, 10 * sizeof(int), 0);
+        }
 #if FAR_FIELD_VIZ
         assert(false); // check that grid size is 256
         vkCmdFillBuffer(data.command_buffers[i], data.cell_errors[0].buf, 0, 256 * 256 * 256 * sizeof(float), 0);
         vkCmdFillBuffer(data.command_buffers[i], data.cell_errors[1].buf, 0, 256 * 256 * 256 * sizeof(float), 0);
 #endif
-        pipeline_barrier(data.command_buffers[i], VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        if (data.culling_enabled && data.compute_culling) {
+            pipeline_barrier(data.command_buffers[i], VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        }
 
         // CULLING
         vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, data.query_pool, 0);
@@ -1342,6 +1348,10 @@ int draw_frame(Init& init, RenderData& data, bool gui) {
 
     data.current_frame = (data.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 
+    if (!collect_stats) {
+        return 0;
+    }
+
     VK_CHECK(vkDeviceWaitIdle(init.device));
 
     std::vector<uint64_t> timestamps(8);
@@ -1509,6 +1519,11 @@ void cleanup(Init& init, RenderData& data) {
     destroy_buffer(data.tmp_buffer);
     destroy_buffer(data.mvp_buffer);
     destroy_buffer(data.cam_buffer);
+
+    if (data.host_visible_pool != nullptr) {
+        vmaDestroyPool(data.alloc, data.host_visible_pool);
+        data.host_visible_pool = nullptr;
+    }
 
     if (data.alloc != nullptr) {
         vmaDestroyAllocator(data.alloc);
@@ -1788,6 +1803,29 @@ void Context::initialize(bool gui, int final_grid_lvl, uint32_t width, uint32_t 
                 .pTypeExternalMemoryHandleTypes = nullptr
         };
         VK_CHECK(vmaCreateAllocator(&alloc_info, &render_data.alloc));
+
+        VkBufferCreateInfo host_buffer_info = {
+                .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                .pNext = nullptr,
+                .flags = 0,
+                .size = 4096,
+                .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+                .queueFamilyIndexCount = 0,
+                .pQueueFamilyIndices = nullptr,
+        };
+        VmaAllocationCreateInfo host_alloc_info{};
+        host_alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
+        host_alloc_info.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+        host_alloc_info.preferredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+        uint32_t host_memory_type_index = 0;
+        VK_CHECK(vmaFindMemoryTypeIndexForBufferInfo(render_data.alloc, &host_buffer_info, &host_alloc_info, &host_memory_type_index));
+
+        VmaPoolCreateInfo pool_create_info{};
+        pool_create_info.memoryTypeIndex = host_memory_type_index;
+        VK_CHECK(vmaCreatePool(render_data.alloc, &pool_create_info, &render_data.host_visible_pool));
     }
 
     if (gui) {
@@ -1810,8 +1848,8 @@ void Context::initialize(bool gui, int final_grid_lvl, uint32_t width, uint32_t 
     create_query_pool(init, render_data);
 
     VkBufferUsageFlags buffer_usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    render_data.mvp_buffer = create_buffer(init, render_data, sizeof(glm::mat4), buffer_usage, "mvp_buffer");
-    render_data.cam_buffer = create_buffer(init, render_data, sizeof(glm::vec4)*4, buffer_usage, "cam_buffer");
+    render_data.mvp_buffer = create_host_buffer(init, render_data, sizeof(glm::mat4), buffer_usage, "mvp_buffer");
+    render_data.cam_buffer = create_host_buffer(init, render_data, sizeof(glm::vec4)*4, buffer_usage, "cam_buffer");
     int s = 1 << final_grid_lvl;
     int num_cells = s*s*s;
     render_data.num_active_buffer[0] = create_buffer(init, render_data, num_cells*sizeof(int), buffer_usage | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, "num_active_buffer[0]");
@@ -1844,7 +1882,7 @@ void Context::initialize(bool gui, int final_grid_lvl, uint32_t width, uint32_t 
                 .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         };
         VmaAllocationCreateInfo alloc_info{};
-        alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
+        alloc_info.pool = render_data.host_visible_pool;
         alloc_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
         VK_CHECK(vmaCreateBuffer(render_data.alloc, &buffer_info, &alloc_info, &render_data.staging_buffer.buf, &render_data.staging_buffer.alloc, nullptr));
     }
@@ -1871,7 +1909,7 @@ void Context::alloc_input_buffers(int num_nodes) {
 }
 
 
-Timings Context::render(glm::vec3 cam_position, glm::vec3 cam_target) {
+Timings Context::render(glm::vec3 cam_position, glm::vec3 cam_target, glm::vec3 cam_up, float fov_y, bool collect_stats) {
     //render_data.input_idx = 0;
     //render_data.output_idx = 1;
     //render_data.push_constants.world_to_clip = proj_mat * view_mat;
@@ -1897,21 +1935,25 @@ Timings Context::render(glm::vec3 cam_position, glm::vec3 cam_target) {
     render_data.push_constants.grid_size = 1 << grid_dim_log2;
     render_data.push_constants.first_lvl = true;
 
-    glm::mat4 view_mat = glm::lookAt(cam_position, cam_target, glm::vec3(0, 1, 0));
-    glm::mat4 proj_mat = glm::perspective((float)M_PI / 2.f, (float)init.swapchain.extent.width / (float)init.swapchain.extent.height, 0.01f, 10.f);
+    if (glm::dot(cam_up, cam_up) < 1e-8f) {
+        cam_up = glm::vec3(0, 1, 0);
+    }
+    cam_up = glm::normalize(cam_up);
+
+    const float clamped_fov_y = glm::clamp(fov_y, 0.1f, 3.0f);
+    glm::mat4 view_mat = glm::lookAt(cam_position, cam_target, cam_up);
+    glm::mat4 proj_mat = glm::perspective(clamped_fov_y, (float)init.swapchain.extent.width / (float)init.swapchain.extent.height, 0.01f, 10.f);
     glm::mat4 mvp = proj_mat * view_mat;
-    TransferToBuffer(render_data.alloc, render_data.staging_buffer, &mvp[0], sizeof(mvp));
-    CopyBuffer(render_data, init, render_data.staging_buffer, render_data.mvp_buffer, sizeof(mvp));
+    TransferToBuffer(render_data.alloc, render_data.mvp_buffer, &mvp[0], sizeof(mvp));
 
     render_data.cam_pos = cam_position;
 
     glm::vec4 cam_data[4];
-    cam_data[0] = glm::vec4(cam_position,0);
+    cam_data[0] = glm::vec4(cam_position, 0);
     cam_data[1] = glm::vec4(cam_target, 0);
-    cam_data[2] = glm::vec4(render_data.sphere_albedo, 1);
+    cam_data[2] = glm::vec4(cam_up, tanf(clamped_fov_y * 0.5f));
     cam_data[3] = glm::vec4(render_data.background_color, 1);
-    TransferToBuffer(render_data.alloc, render_data.staging_buffer, cam_data, sizeof(cam_data));
-    CopyBuffer(render_data, init, render_data.staging_buffer, render_data.cam_buffer, sizeof(cam_data));
+    TransferToBuffer(render_data.alloc, render_data.cam_buffer, cam_data, sizeof(cam_data));
 
     if (gui) {
         int w, h;
@@ -1921,7 +1963,7 @@ Timings Context::render(glm::vec3 cam_position, glm::vec3 cam_target) {
         }
     }
 
-    draw_frame(init, render_data, gui);
+    draw_frame(init, render_data, gui, collect_stats);
 
     return {
         .culling_elapsed_ms = render_data.culling_elapsed_ms,

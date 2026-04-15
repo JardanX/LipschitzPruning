@@ -360,7 +360,7 @@ int main(int argc, char** argv) {
 #endif
 
 
-         timing = ctx.render(cam_position, cam_target);
+         timing = ctx.render(cam_position, cam_target, glm::vec3(0, 1, 0), (float)M_PI / 2.f, true);
     }
     VK_CHECK(ctx.init.disp.deviceWaitIdle());
     ctx.shutdown();
