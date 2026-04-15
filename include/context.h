@@ -21,15 +21,18 @@ struct GPUNode {
 
 class Context {
 public:
-    void initialize(bool gui, int final_grid_lvl);
+    void initialize(bool gui, int final_grid_lvl, uint32_t width = WIDTH, uint32_t height = HEIGHT, int shading_mode = SHADING_MODE_SHADED);
     Timings render(glm::vec3 cam_position, glm::vec3 cam_target=glm::vec3(0));
     void upload(const std::vector<CSGNode>& nodes, int root_idx);
     void alloc_input_buffers(int num_nodes);
+    std::vector<uint8_t> readback_rgba();
+    void shutdown();
 
     Init init;
     RenderData render_data;
     bool gui;
     bool culling = true;
+    bool initialized = false;
 };
 
 void create_culling_pipelines(Init& init, RenderData& render_data);

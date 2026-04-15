@@ -70,6 +70,7 @@ void CopyImageToBuffer(const RenderData& render_data, const Init& init, VkImage 
             .pInheritanceInfo = nullptr
     };
     VkCommandBuffer cmd_buf = render_data.command_buffers[0];
+    VK_CHECK(vkResetCommandBuffer(cmd_buf, 0));
     VK_CHECK(vkBeginCommandBuffer(cmd_buf, &begin_info));
 
     VkImageMemoryBarrier2 barrier = {
@@ -120,6 +121,39 @@ void CopyImageToBuffer(const RenderData& render_data, const Init& init, VkImage 
     };
     vkCmdCopyImageToBuffer(cmd_buf, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst.buf, 1, &copy);
 
+    VkImageMemoryBarrier2 restore_barrier = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            .dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+            .image = src,
+            .subresourceRange = {
+                    .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                    .baseMipLevel = 0,
+                    .levelCount = 1,
+                    .baseArrayLayer = 0,
+                    .layerCount = 1
+            }
+    };
+    VkDependencyInfo restore_dependency_info = {
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .pNext = nullptr,
+            .dependencyFlags = 0,
+            .memoryBarrierCount = 0,
+            .pMemoryBarriers = nullptr,
+            .bufferMemoryBarrierCount = 0,
+            .pBufferMemoryBarriers = nullptr,
+            .imageMemoryBarrierCount = 1,
+            .pImageMemoryBarriers = &restore_barrier
+    };
+    vkCmdPipelineBarrier2(cmd_buf, &restore_dependency_info);
+
     vkEndCommandBuffer(cmd_buf);
 
     VkCommandBufferSubmitInfo cmd_buf_info = {
@@ -155,6 +189,7 @@ void CopyBuffer(const RenderData& render_data, const Init& init, const Buffer& s
             .pInheritanceInfo = nullptr
     };
     VkCommandBuffer cmd_buf = render_data.command_buffers[0];
+    VK_CHECK(vkResetCommandBuffer(cmd_buf, 0));
     VK_CHECK(vkBeginCommandBuffer(cmd_buf, &begin_info));
 
     VkBufferCopy copy = {

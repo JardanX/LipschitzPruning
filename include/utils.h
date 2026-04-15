@@ -3,6 +3,10 @@
 #include <vulkan/vulkan_core.h>
 #include <GLFW/glfw3.h>
 
+#include <cstdint>
+#include <string>
+#include <vector>
+
 #include <VkBootstrap.h>
 #include <glm/glm.hpp>
 #include "vma/vk_mem_alloc.h"
@@ -95,10 +99,14 @@ struct RenderData {
     VkQueue graphics_queue;
     VkQueue present_queue;
     uint32_t graphics_queue_family;
+    uint32_t output_width = 0;
+    uint32_t output_height = 0;
+    uint32_t last_image_index = 0;
 
     std::vector<VkImage> swapchain_images;
     std::vector<VkImageView> swapchain_image_views;
     std::vector<VkImage> render_images;
+    std::vector<VmaAllocation> render_image_allocations;
     std::vector<VkImageView> render_image_views;
     std::vector<VkFramebuffer> framebuffers;
     std::vector<Image> depth_images;

@@ -9,29 +9,16 @@
 
 #include "glm/gtx/transform.hpp"
 
-void load_json(const char *path, std::vector<CSGNode> &nodes, glm::vec3& aabb_min, glm::vec3& aabb_max) {
-    FILE *fp = fopen(path, "rb");
-    if (!fp) {
-        fprintf(stderr, "Failed to open file: %s\n", path);
-        abort();
-    }
-    fseek(fp, 0, SEEK_END);
-    size_t s = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    std::vector<char> buf(s + 1);
-    if (fread(buf.data(), 1, s, fp) != s) {
-        fprintf(stderr, "Failed to read file: %s\n", path);
-        abort();
-    }
-    fclose(fp);
-    buf[s] = 0;
-    rapidjson::Document d;
-    d.Parse(buf.data());
+namespace {
+
+void load_json_document(rapidjson::Document& d, std::vector<CSGNode>& nodes, glm::vec3& aabb_min, glm::vec3& aabb_max) {
     if (d.HasParseError()) {
         rapidjson::ParseErrorCode code = d.GetParseError();
         fprintf(stderr, "JSON parsing failed: error %d\n", code);
         abort();
     }
+
+    nodes.clear();
 
     auto aabb_min_arr = d["aabb_min"].GetArray();
     aabb_min.x = aabb_min_arr[0].GetFloat();
@@ -328,4 +315,34 @@ void write_json(const std::vector<CSGNode> &nodes, const char *path) {
 
     fflush(fp);
     fclose(fp);
+}
+
+}
+
+void load_json(const char *path, std::vector<CSGNode> &nodes, glm::vec3& aabb_min, glm::vec3& aabb_max) {
+    FILE *fp = fopen(path, "rb");
+    if (!fp) {
+        fprintf(stderr, "Failed to open file: %s\n", path);
+        abort();
+    }
+    fseek(fp, 0, SEEK_END);
+    size_t s = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    std::vector<char> buf(s + 1);
+    if (fread(buf.data(), 1, s, fp) != s) {
+        fprintf(stderr, "Failed to read file: %s\n", path);
+        abort();
+    }
+    fclose(fp);
+    buf[s] = 0;
+
+    rapidjson::Document d;
+    d.Parse(buf.data());
+    load_json_document(d, nodes, aabb_min, aabb_max);
+}
+
+void load_json_string(const char* json, std::vector<CSGNode>& nodes, glm::vec3& aabb_min, glm::vec3& aabb_max) {
+    rapidjson::Document d;
+    d.Parse(json);
+    load_json_document(d, nodes, aabb_min, aabb_max);
 }

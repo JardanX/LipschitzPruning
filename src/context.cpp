@@ -8,6 +8,7 @@
 #include <iostream>
 #include <fstream>
 #include <string>
+#include <algorithm>
 
 #define VMA_IMPLEMENTATION
 #include "vma/vk_mem_alloc.h"
@@ -208,12 +209,13 @@ void create_render_images(Init& init, RenderData& data, bool gui) {
     int n = MAX_FRAMES_IN_FLIGHT;
     if (!gui) {
         init.swapchain.image_count = n;
-        init.swapchain.extent.width = WIDTH;
-        init.swapchain.extent.height = HEIGHT;
+        init.swapchain.extent.width = data.output_width;
+        init.swapchain.extent.height = data.output_height;
         init.swapchain.image_format = VK_FORMAT_R8G8B8A8_SRGB;
     }
 
     data.render_images.resize(n);
+    data.render_image_allocations.resize(n);
     data.render_image_views.resize(n);
 
     VkImageCreateInfo image_info = {
@@ -238,8 +240,7 @@ void create_render_images(Init& init, RenderData& data, bool gui) {
     alloc_info.usage = VMA_MEMORY_USAGE_AUTO;
 
     for (size_t i = 0; i < n; i++) {
-        VmaAllocation img_alloc;
-        VK_CHECK(vmaCreateImage(data.alloc, &image_info, &alloc_info, &data.render_images[i], &img_alloc, nullptr));
+        VK_CHECK(vmaCreateImage(data.alloc, &image_info, &alloc_info, &data.render_images[i], &data.render_image_allocations[i], nullptr));
     }
 
     for (size_t i = 0; i < n; i++) {
@@ -369,11 +370,11 @@ void get_pipeline_stats(Init& init, VkPipeline pipeline, uint32_t executable_idx
                 break;
 
             case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_INT64_KHR:
-                n = snprintf(buf, buf_size, "%li", stats[i].value.i64);
+                n = snprintf(buf, buf_size, "%lld", (long long)stats[i].value.i64);
                 break;
 
             case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_UINT64_KHR:
-                n = snprintf(buf, buf_size, "%lu", stats[i].value.u64);
+                n = snprintf(buf, buf_size, "%llu", (unsigned long long)stats[i].value.u64);
                 break;
 
             case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_FLOAT64_KHR:
@@ -901,6 +902,7 @@ int draw_frame(Init& init, RenderData& data, bool gui) {
         init.disp.waitForFences(1, &data.image_in_flight[image_index], VK_TRUE, UINT64_MAX);
     }
     data.image_in_flight[image_index] = data.in_flight_fences[data.current_frame];
+    data.last_image_index = image_index;
 
 
     {
@@ -1383,29 +1385,153 @@ int draw_frame(Init& init, RenderData& data, bool gui) {
 }
 
 void cleanup(Init& init, RenderData& data) {
-    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
-        init.disp.destroySemaphore(data.finished_semaphore[i], nullptr);
-        init.disp.destroySemaphore(data.available_semaphores[i], nullptr);
-        init.disp.destroyFence(data.in_flight_fences[i], nullptr);
+    if (init.device.device != VK_NULL_HANDLE) {
+        vkDeviceWaitIdle(init.device);
     }
 
-    init.disp.destroyCommandPool(data.command_pool, nullptr);
+    auto destroy_buffer = [&](Buffer& buffer) {
+        if (buffer.buf != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(data.alloc, buffer.buf, buffer.alloc);
+            buffer = {};
+        }
+    };
+
+    for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
+        if (i < data.finished_semaphore.size() && data.finished_semaphore[i] != VK_NULL_HANDLE) {
+            init.disp.destroySemaphore(data.finished_semaphore[i], nullptr);
+        }
+        if (i < data.available_semaphores.size() && data.available_semaphores[i] != VK_NULL_HANDLE) {
+            init.disp.destroySemaphore(data.available_semaphores[i], nullptr);
+        }
+        if (i < data.in_flight_fences.size() && data.in_flight_fences[i] != VK_NULL_HANDLE) {
+            init.disp.destroyFence(data.in_flight_fences[i], nullptr);
+        }
+    }
+
+    if (data.command_pool != VK_NULL_HANDLE) {
+        init.disp.destroyCommandPool(data.command_pool, nullptr);
+    }
 
     for (auto framebuffer : data.framebuffers) {
-        init.disp.destroyFramebuffer(framebuffer, nullptr);
+        if (framebuffer != VK_NULL_HANDLE) {
+            init.disp.destroyFramebuffer(framebuffer, nullptr);
+        }
     }
 
-    init.disp.destroyPipeline(data.graphics_pipeline, nullptr);
-    init.disp.destroyPipelineLayout(data.pipeline_layout, nullptr);
-    init.disp.destroyRenderPass(data.render_pass, nullptr);
+    for (auto image_view : data.render_image_views) {
+        if (image_view != VK_NULL_HANDLE) {
+            init.disp.destroyImageView(image_view, nullptr);
+        }
+    }
+    for (size_t i = 0; i < data.render_images.size(); i++) {
+        if (data.render_images[i] != VK_NULL_HANDLE) {
+            vmaDestroyImage(data.alloc, data.render_images[i], data.render_image_allocations[i]);
+        }
+    }
+    for (auto image_view : data.depth_image_views) {
+        if (image_view != VK_NULL_HANDLE) {
+            init.disp.destroyImageView(image_view, nullptr);
+        }
+    }
+    for (auto& image : data.depth_images) {
+        if (image.img != VK_NULL_HANDLE) {
+            vmaDestroyImage(data.alloc, image.img, image.alloc);
+        }
+    }
 
-    init.swapchain.destroy_image_views(data.swapchain_image_views);
+    if (data.graphics_pipeline != VK_NULL_HANDLE) {
+        init.disp.destroyPipeline(data.graphics_pipeline, nullptr);
+    }
+    if (data.pipeline_layout != VK_NULL_HANDLE) {
+        init.disp.destroyPipelineLayout(data.pipeline_layout, nullptr);
+    }
+    if (data.culling_pipeline.pipe != VK_NULL_HANDLE) {
+        init.disp.destroyPipeline(data.culling_pipeline.pipe, nullptr);
+    }
+    if (data.culling_pipeline.layout != VK_NULL_HANDLE) {
+        init.disp.destroyPipelineLayout(data.culling_pipeline.layout, nullptr);
+    }
+    if (data.eval_grid_pipeline.pipe != VK_NULL_HANDLE) {
+        init.disp.destroyPipeline(data.eval_grid_pipeline.pipe, nullptr);
+    }
+    if (data.eval_grid_pipeline.layout != VK_NULL_HANDLE) {
+        init.disp.destroyPipelineLayout(data.eval_grid_pipeline.layout, nullptr);
+    }
+    if (data.debug_plane_pipeline != VK_NULL_HANDLE) {
+        init.disp.destroyPipeline(data.debug_plane_pipeline, nullptr);
+    }
+    if (data.debug_plane_pipeline_layout != VK_NULL_HANDLE) {
+        init.disp.destroyPipelineLayout(data.debug_plane_pipeline_layout, nullptr);
+    }
+    if (data.single_block_scan_pipeline != VK_NULL_HANDLE) {
+        init.disp.destroyPipeline(data.single_block_scan_pipeline, nullptr);
+    }
+    if (data.single_block_scan_pipeline_layout != VK_NULL_HANDLE) {
+        init.disp.destroyPipelineLayout(data.single_block_scan_pipeline_layout, nullptr);
+    }
+    if (data.fxaa_pipeline.pipe != VK_NULL_HANDLE) {
+        init.disp.destroyPipeline(data.fxaa_pipeline.pipe, nullptr);
+    }
+    if (data.fxaa_pipeline.layout != VK_NULL_HANDLE) {
+        init.disp.destroyPipelineLayout(data.fxaa_pipeline.layout, nullptr);
+    }
+    if (data.render_pass != VK_NULL_HANDLE) {
+        init.disp.destroyRenderPass(data.render_pass, nullptr);
+    }
 
-    vkb::destroy_swapchain(init.swapchain);
-    vkb::destroy_device(init.device);
-    vkb::destroy_surface(init.instance, init.surface);
-    vkb::destroy_instance(init.instance);
-    destroy_window_glfw(init.window);
+    if (data.query_pool != VK_NULL_HANDLE) {
+        init.disp.destroyQueryPool(data.query_pool, nullptr);
+    }
+    if (data.descriptor_pool != VK_NULL_HANDLE) {
+        init.disp.destroyDescriptorPool(data.descriptor_pool, nullptr);
+    }
+
+    destroy_buffer(data.staging_buffer);
+    destroy_buffer(data.prims_buffer);
+    destroy_buffer(data.nodes_buffer);
+    destroy_buffer(data.binary_ops_buffer);
+    destroy_buffer(data.spheres_buffer);
+    destroy_buffer(data.active_nodes_buffer[0]);
+    destroy_buffer(data.active_nodes_buffer[1]);
+    destroy_buffer(data.parents_buffer[0]);
+    destroy_buffer(data.parents_buffer[1]);
+    destroy_buffer(data.num_active_buffer[0]);
+    destroy_buffer(data.num_active_buffer[1]);
+    destroy_buffer(data.cell_offsets_buffer[0]);
+    destroy_buffer(data.cell_offsets_buffer[1]);
+    destroy_buffer(data.active_count_buffer);
+    destroy_buffer(data.parents_init_buffer);
+    destroy_buffer(data.cell_errors[0]);
+    destroy_buffer(data.cell_errors[1]);
+    destroy_buffer(data.active_nodes_init_buffer);
+    destroy_buffer(data.old_to_new_scratch_buffer);
+    destroy_buffer(data.old_to_new_count_buffer);
+    destroy_buffer(data.tmp_buffer);
+    destroy_buffer(data.mvp_buffer);
+    destroy_buffer(data.cam_buffer);
+
+    if (data.alloc != nullptr) {
+        vmaDestroyAllocator(data.alloc);
+    }
+
+    if (init.window != nullptr) {
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+        init.swapchain.destroy_image_views(data.swapchain_image_views);
+        vkb::destroy_swapchain(init.swapchain);
+        if (init.surface != VK_NULL_HANDLE) {
+            vkb::destroy_surface(init.instance, init.surface);
+        }
+        destroy_window_glfw(init.window);
+    }
+
+    if (init.device.device != VK_NULL_HANDLE) {
+        vkb::destroy_device(init.device);
+    }
+    if (init.instance.instance != VK_NULL_HANDLE) {
+        vkb::destroy_instance(init.instance);
+    }
 }
 
 
@@ -1630,9 +1756,12 @@ void UploadAnim(const std::vector<std::vector<CSGNode>>& csg_trees, const std::v
 }
 
 
-void Context::initialize(bool gui, int final_grid_lvl) {
+void Context::initialize(bool gui, int final_grid_lvl, uint32_t width, uint32_t height, int shading_mode) {
     this->gui = gui;
     render_data = {};
+    render_data.output_width = width;
+    render_data.output_height = height;
+    render_data.shading_mode = shading_mode;
 
     if (0 != device_initialization(init, gui)) abort();
     VkPhysicalDeviceProperties props;
@@ -1705,11 +1834,12 @@ void Context::initialize(bool gui, int final_grid_lvl) {
     render_data.parents_buffer[1] = create_buffer(init, render_data, MAX_ACTIVE_COUNT * sizeof(uint16_t), buffer_usage, "parents_buffer[1]");
 
     {
+        uint64_t staging_size = std::max<uint64_t>(4ull * 4096ull * 4096ull, uint64_t(width) * uint64_t(height) * 4ull);
         VkBufferCreateInfo buffer_info = {
                 .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
                 .pNext = nullptr,
                 .flags = 0,
-                .size = 4 * 4096 * 4096,
+                .size = staging_size,
                 .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
                 .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
         };
@@ -1721,6 +1851,7 @@ void Context::initialize(bool gui, int final_grid_lvl) {
 
     render_data.input_idx = 0;
     render_data.output_idx = 1;
+    initialized = true;
 }
 
 void Context::alloc_input_buffers(int num_nodes) {
@@ -1766,7 +1897,7 @@ Timings Context::render(glm::vec3 cam_position, glm::vec3 cam_target) {
     render_data.push_constants.grid_size = 1 << grid_dim_log2;
     render_data.push_constants.first_lvl = true;
 
-    glm::mat4 view_mat = glm::lookAt(cam_position, glm::vec3(0), glm::vec3(0, 1, 0));
+    glm::mat4 view_mat = glm::lookAt(cam_position, cam_target, glm::vec3(0, 1, 0));
     glm::mat4 proj_mat = glm::perspective((float)M_PI / 2.f, (float)init.swapchain.extent.width / (float)init.swapchain.extent.height, 0.01f, 10.f);
     glm::mat4 mvp = proj_mat * view_mat;
     TransferToBuffer(render_data.alloc, render_data.staging_buffer, &mvp[0], sizeof(mvp));
@@ -1782,10 +1913,12 @@ Timings Context::render(glm::vec3 cam_position, glm::vec3 cam_target) {
     TransferToBuffer(render_data.alloc, render_data.staging_buffer, cam_data, sizeof(cam_data));
     CopyBuffer(render_data, init, render_data.staging_buffer, render_data.cam_buffer, sizeof(cam_data));
 
-    int w, h;
-    glfwGetFramebufferSize(init.window, &w, &h);
-    if (w != init.swapchain.extent.width || h != init.swapchain.extent.height) {
-        recreate_swapchain(init, render_data);
+    if (gui) {
+        int w, h;
+        glfwGetFramebufferSize(init.window, &w, &h);
+        if (w != init.swapchain.extent.width || h != init.swapchain.extent.height) {
+            recreate_swapchain(init, render_data);
+        }
     }
 
     draw_frame(init, render_data, gui);
@@ -1803,4 +1936,26 @@ Timings Context::render(glm::vec3 cam_position, glm::vec3 cam_target) {
 void Context::upload(const std::vector<CSGNode> &nodes, int root_idx) {
     UploadScene(nodes, root_idx, init, render_data);
     render_data.total_num_nodes = (int)nodes.size();
+}
+
+void Context::shutdown() {
+    if (!initialized) {
+        return;
+    }
+    cleanup(init, render_data);
+    init = {};
+    render_data = {};
+    initialized = false;
+}
+
+std::vector<uint8_t> Context::readback_rgba() {
+    const uint32_t width = init.swapchain.extent.width;
+    const uint32_t height = init.swapchain.extent.height;
+    const size_t size = size_t(width) * size_t(height) * 4;
+
+    CopyImageToBuffer(render_data, init, render_data.render_images[render_data.last_image_index], render_data.staging_buffer, (int)width, (int)height);
+
+    std::vector<uint8_t> pixels(size);
+    TransferFromBuffer(render_data.alloc, render_data.staging_buffer, pixels.data(), (int)size);
+    return pixels;
 }

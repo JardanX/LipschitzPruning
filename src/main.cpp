@@ -363,6 +363,7 @@ int main(int argc, char** argv) {
          timing = ctx.render(cam_position, cam_target);
     }
     VK_CHECK(ctx.init.disp.deviceWaitIdle());
+    ctx.shutdown();
 
     //{
     //    FILE* fp = fopen("timings.csv", "w");
