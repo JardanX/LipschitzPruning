@@ -32,6 +32,8 @@ public:
     bool culling = true;
 };
 
+void cleanup(Init& init, RenderData& data);
+
 void create_culling_pipelines(Init& init, RenderData& render_data);
 int create_graphics_pipeline(Init& init, RenderData& data);
 int ConvertToGPUTree(int root_idx, const std::vector<CSGNode>& csg_nodes, std::vector<GPUNode>& gpu_nodes, std::vector<Primitive>& primitives, std::vector<BinaryOp>& binary_ops, std::vector<uint16_t>& parent, std::vector<uint16_t>& active_nodes);

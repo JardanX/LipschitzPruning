@@ -1,0 +1,101 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\main.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\utils.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\debug_plane.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\context.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\scene.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\astral_adapter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\imnodes_rokups-src\ImNodes.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\imnodes_rokups-src\ImNodesEz.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\SDF\Astral\UI\NodeGraph.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_draw.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_demo.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_tables.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_widgets.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\backends\imgui_impl_vulkan.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\backends\imgui_impl_glfw.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\constants.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\context.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\debug_plane.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\astral_adapter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\scene.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\utils.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\shaders\simple.vert.glsl" />
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\shaders\simple.frag.glsl" />
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\shaders\culling.comp.glsl" />
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\shaders\plane.vert.glsl" />
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\shaders\plane.frag.glsl" />
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\shaders\dense_eval.comp.glsl" />
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\vert.spv" />
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\frag.spv" />
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\culling.comp.spv" />
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\plane.vert.spv" />
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\plane.frag.spv" />
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\dense_eval.comp.spv" />
+    <None Include="D:\Projects\GitHub\LipschitzPruning\shaders\eval.glsl" />
+    <None Include="D:\Projects\GitHub\LipschitzPruning\shaders\common.glsl" />
+    <None Include="D:\Projects\GitHub\LipschitzPruning\shaders\common_culling.glsl" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{7184B971-0D5F-34E8-8387-49F6566041AF}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{63590FA0-60E8-31C4-9A8A-97C33BB385DE}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

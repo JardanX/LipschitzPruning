@@ -69,7 +69,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <Midl>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -79,7 +79,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <Midl>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -89,7 +89,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
     <Midl>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -99,7 +99,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
     <Midl>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>

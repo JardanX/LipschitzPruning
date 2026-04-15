@@ -19,7 +19,7 @@
     <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\astral_adapter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\imnodes_zoom_shim.cpp">
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src\ImNodes.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="D:\Projects\GitHub\SDF\Astral\UI\NodeGraph.cpp">
@@ -44,9 +44,6 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\backends\imgui_impl_glfw.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src\imnodes.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

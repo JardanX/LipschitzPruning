@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\glfw-subbuild\CMakeFiles\003a421202c6ac2f4e224732d88cbac5\glfw-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\glfw-subbuild\CMakeFiles\003a421202c6ac2f4e224732d88cbac5\glfw-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\glfw-subbuild\CMakeFiles\003a421202c6ac2f4e224732d88cbac5\glfw-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\glfw-subbuild\CMakeFiles\003a421202c6ac2f4e224732d88cbac5\glfw-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\glfw-subbuild\CMakeFiles\003a421202c6ac2f4e224732d88cbac5\glfw-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\glfw-subbuild\CMakeFiles\003a421202c6ac2f4e224732d88cbac5\glfw-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\glfw-subbuild\CMakeFiles\003a421202c6ac2f4e224732d88cbac5\glfw-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\glfw-subbuild\CMakeFiles\003a421202c6ac2f4e224732d88cbac5\glfw-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\glfw-subbuild\CMakeFiles\697f448087b00cb0552f4c1dc5669151\glfw-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\glfw-subbuild\CMakeFiles\e986c00f0c41094e0821e0ba8f84ffbf\glfw-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\glfw-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\glfw-subbuild\CMakeFiles\glfw-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{0057DF4F-428C-3492-9C97-A6AC85D78309}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

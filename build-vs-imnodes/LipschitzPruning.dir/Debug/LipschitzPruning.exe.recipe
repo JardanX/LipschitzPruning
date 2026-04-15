@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <ProjectOutputs>
+    <ProjectOutput>
+      <FullPath>D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\x64\Debug\ZERO_CHECK</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-build\src\x64\Debug\CLI11</FullPath>
+    </ProjectOutput>
+    <ProjectOutput>
+      <FullPath>D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\Debug\LipschitzPruning.exe</FullPath>
+    </ProjectOutput>
+  </ProjectOutputs>
+  <ContentFiles />
+  <SatelliteDlls />
+  <NonRecipeFileRefs />
+</Project>

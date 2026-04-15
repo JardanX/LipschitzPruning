@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-subbuild\CMakeFiles\3223bc7f635d8a9fbe9c7e2473f6fb86\imnodes_rokups-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-subbuild\CMakeFiles\3223bc7f635d8a9fbe9c7e2473f6fb86\imnodes_rokups-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-subbuild\CMakeFiles\3223bc7f635d8a9fbe9c7e2473f6fb86\imnodes_rokups-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-subbuild\CMakeFiles\3223bc7f635d8a9fbe9c7e2473f6fb86\imnodes_rokups-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-subbuild\CMakeFiles\3223bc7f635d8a9fbe9c7e2473f6fb86\imnodes_rokups-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-subbuild\CMakeFiles\3223bc7f635d8a9fbe9c7e2473f6fb86\imnodes_rokups-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-subbuild\CMakeFiles\3223bc7f635d8a9fbe9c7e2473f6fb86\imnodes_rokups-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-subbuild\CMakeFiles\3223bc7f635d8a9fbe9c7e2473f6fb86\imnodes_rokups-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-subbuild\CMakeFiles\159131f8b63c8bccd097c82e7b060953\imnodes_rokups-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-subbuild\CMakeFiles\1f108b79038516190fbfa1aaf974a612\imnodes_rokups-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-subbuild\CMakeFiles\imnodes_rokups-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{9D399E04-70C4-3A7D-854E-52D46D336970}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

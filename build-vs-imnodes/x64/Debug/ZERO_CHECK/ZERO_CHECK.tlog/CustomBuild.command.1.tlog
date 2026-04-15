@@ -1,0 +1,10 @@
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD-VS-IMNODES\CMAKEFILES\4630C7921F496B6218DE8560ACF21854\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/LipschitzPruning -BD:/Projects/GitHub/LipschitzPruning/build-vs-imnodes --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/LipschitzPruning.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

@@ -1,0 +1,70 @@
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\SHADERS\SIMPLE.VERT.GLSL
+setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=vert --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/simple.vert.glsl -o D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/vert.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\SHADERS\SIMPLE.FRAG.GLSL
+setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=frag --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/simple.frag.glsl -o D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/frag.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\SHADERS\CULLING.COMP.GLSL
+setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=comp --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/culling.comp.glsl -o D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/culling.comp.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\SHADERS\PLANE.VERT.GLSL
+setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=vert --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/plane.vert.glsl -o D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/plane.vert.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\SHADERS\PLANE.FRAG.GLSL
+setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=frag --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/plane.frag.glsl -o D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/plane.frag.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\SHADERS\DENSE_EVAL.COMP.GLSL
+setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=comp --target-spv=spv1.4 -g D:/Projects/GitHub/LipschitzPruning/shaders/dense_eval.comp.glsl -o D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/dense_eval.comp.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/LipschitzPruning -BD:/Projects/GitHub/LipschitzPruning/build-vs-imnodes --check-stamp-file D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

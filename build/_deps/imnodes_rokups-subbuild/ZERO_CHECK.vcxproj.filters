@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-subbuild\CMakeFiles\1f108b79038516190fbfa1aaf974a612\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{9D399E04-70C4-3A7D-854E-52D46D336970}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

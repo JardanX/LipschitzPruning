@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-subbuild\CMakeFiles\478a305922535373f6e0fad0d5424864\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{741B9941-0B40-39C9-B579-71650DF0802D}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

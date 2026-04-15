@@ -1,0 +1,16 @@
+D:\Projects\GitHub\LipschitzPruning\src\main.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\main.obj
+D:\Projects\GitHub\LipschitzPruning\src\utils.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\utils.obj
+D:\Projects\GitHub\LipschitzPruning\src\debug_plane.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\debug_plane.obj
+D:\Projects\GitHub\LipschitzPruning\src\context.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\context.obj
+D:\Projects\GitHub\LipschitzPruning\src\scene.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\scene.obj
+D:\Projects\GitHub\LipschitzPruning\src\astral_adapter.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\astral_adapter.obj
+D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\imnodes_rokups-src\ImNodes.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\ImNodes.obj
+D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\imnodes_rokups-src\ImNodesEz.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\ImNodesEz.obj
+D:\Projects\GitHub\SDF\Astral\UI\NodeGraph.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\NodeGraph.obj
+D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\imgui.obj
+D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_draw.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\imgui_draw.obj
+D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_demo.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\imgui_demo.obj
+D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_tables.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\imgui_tables.obj
+D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_widgets.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\imgui_widgets.obj
+D:\Projects\GitHub\LipschitzPruning\ext\imgui\backends\imgui_impl_vulkan.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\imgui_impl_vulkan.obj
+D:\Projects\GitHub\LipschitzPruning\ext\imgui\backends\imgui_impl_glfw.cpp;D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\LipschitzPruning.dir\Debug\imgui_impl_glfw.obj

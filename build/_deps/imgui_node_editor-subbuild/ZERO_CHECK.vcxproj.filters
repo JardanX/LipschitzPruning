@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-subbuild\CMakeFiles\937c0895f2d3f6e1a23384db30de2155\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{2654E985-92D7-34CA-BE4C-ACA6934F3178}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

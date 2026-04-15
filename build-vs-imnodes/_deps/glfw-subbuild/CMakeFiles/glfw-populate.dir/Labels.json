@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/glfw-subbuild/CMakeFiles/glfw-populate"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/glfw-subbuild/CMakeFiles/e986c00f0c41094e0821e0ba8f84ffbf/glfw-populate.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/glfw-subbuild/CMakeFiles/697f448087b00cb0552f4c1dc5669151/glfw-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/glfw-subbuild/CMakeFiles/003a421202c6ac2f4e224732d88cbac5/glfw-populate-build.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/glfw-subbuild/CMakeFiles/003a421202c6ac2f4e224732d88cbac5/glfw-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/glfw-subbuild/CMakeFiles/003a421202c6ac2f4e224732d88cbac5/glfw-populate-download.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/glfw-subbuild/CMakeFiles/003a421202c6ac2f4e224732d88cbac5/glfw-populate-install.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/glfw-subbuild/CMakeFiles/003a421202c6ac2f4e224732d88cbac5/glfw-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/glfw-subbuild/CMakeFiles/003a421202c6ac2f4e224732d88cbac5/glfw-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/glfw-subbuild/CMakeFiles/003a421202c6ac2f4e224732d88cbac5/glfw-populate-test.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/glfw-subbuild/CMakeFiles/003a421202c6ac2f4e224732d88cbac5/glfw-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"glfw-populate"
+		],
+		"name" : "glfw-populate"
+	}
+}

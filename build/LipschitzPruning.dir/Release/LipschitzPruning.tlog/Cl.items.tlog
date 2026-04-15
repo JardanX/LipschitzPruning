@@ -5,6 +5,10 @@ D:\Projects\GitHub\LipschitzPruning\src\context.cpp;D:\Projects\GitHub\Lipschitz
 D:\Projects\GitHub\LipschitzPruning\src\scene.cpp;D:\Projects\GitHub\LipschitzPruning\build\LipschitzPruning.dir\Release\scene.obj
 D:\Projects\GitHub\LipschitzPruning\src\astral_adapter.cpp;D:\Projects\GitHub\LipschitzPruning\build\LipschitzPruning.dir\Release\astral_adapter.obj
 D:\Projects\GitHub\LipschitzPruning\src\imnodes_zoom_shim.cpp;D:\Projects\GitHub\LipschitzPruning\build\LipschitzPruning.dir\Release\imnodes_zoom_shim.obj
+D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-src\imgui_node_editor.cpp;D:\Projects\GitHub\LipschitzPruning\build\LipschitzPruning.dir\Release\imgui_node_editor.obj
+D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-src\imgui_node_editor_api.cpp;D:\Projects\GitHub\LipschitzPruning\build\LipschitzPruning.dir\Release\imgui_node_editor_api.obj
+D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-src\imgui_canvas.cpp;D:\Projects\GitHub\LipschitzPruning\build\LipschitzPruning.dir\Release\imgui_canvas.obj
+D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-src\crude_json.cpp;D:\Projects\GitHub\LipschitzPruning\build\LipschitzPruning.dir\Release\crude_json.obj
 D:\Projects\GitHub\SDF\Astral\UI\NodeGraph.cpp;D:\Projects\GitHub\LipschitzPruning\build\LipschitzPruning.dir\Release\NodeGraph.obj
 D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui.cpp;D:\Projects\GitHub\LipschitzPruning\build\LipschitzPruning.dir\Release\imgui.obj
 D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_draw.cpp;D:\Projects\GitHub\LipschitzPruning\build\LipschitzPruning.dir\Release\imgui_draw.obj

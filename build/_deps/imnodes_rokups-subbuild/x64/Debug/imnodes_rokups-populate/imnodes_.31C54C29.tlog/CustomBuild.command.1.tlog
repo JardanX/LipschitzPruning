@@ -1,0 +1,150 @@
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES_ROKUPS-SUBBUILD\CMAKEFILES\3223BC7F635D8A9FBE9C7E2473F6FB86\IMNODES_ROKUPS-POPULATE-MKDIR.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -Dcfgdir=/Debug -P D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/imnodes_rokups-populate-prefix/tmp/imnodes_rokups-populate-mkdirs.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/imnodes_rokups-populate-prefix/src/imnodes_rokups-populate-stamp/Debug/imnodes_rokups-populate-mkdir
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES_ROKUPS-SUBBUILD\CMAKEFILES\3223BC7F635D8A9FBE9C7E2473F6FB86\IMNODES_ROKUPS-POPULATE-DOWNLOAD.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/imnodes_rokups-populate-prefix/tmp/imnodes_rokups-populate-gitclone.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/imnodes_rokups-populate-prefix/src/imnodes_rokups-populate-stamp/Debug/imnodes_rokups-populate-download
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES_ROKUPS-SUBBUILD\CMAKEFILES\3223BC7F635D8A9FBE9C7E2473F6FB86\IMNODES_ROKUPS-POPULATE-UPDATE.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -Dcan_fetch=YES -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/imnodes_rokups-populate-prefix/tmp/imnodes_rokups-populate-gitupdate.cmake
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES_ROKUPS-SUBBUILD\CMAKEFILES\3223BC7F635D8A9FBE9C7E2473F6FB86\IMNODES_ROKUPS-POPULATE-PATCH.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/imnodes_rokups-populate-prefix/src/imnodes_rokups-populate-stamp/Debug/imnodes_rokups-populate-patch
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES_ROKUPS-SUBBUILD\CMAKEFILES\3223BC7F635D8A9FBE9C7E2473F6FB86\IMNODES_ROKUPS-POPULATE-CONFIGURE.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/imnodes_rokups-populate-prefix/src/imnodes_rokups-populate-stamp/Debug/imnodes_rokups-populate-configure
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES_ROKUPS-SUBBUILD\CMAKEFILES\3223BC7F635D8A9FBE9C7E2473F6FB86\IMNODES_ROKUPS-POPULATE-BUILD.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/imnodes_rokups-populate-prefix/src/imnodes_rokups-populate-stamp/Debug/imnodes_rokups-populate-build
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES_ROKUPS-SUBBUILD\CMAKEFILES\3223BC7F635D8A9FBE9C7E2473F6FB86\IMNODES_ROKUPS-POPULATE-INSTALL.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/imnodes_rokups-populate-prefix/src/imnodes_rokups-populate-stamp/Debug/imnodes_rokups-populate-install
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES_ROKUPS-SUBBUILD\CMAKEFILES\3223BC7F635D8A9FBE9C7E2473F6FB86\IMNODES_ROKUPS-POPULATE-TEST.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/imnodes_rokups-populate-prefix/src/imnodes_rokups-populate-stamp/Debug/imnodes_rokups-populate-test
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES_ROKUPS-SUBBUILD\CMAKEFILES\159131F8B63C8BCCD097C82E7B060953\IMNODES_ROKUPS-POPULATE-COMPLETE.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E make_directory D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/Debug
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/Debug/imnodes_rokups-populate-complete
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/imnodes_rokups-populate-prefix/src/imnodes_rokups-populate-stamp/Debug/imnodes_rokups-populate-done
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES_ROKUPS-SUBBUILD\CMAKEFILES\1F108B79038516190FBFA1AAF974A612\IMNODES_ROKUPS-POPULATE.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMNODES_ROKUPS-SUBBUILD\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild -BD:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild --check-stamp-file D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

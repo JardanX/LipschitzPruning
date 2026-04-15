@@ -300,8 +300,16 @@ FETCHCONTENT_SOURCE_DIR_CLI11:PATH=
 FETCHCONTENT_SOURCE_DIR_GLFW:PATH=
 
 //When not empty, overrides where to find pre-populated content
+// for imgui_node_editor
+FETCHCONTENT_SOURCE_DIR_IMGUI_NODE_EDITOR:PATH=
+
+//When not empty, overrides where to find pre-populated content
 // for imnodes
 FETCHCONTENT_SOURCE_DIR_IMNODES:PATH=
+
+//When not empty, overrides where to find pre-populated content
+// for imnodes_rokups
+FETCHCONTENT_SOURCE_DIR_IMNODES_ROKUPS:PATH=
 
 //Enables UPDATE_DISCONNECTED behavior for all content population
 FETCHCONTENT_UPDATES_DISCONNECTED:BOOL=OFF
@@ -312,8 +320,14 @@ FETCHCONTENT_UPDATES_DISCONNECTED_CLI11:BOOL=OFF
 //Enables UPDATE_DISCONNECTED behavior just for population of glfw
 FETCHCONTENT_UPDATES_DISCONNECTED_GLFW:BOOL=OFF
 
+//Enables UPDATE_DISCONNECTED behavior just for population of imgui_node_editor
+FETCHCONTENT_UPDATES_DISCONNECTED_IMGUI_NODE_EDITOR:BOOL=OFF
+
 //Enables UPDATE_DISCONNECTED behavior just for population of imnodes
 FETCHCONTENT_UPDATES_DISCONNECTED_IMNODES:BOOL=OFF
+
+//Enables UPDATE_DISCONNECTED behavior just for population of imnodes_rokups
+FETCHCONTENT_UPDATES_DISCONNECTED_IMNODES_ROKUPS:BOOL=OFF
 
 //Git command line client
 GIT_EXECUTABLE:FILEPATH=C:/Program Files/Git/cmd/git.exe

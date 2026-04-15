@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\CMakeFiles\8378dcaf50d5b119b3e6c473ff024bc6\INSTALL_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{F9C184F4-E255-3D29-BBE1-BD7E08692D32}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

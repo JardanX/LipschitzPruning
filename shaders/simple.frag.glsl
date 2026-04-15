@@ -219,7 +219,15 @@ float grid_mask(vec2 world_xz, float spacing) {
     return 1.0 - min(min(dist.x, dist.y), 1.0);
 }
 
-bool sample_ground_grid(vec3 ray_o, vec3 ray_d, inout vec3 color) {
+float project_depth(vec3 p) {
+    vec4 projected = mvp.m * vec4(p, 1.0);
+    return clamp(projected.z / projected.w, 0.0, 1.0);
+}
+
+bool sample_ground_grid(vec3 ray_o, vec3 ray_d, out vec3 line_color, out float alpha, out float t_hit) {
+    line_color = vec3(0.30, 0.33, 0.40);
+    alpha = 0.0;
+    t_hit = -1.0;
     if (cam.tab[5].y < 0.5) {
         return false;
     }
@@ -242,17 +250,16 @@ bool sample_ground_grid(vec3 ray_o, vec3 ray_d, inout vec3 color) {
     );
 
     float fade = exp(-length(world_pos.xz - ray_o.xz) * 0.035);
-    float alpha = max(minor * 0.16, major * 0.34);
+    alpha = max(minor * 0.16, major * 0.34);
     alpha = max(alpha, axis * 0.5);
     alpha *= fade;
     if (alpha < 0.002) {
         return false;
     }
 
-    vec3 line_color = vec3(0.30, 0.33, 0.40);
     line_color = mix(line_color, vec3(0.42, 0.46, 0.56), major);
     line_color = mix(line_color, vec3(0.52, 0.62, 0.78), axis);
-    color = mix(cam.tab[3].rgb, line_color, clamp(alpha, 0.0, 1.0));
+    t_hit = t;
     return true;
 }
 
@@ -359,13 +366,13 @@ bool shadow_ray_intersects(vec3 ray_o, vec3 ray_d, vec3 cell_size) {
 void main () { 
 
     vec3 cam_pos = vec3(cam.tab[0]);
-    vec3 cam_target = vec3(cam.tab[1]);
     vec2 frag_coord = gl_FragCoord.xy - vec2(cam.tab[4].xy);
     
     outColor = vec4(0);
     
     PCG pcg;
     init_pcg(pcg, uint64_t(frag_coord.y) * uint64_t(u_Resolution.x) + uint64_t(frag_coord.x));
+    mat4 clip_to_world = inverse(mvp.m);
 
     for (int sample_idx = 0; sample_idx < num_samples; sample_idx++) {
         
@@ -381,44 +388,34 @@ void main () {
         uv.y = 1 - uv.y;
         uv += (vec2(du,dv) * 2 - 1) * 0.5 / vec2(u_Resolution);
 
-
-        vec3 forward = normalize(cam_target-cam_pos);
-        vec3 right = normalize(cross(forward, vec3(0,1,0)));
-        vec3 up = normalize(cross(right, forward));
-
-        mat3 ViewToWorld = mat3(right, up, forward);
-        float aspect = float(u_Resolution.x) / float(u_Resolution.y);
-
-    #if 1
-        // perspective
+        vec2 ndc = uv * 2.0 - 1.0;
+        vec4 near_world_h = clip_to_world * vec4(ndc.x, ndc.y, 0.0, 1.0);
+        vec4 far_world_h = clip_to_world * vec4(ndc.x, ndc.y, 1.0, 1.0);
+        vec3 near_world = near_world_h.xyz / near_world_h.w;
+        vec3 far_world = far_world_h.xyz / far_world_h.w;
 
         vec3 ray_o = vec3(cam_pos);
-	    vec3 ray_d_viewspace = normalize(vec3(0,0,1) + vec3(uv*2-1, 0));
-	    ray_d_viewspace.x *= aspect;
-	    ray_d_viewspace = normalize(ray_d_viewspace);
-        vec3 ray_d = ViewToWorld * ray_d_viewspace;
-    #else
-        // orthographic
-
-        vec3 ray_d_viewspace = vec3(0,0,1);
-        vec3 ray_o_viewspace = vec3(uv * 2.0 -1.0, 0);
-        ray_o_viewspace.x *= aspect;
-        vec3 ray_o = vec3(cam_pos) + ViewToWorld * ray_o_viewspace;
-        //vec3 ray_o = vec3(cam_pos) + ray_o_viewspace;
-        //vec3 ray_d = ray_d_viewspace;
-        vec3 ray_d = ViewToWorld * ray_d_viewspace;
-    #endif
+        vec3 ray_d = normalize(far_world - near_world);
 
         gl_FragDepth = 1;
+
+        vec3 grid_line_color;
+        float grid_alpha;
+        float grid_t;
+        bool has_grid = sample_ground_grid(ray_o, ray_d, grid_line_color, grid_alpha, grid_t);
 
         float t = 0;
         if (!BBoxIntersect(aabb_min.xyz, aabb_max.xyz, ray_o, ray_d, t)) {
             vec3 miss_color = cam.tab[3].rgb;
-            sample_ground_grid(ray_o, ray_d, miss_color);
+            if (has_grid) {
+                miss_color = mix(miss_color, grid_line_color, clamp(grid_alpha, 0.0, 1.0));
+                gl_FragDepth = project_depth(ray_o + grid_t * ray_d);
+            }
             outColor += vec4(miss_color,1);
             continue;
         }
         t += 1e-4;
+        bool hit_surface = false;
 
         vec3 cell_size = (aabb_max.xyz - aabb_min.xyz) / float(grid_size);
 
@@ -453,20 +450,15 @@ void main () {
             }
 
             if (near_field && abs(d) < min(5e-4, 5e-4*t)) {
+                hit_surface = true;
                 break;
             }
             t += abs(d);
         }
         
         vec3 color = vec3(0);
-        if (t >= 0) {
+        if (hit_surface) {
             vec3 p = ray_o + t * ray_d;
-
-            const vec4 projected_hit = mvp.m * vec4(p, 1.0);
-            const float projected_depth = projected_hit.z / projected_hit.w;
-        
-            //gl_FragDepth = (( * projected_depth) + gl_DepthRange.near + gl_DepthRange.far) / 2.0;
-            gl_FragDepth = projected_depth;
 
             ivec3 cell = ivec3((p - aabb_min.xyz) / cell_size);
             cell = clamp(cell, ivec3(0), ivec3(grid_size-1));
@@ -523,16 +515,19 @@ void main () {
                     color += albedo * dot(L,normal);
                 }
             }
-            //color = vec3(ao);
-            //color = vec3(ambient_occlusion(p, normal, cell_idx));
-            //color = normal * 0.5 + 0.5;
 
-            //vec4 p_clip = world_to_clip * vec4(p, 1);
-            //gl_FragDepth = p_clip.z / p_clip.w;
-            //gl_FragDepth = 0.5;
+            if (has_grid && grid_t <= t) {
+                color = mix(color, grid_line_color, clamp(grid_alpha, 0.0, 1.0));
+                gl_FragDepth = project_depth(ray_o + grid_t * ray_d);
+            } else {
+                gl_FragDepth = project_depth(p);
+            }
         } else {
             color = cam.tab[3].rgb;
-            sample_ground_grid(ray_o, ray_d, color);
+            if (has_grid) {
+                color = mix(color, grid_line_color, clamp(grid_alpha, 0.0, 1.0));
+                gl_FragDepth = project_depth(ray_o + grid_t * ray_d);
+            }
         }
 
 

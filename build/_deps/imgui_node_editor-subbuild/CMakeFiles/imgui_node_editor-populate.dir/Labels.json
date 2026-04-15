@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/imgui_node_editor-populate"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/937c0895f2d3f6e1a23384db30de2155/imgui_node_editor-populate.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/59fd580f06a9338faa0cc11bc3064ada/imgui_node_editor-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/5a7133b93016fff09260840e85276cc4/imgui_node_editor-populate-build.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/5a7133b93016fff09260840e85276cc4/imgui_node_editor-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/5a7133b93016fff09260840e85276cc4/imgui_node_editor-populate-download.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/5a7133b93016fff09260840e85276cc4/imgui_node_editor-populate-install.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/5a7133b93016fff09260840e85276cc4/imgui_node_editor-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/5a7133b93016fff09260840e85276cc4/imgui_node_editor-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/5a7133b93016fff09260840e85276cc4/imgui_node_editor-populate-test.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/5a7133b93016fff09260840e85276cc4/imgui_node_editor-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"imgui_node_editor-populate"
+		],
+		"name" : "imgui_node_editor-populate"
+	}
+}

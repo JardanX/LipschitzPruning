@@ -1,0 +1,198 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
+  </PropertyGroup>
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="MinSizeRel|x64">
+      <Configuration>MinSizeRel</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="RelWithDebInfo|x64">
+      <Configuration>RelWithDebInfo</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{B00BA738-E2BF-3844-B5D2-F23362116DD4}</ProjectGuid>
+    <Keyword>Win32Proj</Keyword>
+    <WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>
+    <Platform>x64</Platform>
+    <ProjectName>CLI11</ProjectName>
+    <VCProjectUpgraderObjectName>NoUpgrade</VCProjectUpgraderObjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>true</UseDebugLibraries>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" Label="Configuration">
+    <ConfigurationType>Utility</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v143</PlatformToolset>
+    <UseDebugLibraries>false</UseDebugLibraries>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.20506.1</_ProjectFileVersion>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='Release|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">$(Platform)\$(Configuration)\$(ProjectName)\</IntDir>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" />
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" />
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'" />
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'" />
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\src\CMakeLists.txt">
+      <UseUtf8Encoding>Always</UseUtf8Encoding>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Building Custom Rule D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-src/src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/LipschitzPruning -BD:/Projects/GitHub/LipschitzPruning/build-vs-imnodes --check-stamp-file D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-build/src/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-build\src\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Building Custom Rule D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-src/src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/LipschitzPruning -BD:/Projects/GitHub/LipschitzPruning/build-vs-imnodes --check-stamp-file D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-build/src/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-build\src\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='Release|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">Building Custom Rule D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-src/src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/LipschitzPruning -BD:/Projects/GitHub/LipschitzPruning/build-vs-imnodes --check-stamp-file D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-build/src/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-build\src\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">false</LinkObjects>
+      <Message Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">Building Custom Rule D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-src/src/CMakeLists.txt</Message>
+      <Command Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/LipschitzPruning -BD:/Projects/GitHub/LipschitzPruning/build-vs-imnodes --check-stamp-file D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-build/src/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal &amp; call :cmErrorLevel %errorlevel% &amp; goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd</Command>
+      <AdditionalInputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">%(AdditionalInputs)</AdditionalInputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-build\src\CMakeFiles\generate.stamp</Outputs>
+      <LinkObjects Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">false</LinkObjects>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\App.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\Config.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\ConfigFwd.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\Error.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\Formatter.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\FormatterFwd.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\Macros.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\Option.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\Split.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\StringTools.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\TypeTools.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\Validators.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\Version.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\Encoding.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\Argv.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\CLI.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\Timer.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\impl\App_inl.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\impl\Config_inl.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\impl\Formatter_inl.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\impl\Option_inl.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\impl\Split_inl.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\impl\StringTools_inl.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\impl\Validators_inl.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\impl\Encoding_inl.hpp">
+    </None>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\_deps\cli11-src\include\CLI\impl\Argv_inl.hpp">
+    </None>
+  </ItemGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <ProjectReference Include="D:\Projects\GitHub\LipschitzPruning\build-vs-imnodes\ZERO_CHECK.vcxproj">
+      <Project>{E04314CD-8924-3C94-84B4-D78269277153}</Project>
+      <Name>ZERO_CHECK</Name>
+      <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

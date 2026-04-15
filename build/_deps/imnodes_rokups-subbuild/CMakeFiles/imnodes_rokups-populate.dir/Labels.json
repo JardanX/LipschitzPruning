@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/imnodes_rokups-populate"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/1f108b79038516190fbfa1aaf974a612/imnodes_rokups-populate.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/159131f8b63c8bccd097c82e7b060953/imnodes_rokups-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/3223bc7f635d8a9fbe9c7e2473f6fb86/imnodes_rokups-populate-build.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/3223bc7f635d8a9fbe9c7e2473f6fb86/imnodes_rokups-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/3223bc7f635d8a9fbe9c7e2473f6fb86/imnodes_rokups-populate-download.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/3223bc7f635d8a9fbe9c7e2473f6fb86/imnodes_rokups-populate-install.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/3223bc7f635d8a9fbe9c7e2473f6fb86/imnodes_rokups-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/3223bc7f635d8a9fbe9c7e2473f6fb86/imnodes_rokups-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/3223bc7f635d8a9fbe9c7e2473f6fb86/imnodes_rokups-populate-test.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build/_deps/imnodes_rokups-subbuild/CMakeFiles/3223bc7f635d8a9fbe9c7e2473f6fb86/imnodes_rokups-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"imnodes_rokups-populate"
+		],
+		"name" : "imnodes_rokups-populate"
+	}
+}

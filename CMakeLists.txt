@@ -20,15 +20,14 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(CLI11)
 
-cmake_policy(SET CMP0169 OLD)
 FetchContent_Declare(
-        imnodes
-        GIT_REPOSITORY "https://github.com/Nelarius/imnodes.git"
+        imnodes_rokups
+        GIT_REPOSITORY "https://github.com/rokups/ImNodes.git"
         GIT_TAG master
 )
-FetchContent_GetProperties(imnodes)
-if(NOT imnodes_POPULATED)
-    FetchContent_Populate(imnodes)
+FetchContent_GetProperties(imnodes_rokups)
+if(NOT imnodes_rokups_POPULATED)
+    FetchContent_Populate(imnodes_rokups)
 endif()
 
 find_package(glfw3)
@@ -71,7 +70,8 @@ set(SHARED_SRC
         src/context.cpp
         src/scene.cpp
         src/astral_adapter.cpp
-        src/imnodes_zoom_shim.cpp
+        ${imnodes_rokups_SOURCE_DIR}/ImNodes.cpp
+        ${imnodes_rokups_SOURCE_DIR}/ImNodesEz.cpp
         ${CMAKE_SOURCE_DIR}/../SDF/Astral/UI/NodeGraph.cpp
         ext/imgui/imgui.cpp
         ext/imgui/imgui_draw.cpp
@@ -80,8 +80,16 @@ set(SHARED_SRC
         ext/imgui/imgui_widgets.cpp
         ext/imgui/backends/imgui_impl_vulkan.cpp
         ext/imgui/backends/imgui_impl_glfw.cpp
-        ${imnodes_SOURCE_DIR}/imnodes.cpp
 )
+
+set_source_files_properties(
+        ${imnodes_rokups_SOURCE_DIR}/ImNodes.cpp
+        PROPERTIES
+        COMPILE_OPTIONS "/FIcmath")
+set_source_files_properties(
+        ${imnodes_rokups_SOURCE_DIR}/ImNodesEz.cpp
+        PROPERTIES
+        COMPILE_OPTIONS "/FIcmath")
 
 set(HEADERS
     include/constants.h
@@ -102,16 +110,11 @@ foreach(src_file bin_file stage IN ZIP_LISTS SHADER_SRCS SHADER_BINS SHADER_STAG
     add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/${bin_file}" COMMAND ${Vulkan_GLSLC_EXECUTABLE} ARGS -fshader-stage=${stage} --target-spv=spv1.4 -g ${CMAKE_SOURCE_DIR}/shaders/${src_file} -o ${CMAKE_BINARY_DIR}/${bin_file} MAIN_DEPENDENCY ${CMAKE_SOURCE_DIR}/shaders/${src_file} DEPENDS ${CMAKE_SOURCE_DIR}/shaders/eval.glsl ${CMAKE_SOURCE_DIR}/shaders/common.glsl ${CMAKE_SOURCE_DIR}/shaders/common_culling.glsl ${CMAKE_SOURCE_DIR}/include/constants.h)
 endforeach()
 
-include_directories(PRIVATE include/ ext/imgui ext/json/include ext/rapidjson/include ext/glm ${imnodes_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/../SDF/Astral)
-
-set_source_files_properties(
-        ${CMAKE_SOURCE_DIR}/../SDF/Astral/UI/NodeGraph.cpp
-        PROPERTIES
-        COMPILE_OPTIONS "/FI${CMAKE_SOURCE_DIR}/include/imnodes_zoom_shim.h")
+include_directories(PRIVATE include/ ext/imgui ext/json/include ext/rapidjson/include ext/glm ${imnodes_rokups_SOURCE_DIR} ${CMAKE_SOURCE_DIR}/../SDF/Astral)
 link_libraries(glfw vk-bootstrap Vulkan::Vulkan CLI11::CLI11)
 
 add_executable(LipschitzPruning src/main.cpp ${SHARED_SRC} ${HEADERS})
-target_compile_definitions(LipschitzPruning PRIVATE ImTextureID=ImU64)
+target_compile_definitions(LipschitzPruning PRIVATE ImTextureID=ImU64 IMGUI_DISABLE_OBSOLETE_FUNCTIONS)
 foreach(bin_file IN LISTS SHADER_BINS)
     target_sources(LipschitzPruning PRIVATE ${CMAKE_BINARY_DIR}/${bin_file})
 endforeach()

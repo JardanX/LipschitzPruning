@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-subbuild\CMakeFiles\5a7133b93016fff09260840e85276cc4\imgui_node_editor-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-subbuild\CMakeFiles\5a7133b93016fff09260840e85276cc4\imgui_node_editor-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-subbuild\CMakeFiles\5a7133b93016fff09260840e85276cc4\imgui_node_editor-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-subbuild\CMakeFiles\5a7133b93016fff09260840e85276cc4\imgui_node_editor-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-subbuild\CMakeFiles\5a7133b93016fff09260840e85276cc4\imgui_node_editor-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-subbuild\CMakeFiles\5a7133b93016fff09260840e85276cc4\imgui_node_editor-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-subbuild\CMakeFiles\5a7133b93016fff09260840e85276cc4\imgui_node_editor-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-subbuild\CMakeFiles\5a7133b93016fff09260840e85276cc4\imgui_node_editor-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-subbuild\CMakeFiles\59fd580f06a9338faa0cc11bc3064ada\imgui_node_editor-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-subbuild\CMakeFiles\937c0895f2d3f6e1a23384db30de2155\imgui_node_editor-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-subbuild\CMakeFiles\imgui_node_editor-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{2654E985-92D7-34CA-BE4C-ACA6934F3178}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

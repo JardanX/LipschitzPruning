@@ -188,7 +188,7 @@ void draw_debug_plane(const Init& init, const RenderData& data, VkCommandBuffer 
     static int viz_max = 10;
     ImGui::DragInt("Range max", &viz_max, 1, 1, data.push_constants.num_nodes);
     glm::mat4 view_mat = glm::lookAt(glm::vec3(data.cam_pos), glm::vec3(0), glm::vec3(0,1,0));
-    glm::mat4 proj_mat = glm::perspective((float)M_PI / 2.f, (float)init.swapchain.extent.width / (float)init.swapchain.extent.height, 0.01f, 10.f);
+    glm::mat4 proj_mat = glm::perspectiveRH_ZO((float)M_PI / 2.f, (float)init.swapchain.extent.width / (float)init.swapchain.extent.height, 0.01f, 10.f);
 
     static glm::vec4 farfield_color = glm::vec4(1, 0, 0, 0.5);
     ImGui::ColorPicker4("Near-field color", &farfield_color[0]);

@@ -6,6 +6,8 @@
 #include <random>
 #include <queue>
 #include <array>
+#include <atomic>
+#include <csignal>
 #include <system_error>
 #include "imgui.h"
 #include "backends/imgui_impl_vulkan.h"
@@ -34,6 +36,11 @@ void scroll_callback(GLFWwindow* window, double xoffset, double yoffset) {
 }
 
 bool show_imgui = true;
+static std::atomic<bool> g_exit_requested = false;
+
+static void handle_sigint(int) {
+    g_exit_requested.store(true);
+}
 
 std::string find_astral_font_path() {
     const std::array<std::filesystem::path, 5> candidates = {
@@ -57,13 +64,27 @@ std::string find_astral_font_path() {
 void apply_astral_font() {
     ImGuiIO& io = ImGui::GetIO();
     ImFontConfig cfg{};
-    cfg.OversampleH = 3;
+    cfg.OversampleH = 4;
     cfg.OversampleV = 1;
 
     std::string font_path = find_astral_font_path();
     if (!font_path.empty()) {
-        if (ImFont* mono_font = io.Fonts->AddFontFromFileTTF(font_path.c_str(), 15.0f, &cfg)) {
-            io.FontDefault = mono_font;
+        ImFont* default_font = nullptr;
+        for (int half_steps = 8; half_steps <= 80; ++half_steps) {
+            const float font_size = half_steps * 0.5f;
+            if (ImFont* font = io.Fonts->AddFontFromFileTTF(font_path.c_str(), font_size, &cfg)) {
+                if (fabsf(font_size - 15.0f) < 0.001f) {
+                    default_font = font;
+                }
+            }
+        }
+        for (int font_size = 41; font_size <= 96; ++font_size) {
+            if (ImFont* font = io.Fonts->AddFontFromFileTTF(font_path.c_str(), font_size, &cfg)) {
+                (void)font;
+            }
+        }
+        if (default_font != nullptr) {
+            io.FontDefault = default_font;
         }
     }
 }
@@ -86,24 +107,24 @@ void apply_astral_style() {
     style.TabBarBorderSize = 1.0f;
 
     ImVec4* c = style.Colors;
-    c[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.06f, 0.08f, 1.0f);
-    c[ImGuiCol_ChildBg] = ImVec4(0.05f, 0.05f, 0.07f, 1.0f);
-    c[ImGuiCol_Border] = ImVec4(0.14f, 0.14f, 0.18f, 1.0f);
-    c[ImGuiCol_FrameBg] = ImVec4(0.10f, 0.10f, 0.13f, 1.0f);
-    c[ImGuiCol_FrameBgHovered] = ImVec4(0.13f, 0.13f, 0.17f, 1.0f);
-    c[ImGuiCol_FrameBgActive] = ImVec4(0.16f, 0.16f, 0.20f, 1.0f);
-    c[ImGuiCol_TitleBg] = ImVec4(0.05f, 0.05f, 0.07f, 1.0f);
-    c[ImGuiCol_TitleBgActive] = ImVec4(0.08f, 0.08f, 0.11f, 1.0f);
-    c[ImGuiCol_Tab] = ImVec4(0.08f, 0.08f, 0.11f, 1.0f);
-    c[ImGuiCol_TabHovered] = ImVec4(0.15f, 0.15f, 0.19f, 1.0f);
-    c[ImGuiCol_TabActive] = ImVec4(0.11f, 0.11f, 0.15f, 1.0f);
-    c[ImGuiCol_Button] = ImVec4(0.12f, 0.12f, 0.16f, 1.0f);
-    c[ImGuiCol_ButtonHovered] = ImVec4(0.17f, 0.17f, 0.22f, 1.0f);
-    c[ImGuiCol_ButtonActive] = ImVec4(0.21f, 0.21f, 0.26f, 1.0f);
-    c[ImGuiCol_Header] = ImVec4(0.10f, 0.10f, 0.14f, 1.0f);
-    c[ImGuiCol_HeaderHovered] = ImVec4(0.15f, 0.15f, 0.20f, 1.0f);
-    c[ImGuiCol_HeaderActive] = ImVec4(0.18f, 0.18f, 0.23f, 1.0f);
-    c[ImGuiCol_Separator] = ImVec4(0.16f, 0.16f, 0.20f, 1.0f);
+    c[ImGuiCol_WindowBg] = ImVec4(0.035f, 0.035f, 0.050f, 1.0f);
+    c[ImGuiCol_ChildBg] = ImVec4(0.032f, 0.032f, 0.046f, 1.0f);
+    c[ImGuiCol_Border] = ImVec4(0.095f, 0.095f, 0.130f, 1.0f);
+    c[ImGuiCol_FrameBg] = ImVec4(0.070f, 0.070f, 0.100f, 1.0f);
+    c[ImGuiCol_FrameBgHovered] = ImVec4(0.092f, 0.092f, 0.126f, 1.0f);
+    c[ImGuiCol_FrameBgActive] = ImVec4(0.118f, 0.118f, 0.156f, 1.0f);
+    c[ImGuiCol_TitleBg] = ImVec4(0.032f, 0.032f, 0.046f, 1.0f);
+    c[ImGuiCol_TitleBgActive] = ImVec4(0.050f, 0.050f, 0.072f, 1.0f);
+    c[ImGuiCol_Tab] = ImVec4(0.050f, 0.050f, 0.072f, 1.0f);
+    c[ImGuiCol_TabHovered] = ImVec4(0.102f, 0.102f, 0.142f, 1.0f);
+    c[ImGuiCol_TabSelected] = ImVec4(0.078f, 0.078f, 0.110f, 1.0f);
+    c[ImGuiCol_Button] = ImVec4(0.082f, 0.082f, 0.116f, 1.0f);
+    c[ImGuiCol_ButtonHovered] = ImVec4(0.120f, 0.120f, 0.162f, 1.0f);
+    c[ImGuiCol_ButtonActive] = ImVec4(0.150f, 0.150f, 0.196f, 1.0f);
+    c[ImGuiCol_Header] = ImVec4(0.070f, 0.070f, 0.102f, 1.0f);
+    c[ImGuiCol_HeaderHovered] = ImVec4(0.105f, 0.105f, 0.146f, 1.0f);
+    c[ImGuiCol_HeaderActive] = ImVec4(0.132f, 0.132f, 0.178f, 1.0f);
+    c[ImGuiCol_Separator] = ImVec4(0.110f, 0.110f, 0.148f, 1.0f);
     c[ImGuiCol_TextSelectedBg] = ImVec4(0.35f, 0.35f, 0.55f, 0.40f);
     c[ImGuiCol_ScrollbarBg] = ImVec4(0.10f, 0.10f, 0.12f, 1.0f);
     c[ImGuiCol_ScrollbarGrab] = ImVec4(0.30f, 0.30f, 0.33f, 1.0f);
@@ -122,6 +143,8 @@ void key_callback(GLFWwindow* window, int key, int scancode, int action, int mod
 }
 
 int main(int argc, char** argv) {
+    std::signal(SIGINT, handle_sigint);
+
     enum class SceneSource {
         Demo,
         Graph,
@@ -129,7 +152,7 @@ int main(int argc, char** argv) {
 
     glm::vec3 cam_target = glm::vec3(0);
     float cam_yaw = 0.f;
-    float cam_pitch = M_PI / 2;
+    float cam_pitch = 1.25f;
 
     bool culling_enabled = true;
     int num_samples = 1;
@@ -179,6 +202,10 @@ int main(int argc, char** argv) {
     bool show_graph_window = true;
     SceneSource scene_source = SceneSource::Demo;
     bool graph_scene_valid = false;
+    float sidebar_width = -1.0f;
+    float nodegraph_height = -1.0f;
+    bool resizing_sidebar = false;
+    bool resizing_nodegraph = false;
 
     Context ctx;
     ctx.initialize(true, 8);
@@ -257,7 +284,7 @@ int main(int argc, char** argv) {
     double last_x, last_y;
     glfwGetCursorPos(ctx.init.window, &last_x, &last_y);
 
-    while (!glfwWindowShouldClose(ctx.init.window)/* && g_frame < 10000*/) {
+    while (!g_exit_requested.load() && !glfwWindowShouldClose(ctx.init.window)/* && g_frame < 10000*/) {
         if (anim_play || viewport_navigating || request_redraw) {
             glfwPollEvents();
         } else {
@@ -281,12 +308,65 @@ int main(int argc, char** argv) {
         ImGuiIO& io = ImGui::GetIO();
         ImVec2 work_pos = main_vp->WorkPos;
         ImVec2 work_size = main_vp->WorkSize;
-        float right_w = floorf(work_size.x * 0.22f);
-        float nodegraph_h = floorf(work_size.y * 0.42f);
+        if (sidebar_width < 0.0f) {
+            sidebar_width = floorf(work_size.x * 0.22f);
+        }
+        if (nodegraph_height < 0.0f) {
+            nodegraph_height = floorf(work_size.y * 0.42f);
+        }
+
+        float min_sidebar_w = 280.0f;
+        float max_sidebar_w = std::max(min_sidebar_w, work_size.x * 0.45f);
+        float min_nodegraph_h = 180.0f;
+        float max_nodegraph_h = std::max(min_nodegraph_h, work_size.y - 160.0f);
+
+        if (show_imgui) {
+            ImVec2 mouse = io.MousePos;
+            float split_x = work_pos.x + work_size.x - sidebar_width;
+            float split_y = work_pos.y + work_size.y - nodegraph_height;
+            bool hover_sidebar_split =
+                mouse.x >= split_x - 4.0f && mouse.x <= split_x + 4.0f &&
+                mouse.y >= work_pos.y && mouse.y <= work_pos.y + work_size.y;
+            bool hover_nodegraph_split =
+                mouse.x >= work_pos.x && mouse.x <= split_x &&
+                mouse.y >= split_y - 4.0f && mouse.y <= split_y + 4.0f;
+            if (!resizing_sidebar && hover_sidebar_split) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+            }
+            if (!resizing_nodegraph && hover_nodegraph_split) {
+                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+            }
+
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && hover_sidebar_split) {
+                resizing_sidebar = true;
+            }
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && hover_nodegraph_split) {
+                resizing_nodegraph = true;
+            }
+
+            if (resizing_sidebar) {
+                if (io.MouseDown[ImGuiMouseButton_Left]) {
+                    sidebar_width = work_pos.x + work_size.x - mouse.x;
+                    request_redraw = true;
+                } else {
+                    resizing_sidebar = false;
+                }
+            }
+            if (resizing_nodegraph) {
+                if (io.MouseDown[ImGuiMouseButton_Left]) {
+                    nodegraph_height = work_pos.y + work_size.y - mouse.y;
+                    request_redraw = true;
+                } else {
+                    resizing_nodegraph = false;
+                }
+            }
+        }
+
+        float right_w = std::clamp(sidebar_width, min_sidebar_w, max_sidebar_w);
+        sidebar_width = right_w;
+        float nodegraph_h = std::clamp(nodegraph_height, min_nodegraph_h, max_nodegraph_h);
+        nodegraph_height = nodegraph_h;
         float viewport_h = work_size.y - nodegraph_h;
-        float scene_h = floorf(work_size.y * 0.34f);
-        float templates_h = floorf(work_size.y * 0.22f);
-        float renderer_h = work_size.y - scene_h - templates_h;
 
         if (show_imgui) {
             ImGui::SetNextWindowPos(work_pos, ImGuiCond_Always);
@@ -310,7 +390,6 @@ int main(int argc, char** argv) {
                 g_viewport_hovered = ImGui::IsMouseHoveringRect(vp_min, vp_max, false);
 
                 ImDrawList* draw_list = ImGui::GetWindowDrawList();
-                draw_list->AddRect(vp_min, vp_max, IM_COL32(72, 72, 88, 255));
                 draw_list->AddText(ImVec2(vp_min.x + 14.0f, vp_min.y + 10.0f), IM_COL32(180, 184, 194, 255), "Lipschitz Viewport");
                 draw_list->AddText(ImVec2(vp_min.x + 14.0f, vp_min.y + 28.0f), IM_COL32(120, 124, 136, 255), "Orbit LMB | Pan RMB | Zoom Wheel");
                 draw_list->AddText(
@@ -518,7 +597,11 @@ int main(int argc, char** argv) {
                 ImGui::Text("1 << %d", ctx.render_data.final_grid_lvl);
 
                 if (ImGui::Combo("Shading", &ctx.render_data.shading_mode, "Shaded\0Heatmap\0Normals\0AO\0")) {
+                    ctx.init.disp.deviceWaitIdle();
                     ctx.init.disp.destroyPipeline(ctx.render_data.graphics_pipeline, nullptr);
+                    ctx.init.disp.destroyPipelineLayout(ctx.render_data.pipeline_layout, nullptr);
+                    ctx.render_data.graphics_pipeline = VK_NULL_HANDLE;
+                    ctx.render_data.pipeline_layout = VK_NULL_HANDLE;
                     create_graphics_pipeline(ctx.init, ctx.render_data);
                     viewport_changed = true;
                 }
@@ -535,6 +618,12 @@ int main(int argc, char** argv) {
                 }
                 if (ImGui::SliderFloat("Gamma", &ctx.render_data.gamma, 1, 4)) {
                     viewport_changed = true;
+                }
+            }
+
+            if (ImGui::CollapsingHeader("Graph Selection", ImGuiTreeNodeFlags_DefaultOpen)) {
+                if (node_graph.renderSelectionInspector()) {
+                    scene_changed = true;
                 }
             }
 
@@ -632,6 +721,7 @@ int main(int argc, char** argv) {
         request_redraw = anim_play || viewport_navigating || scene_changed || viewport_changed || camera_changed;
     }
     VK_CHECK(ctx.init.disp.deviceWaitIdle());
+    cleanup(ctx.init, ctx.render_data);
 
     //{
     //    FILE* fp = fopen("timings.csv", "w");

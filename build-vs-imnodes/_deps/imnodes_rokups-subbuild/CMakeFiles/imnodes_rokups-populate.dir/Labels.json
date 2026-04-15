@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/imnodes_rokups-subbuild/CMakeFiles/imnodes_rokups-populate"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/imnodes_rokups-subbuild/CMakeFiles/607f9c5a512dc811213644cbafac561e/imnodes_rokups-populate.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/imnodes_rokups-subbuild/CMakeFiles/7c3f860676d97ed29894c158148a0f66/imnodes_rokups-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/imnodes_rokups-subbuild/CMakeFiles/5b35ccadfdc458a00c24f3e36a33dda3/imnodes_rokups-populate-build.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/imnodes_rokups-subbuild/CMakeFiles/5b35ccadfdc458a00c24f3e36a33dda3/imnodes_rokups-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/imnodes_rokups-subbuild/CMakeFiles/5b35ccadfdc458a00c24f3e36a33dda3/imnodes_rokups-populate-download.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/imnodes_rokups-subbuild/CMakeFiles/5b35ccadfdc458a00c24f3e36a33dda3/imnodes_rokups-populate-install.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/imnodes_rokups-subbuild/CMakeFiles/5b35ccadfdc458a00c24f3e36a33dda3/imnodes_rokups-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/imnodes_rokups-subbuild/CMakeFiles/5b35ccadfdc458a00c24f3e36a33dda3/imnodes_rokups-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/imnodes_rokups-subbuild/CMakeFiles/5b35ccadfdc458a00c24f3e36a33dda3/imnodes_rokups-populate-test.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/imnodes_rokups-subbuild/CMakeFiles/5b35ccadfdc458a00c24f3e36a33dda3/imnodes_rokups-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"imnodes_rokups-populate"
+		],
+		"name" : "imnodes_rokups-populate"
+	}
+}

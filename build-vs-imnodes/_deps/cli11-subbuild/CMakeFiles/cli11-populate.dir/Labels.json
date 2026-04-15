@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-subbuild/CMakeFiles/cli11-populate"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-subbuild/CMakeFiles/478a305922535373f6e0fad0d5424864/cli11-populate.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-subbuild/CMakeFiles/ee5327f22a49c8b6da1916be00cc8edf/cli11-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-subbuild/CMakeFiles/16356fe25ad73a8b0da73b925694f7f3/cli11-populate-build.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-subbuild/CMakeFiles/16356fe25ad73a8b0da73b925694f7f3/cli11-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-subbuild/CMakeFiles/16356fe25ad73a8b0da73b925694f7f3/cli11-populate-download.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-subbuild/CMakeFiles/16356fe25ad73a8b0da73b925694f7f3/cli11-populate-install.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-subbuild/CMakeFiles/16356fe25ad73a8b0da73b925694f7f3/cli11-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-subbuild/CMakeFiles/16356fe25ad73a8b0da73b925694f7f3/cli11-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-subbuild/CMakeFiles/16356fe25ad73a8b0da73b925694f7f3/cli11-populate-test.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/LipschitzPruning/build-vs-imnodes/_deps/cli11-subbuild/CMakeFiles/16356fe25ad73a8b0da73b925694f7f3/cli11-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"cli11-populate"
+		],
+		"name" : "cli11-populate"
+	}
+}

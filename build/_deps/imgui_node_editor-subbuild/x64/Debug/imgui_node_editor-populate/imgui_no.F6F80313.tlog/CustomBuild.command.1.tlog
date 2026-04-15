@@ -1,0 +1,150 @@
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMGUI_NODE_EDITOR-SUBBUILD\CMAKEFILES\5A7133B93016FFF09260840E85276CC4\IMGUI_NODE_EDITOR-POPULATE-MKDIR.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -Dcfgdir=/Debug -P D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/imgui_node_editor-populate-prefix/tmp/imgui_node_editor-populate-mkdirs.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/imgui_node_editor-populate-prefix/src/imgui_node_editor-populate-stamp/Debug/imgui_node_editor-populate-mkdir
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMGUI_NODE_EDITOR-SUBBUILD\CMAKEFILES\5A7133B93016FFF09260840E85276CC4\IMGUI_NODE_EDITOR-POPULATE-DOWNLOAD.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/imgui_node_editor-populate-prefix/tmp/imgui_node_editor-populate-gitclone.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/imgui_node_editor-populate-prefix/src/imgui_node_editor-populate-stamp/Debug/imgui_node_editor-populate-download
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMGUI_NODE_EDITOR-SUBBUILD\CMAKEFILES\5A7133B93016FFF09260840E85276CC4\IMGUI_NODE_EDITOR-POPULATE-UPDATE.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-src
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -Dcan_fetch=YES -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/imgui_node_editor-populate-prefix/tmp/imgui_node_editor-populate-gitupdate.cmake
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMGUI_NODE_EDITOR-SUBBUILD\CMAKEFILES\5A7133B93016FFF09260840E85276CC4\IMGUI_NODE_EDITOR-POPULATE-PATCH.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/imgui_node_editor-populate-prefix/src/imgui_node_editor-populate-stamp/Debug/imgui_node_editor-populate-patch
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMGUI_NODE_EDITOR-SUBBUILD\CMAKEFILES\5A7133B93016FFF09260840E85276CC4\IMGUI_NODE_EDITOR-POPULATE-CONFIGURE.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/imgui_node_editor-populate-prefix/src/imgui_node_editor-populate-stamp/Debug/imgui_node_editor-populate-configure
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMGUI_NODE_EDITOR-SUBBUILD\CMAKEFILES\5A7133B93016FFF09260840E85276CC4\IMGUI_NODE_EDITOR-POPULATE-BUILD.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/imgui_node_editor-populate-prefix/src/imgui_node_editor-populate-stamp/Debug/imgui_node_editor-populate-build
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMGUI_NODE_EDITOR-SUBBUILD\CMAKEFILES\5A7133B93016FFF09260840E85276CC4\IMGUI_NODE_EDITOR-POPULATE-INSTALL.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/imgui_node_editor-populate-prefix/src/imgui_node_editor-populate-stamp/Debug/imgui_node_editor-populate-install
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMGUI_NODE_EDITOR-SUBBUILD\CMAKEFILES\5A7133B93016FFF09260840E85276CC4\IMGUI_NODE_EDITOR-POPULATE-TEST.RULE
+setlocal
+cd D:\Projects\GitHub\LipschitzPruning\build\_deps\imgui_node_editor-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/imgui_node_editor-populate-prefix/src/imgui_node_editor-populate-stamp/Debug/imgui_node_editor-populate-test
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMGUI_NODE_EDITOR-SUBBUILD\CMAKEFILES\59FD580F06A9338FAA0CC11BC3064ADA\IMGUI_NODE_EDITOR-POPULATE-COMPLETE.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E make_directory D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/Debug
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/Debug/imgui_node_editor-populate-complete
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/imgui_node_editor-populate-prefix/src/imgui_node_editor-populate-stamp/Debug/imgui_node_editor-populate-done
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMGUI_NODE_EDITOR-SUBBUILD\CMAKEFILES\937C0895F2D3F6E1A23384DB30DE2155\IMGUI_NODE_EDITOR-POPULATE.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\LIPSCHITZPRUNING\BUILD\_DEPS\IMGUI_NODE_EDITOR-SUBBUILD\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild -BD:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild --check-stamp-file D:/Projects/GitHub/LipschitzPruning/build/_deps/imgui_node_editor-subbuild/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

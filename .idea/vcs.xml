@@ -2,15 +2,21 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build-vs-imnodes/_deps/cli11-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build-vs-imnodes/_deps/glfw-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build-vs-imnodes/_deps/imnodes_rokups-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/build/_deps/cli11-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/build/_deps/glfw-src" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/_deps/imgui_node_editor-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/build/_deps/imnodes-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/build/_deps/imnodes-src/vcpkg" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/build/_deps/imnodes_rokups-src" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/ext/glfw" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/ext/glm" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/ext/imgui" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/ext/rapidjson" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/ext/rapidjson/thirdparty/gtest" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/ext/vk-bootstrap" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../SDF/Astral" vcs="Git" />
   </component>
 </project>

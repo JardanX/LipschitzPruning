@@ -101,13 +101,14 @@ struct RenderData {
 
     std::vector<VkImage> swapchain_images;
     std::vector<VkImageView> swapchain_image_views;
-    std::vector<VkImage> render_images;
+    std::vector<Image> render_images;
     std::vector<VkImageView> render_image_views;
     std::vector<bool> render_image_initialized;
     std::vector<VkFramebuffer> framebuffers;
     std::vector<Image> depth_images;
     std::vector<VkImageView> depth_image_views;
     std::vector<bool> depth_image_initialized;
+    VkExtent2D render_extent = {0, 0};
 
     VkRenderPass render_pass;
     VkPipelineLayout pipeline_layout;
@@ -157,6 +158,11 @@ struct RenderData {
     Buffer tmp_buffer;
     Buffer mvp_buffer;
     Buffer cam_buffer;
+    Buffer frame_upload_buffers[MAX_FRAMES_IN_FLIGHT];
+    Buffer stats_readback_buffers[MAX_FRAMES_IN_FLIGHT];
+    bool frame_stats_valid[MAX_FRAMES_IN_FLIGHT] = {};
+    bool frame_count_stats_valid[MAX_FRAMES_IN_FLIGHT] = {};
+    float timestamp_period = 0.0f;
 
     int input_idx = 0;
     int output_idx = 1;
@@ -167,6 +173,7 @@ struct RenderData {
     int max_active_count = 0;
     int max_tmp_count = 0;
     int total_num_nodes;
+    int scene_buffer_capacity = 0;
     int colormap_max = 25;
     glm::vec3 aabb_min = glm::vec3(-1.f);
     glm::vec3 aabb_max = glm::vec3(1);

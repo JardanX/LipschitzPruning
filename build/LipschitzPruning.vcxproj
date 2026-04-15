@@ -86,7 +86,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) /external:I "C:/VulkanSDK/1.4.341.1/include" /external:I "D:/Projects/GitHub/LipschitzPruning/build/_deps/cli11-src/include"</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
@@ -108,16 +108,16 @@
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;ImTextureID=ImU64;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;ImTextureID=ImU64;IMGUI_DISABLE_OBSOLETE_FUNCTIONS;CMAKE_INTDIR="Debug"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;ImTextureID=ImU64;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_DEBUG;_WINDOWS;ImTextureID=ImU64;IMGUI_DISABLE_OBSOLETE_FUNCTIONS;CMAKE_INTDIR=\"Debug\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -144,7 +144,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) /external:I "C:/VulkanSDK/1.4.341.1/include" /external:I "D:/Projects/GitHub/LipschitzPruning/build/_deps/cli11-src/include"</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
@@ -165,18 +165,18 @@
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;IMGUI_DISABLE_OBSOLETE_FUNCTIONS;CMAKE_INTDIR="Release"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <DebugInformationFormat>
       </DebugInformationFormat>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;IMGUI_DISABLE_OBSOLETE_FUNCTIONS;CMAKE_INTDIR=\"Release\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -203,7 +203,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) /external:I "C:/VulkanSDK/1.4.341.1/include" /external:I "D:/Projects/GitHub/LipschitzPruning/build/_deps/cli11-src/include"</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
@@ -224,18 +224,18 @@
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;IMGUI_DISABLE_OBSOLETE_FUNCTIONS;CMAKE_INTDIR="MinSizeRel"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <DebugInformationFormat>
       </DebugInformationFormat>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;IMGUI_DISABLE_OBSOLETE_FUNCTIONS;CMAKE_INTDIR=\"MinSizeRel\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -262,7 +262,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>%(AdditionalOptions) /external:I "C:/VulkanSDK/1.4.341.1/include" /external:I "D:/Projects/GitHub/LipschitzPruning/build/_deps/cli11-src/include"</AdditionalOptions>
       <AssemblerListingLocation>$(IntDir)</AssemblerListingLocation>
       <BasicRuntimeChecks>Default</BasicRuntimeChecks>
@@ -284,16 +284,16 @@
       <SupportJustMyCode></SupportJustMyCode>
       <TreatWChar_tAsBuiltInType></TreatWChar_tAsBuiltInType>
       <UseFullPaths>false</UseFullPaths>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;IMGUI_DISABLE_OBSOLETE_FUNCTIONS;CMAKE_INTDIR="RelWithDebInfo"</PreprocessorDefinitions>
       <ObjectFileName>$(IntDir)</ObjectFileName>
       <ScanSourceForModuleDependencies>false</ScanSourceForModuleDependencies>
     </ClCompile>
     <ResourceCompile>
-      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);WIN32;_WINDOWS;NDEBUG;ImTextureID=ImU64;IMGUI_DISABLE_OBSOLETE_FUNCTIONS;CMAKE_INTDIR=\"RelWithDebInfo\"</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ResourceCompile>
     <Midl>
-      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>D:\Projects\GitHub\LipschitzPruning\PRIVATE;D:\Projects\GitHub\LipschitzPruning\include;D:\Projects\GitHub\LipschitzPruning\ext\imgui;D:\Projects\GitHub\LipschitzPruning\ext\json\include;D:\Projects\GitHub\LipschitzPruning\ext\rapidjson\include;D:\Projects\GitHub\LipschitzPruning\ext\glm;D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src;D:\Projects\GitHub\LipschitzPruning\..\SDF\Astral;D:\Projects\GitHub\LipschitzPruning\build\_deps\glfw-src\include;D:\Projects\GitHub\LipschitzPruning\ext\vk-bootstrap\src;C:\VulkanSDK\1.4.341.1\include;D:\Projects\GitHub\LipschitzPruning\build\_deps\cli11-src\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <OutputDirectory>$(ProjectDir)/$(IntDir)</OutputDirectory>
       <HeaderFileName>%(Filename).h</HeaderFileName>
       <TypeLibraryName>%(Filename).tlb</TypeLibraryName>
@@ -718,13 +718,13 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\context.cpp" />
     <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\scene.cpp" />
     <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\astral_adapter.cpp" />
-    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\src\imnodes_zoom_shim.cpp" />
-    <ClCompile Include="D:\Projects\GitHub\SDF\Astral\UI\NodeGraph.cpp">
-      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">D:/Projects/GitHub/LipschitzPruning/include/imnodes_zoom_shim.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
-      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|x64'">D:/Projects/GitHub/LipschitzPruning/include/imnodes_zoom_shim.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
-      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">D:/Projects/GitHub/LipschitzPruning/include/imnodes_zoom_shim.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
-      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">D:/Projects/GitHub/LipschitzPruning/include/imnodes_zoom_shim.h;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes_rokups-src\ImNodes.cpp">
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">cmath;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='Release|x64'">cmath;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='MinSizeRel|x64'">cmath;%(ForcedIncludeFiles)</ForcedIncludeFiles>
+      <ForcedIncludeFiles Condition="'$(Configuration)|$(Platform)'=='RelWithDebInfo|x64'">cmath;%(ForcedIncludeFiles)</ForcedIncludeFiles>
     </ClCompile>
+    <ClCompile Include="D:\Projects\GitHub\SDF\Astral\UI\NodeGraph.cpp" />
     <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui.cpp" />
     <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_draw.cpp" />
     <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_demo.cpp" />
@@ -732,7 +732,6 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\imgui_widgets.cpp" />
     <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\backends\imgui_impl_vulkan.cpp" />
     <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\ext\imgui\backends\imgui_impl_glfw.cpp" />
-    <ClCompile Include="D:\Projects\GitHub\LipschitzPruning\build\_deps\imnodes-src\imnodes.cpp" />
     <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\constants.h" />
     <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\context.h" />
     <ClInclude Include="D:\Projects\GitHub\LipschitzPruning\include\debug_plane.h" />
