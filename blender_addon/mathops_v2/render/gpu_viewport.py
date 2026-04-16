@@ -41,7 +41,9 @@ _GL_SHADER_STORAGE_BARRIER_BIT = 0x2000
 _GL_BUFFER_UPDATE_BARRIER_BIT = 0x0200
 _MAX_ACTIVE_CAP = 100_000_000
 _MAX_TMP_CAP = 400_000_000
+_FLOAT32_EXACT_UINT_LIMIT = 1 << 24
 _TEXTURE_DATA_WIDTH = 4096
+_PRIMITIVE_TEXELS = 7
 
 _INCLUDE_RE = re.compile(r'^\s*#include\s+"([^"]+)"\s*$', re.M)
 _BUFFER_REFERENCE_RE = re.compile(
@@ -170,7 +172,7 @@ float mops_fetch_word(sampler2D tex, int word_idx) {{
 }}
 
 uint mops_fetch_bits(sampler2D tex, int idx) {{
-    return floatBitsToUint(texelFetch(tex, mops_tex_coord(idx), 0).r);
+    return uint(round(texelFetch(tex, mops_tex_coord(idx), 0).r));
 }}
 
 int mops_fetch_cell_offset(int idx) {{
@@ -186,35 +188,44 @@ float mops_fetch_cell_error(int idx) {{
 }}
 
 Primitive mops_fetch_primitive(int idx) {{
-    int base = idx * 24;
+    int base = idx * {_PRIMITIVE_TEXELS};
     Primitive prim;
-    prim.data = mops_fetch_texel(mopsPrimsTex, base >> 2);
-    prim.m_row0 = mops_fetch_texel(mopsPrimsTex, (base >> 2) + 1);
-    prim.m_row1 = mops_fetch_texel(mopsPrimsTex, (base >> 2) + 2);
-    prim.m_row2 = mops_fetch_texel(mopsPrimsTex, (base >> 2) + 3);
-    vec4 t4 = mops_fetch_texel(mopsPrimsTex, (base >> 2) + 4);
-    vec4 t5 = mops_fetch_texel(mopsPrimsTex, (base >> 2) + 5);
+    vec4 t0 = mops_fetch_texel(mopsPrimsTex, base + 0);
+    vec4 t1 = mops_fetch_texel(mopsPrimsTex, base + 1);
+    vec4 t2 = mops_fetch_texel(mopsPrimsTex, base + 2);
+    vec4 t3 = mops_fetch_texel(mopsPrimsTex, base + 3);
+    vec4 t4 = mops_fetch_texel(mopsPrimsTex, base + 4);
+    vec4 t5 = mops_fetch_texel(mopsPrimsTex, base + 5);
+    vec4 t6 = mops_fetch_texel(mopsPrimsTex, base + 6);
+    uint corner_data = uint(round(t5.z)) | (uint(round(t5.w)) << 8) | (uint(round(t6.x)) << 16) | (uint(round(t6.y)) << 24);
+    prim.data = vec4(t0.xyz, uintBitsToFloat(corner_data));
+    prim.m_row0 = t1;
+    prim.m_row1 = t2;
+    prim.m_row2 = t3;
     prim.extrude_rounding = t4.xy;
-    prim.type = floatBitsToInt(t4.z);
-    prim.bevel = t4.w;
-    prim.color = floatBitsToUint(t5.x);
-    prim.pad0 = t5.y;
-    prim.pad1 = t5.z;
-    prim.pad2 = t5.w;
+    prim.type = int(round(t0.w));
+    prim.bevel = t4.z;
+    prim.color = uint(round(t4.w)) | (uint(round(t5.x)) << 8) | (uint(round(t5.y)) << 16);
+    prim.pad0 = 0.0;
+    prim.pad1 = 0.0;
+    prim.pad2 = 0.0;
     return prim;
 }}
 
 Node mops_fetch_node(int idx) {{
-    int base = idx * 2;
+    vec4 t = mops_fetch_texel(mopsNodesTex, idx);
     Node node;
-    node.type = floatBitsToInt(mops_fetch_word(mopsNodesTex, base));
-    node.idx_in_type = floatBitsToInt(mops_fetch_word(mopsNodesTex, base + 1));
+    node.type = int(round(t.x));
+    node.idx_in_type = int(round(t.y));
     return node;
 }}
 
 BinaryOp mops_fetch_binary_op(int idx) {{
+    vec4 t = mops_fetch_texel(mopsBinaryOpsTex, idx);
     BinaryOp op;
-    op.blend_factor_and_sign = floatBitsToUint(mops_fetch_word(mopsBinaryOpsTex, idx));
+    uint sign_bit = uint(round(t.y)) & 1u;
+    uint op_bits = uint(round(t.z)) & 3u;
+    op.blend_factor_and_sign = (floatBitsToUint(t.x) & (~7u)) | sign_bit | (op_bits << 1);
     return op;
 }}
 
@@ -250,7 +261,7 @@ float mops_fetch_word(sampler2D tex, int word_idx) {{
 }}
 
 uint mops_fetch_bits(sampler2D tex, int idx) {{
-    return floatBitsToUint(texelFetch(tex, mops_tex_coord(idx), 0).r);
+    return uint(round(texelFetch(tex, mops_tex_coord(idx), 0).r));
 }}
 
 int mops_counter_add(int idx, int value) {{
@@ -262,35 +273,44 @@ void mops_counter_flag(int idx) {{
 }}
 
 Primitive mops_fetch_primitive(int idx) {{
-    int base = idx * 24;
+    int base = idx * {_PRIMITIVE_TEXELS};
     Primitive prim;
-    prim.data = mops_fetch_texel(mopsPrimsTex, base >> 2);
-    prim.m_row0 = mops_fetch_texel(mopsPrimsTex, (base >> 2) + 1);
-    prim.m_row1 = mops_fetch_texel(mopsPrimsTex, (base >> 2) + 2);
-    prim.m_row2 = mops_fetch_texel(mopsPrimsTex, (base >> 2) + 3);
-    vec4 t4 = mops_fetch_texel(mopsPrimsTex, (base >> 2) + 4);
-    vec4 t5 = mops_fetch_texel(mopsPrimsTex, (base >> 2) + 5);
+    vec4 t0 = mops_fetch_texel(mopsPrimsTex, base + 0);
+    vec4 t1 = mops_fetch_texel(mopsPrimsTex, base + 1);
+    vec4 t2 = mops_fetch_texel(mopsPrimsTex, base + 2);
+    vec4 t3 = mops_fetch_texel(mopsPrimsTex, base + 3);
+    vec4 t4 = mops_fetch_texel(mopsPrimsTex, base + 4);
+    vec4 t5 = mops_fetch_texel(mopsPrimsTex, base + 5);
+    vec4 t6 = mops_fetch_texel(mopsPrimsTex, base + 6);
+    uint corner_data = uint(round(t5.z)) | (uint(round(t5.w)) << 8) | (uint(round(t6.x)) << 16) | (uint(round(t6.y)) << 24);
+    prim.data = vec4(t0.xyz, uintBitsToFloat(corner_data));
+    prim.m_row0 = t1;
+    prim.m_row1 = t2;
+    prim.m_row2 = t3;
     prim.extrude_rounding = t4.xy;
-    prim.type = floatBitsToInt(t4.z);
-    prim.bevel = t4.w;
-    prim.color = floatBitsToUint(t5.x);
-    prim.pad0 = t5.y;
-    prim.pad1 = t5.z;
-    prim.pad2 = t5.w;
+    prim.type = int(round(t0.w));
+    prim.bevel = t4.z;
+    prim.color = uint(round(t4.w)) | (uint(round(t5.x)) << 8) | (uint(round(t5.y)) << 16);
+    prim.pad0 = 0.0;
+    prim.pad1 = 0.0;
+    prim.pad2 = 0.0;
     return prim;
 }}
 
 Node mops_fetch_node(int idx) {{
-    int base = idx * 2;
+    vec4 t = mops_fetch_texel(mopsNodesTex, idx);
     Node node;
-    node.type = floatBitsToInt(mops_fetch_word(mopsNodesTex, base));
-    node.idx_in_type = floatBitsToInt(mops_fetch_word(mopsNodesTex, base + 1));
+    node.type = int(round(t.x));
+    node.idx_in_type = int(round(t.y));
     return node;
 }}
 
 BinaryOp mops_fetch_binary_op(int idx) {{
+    vec4 t = mops_fetch_texel(mopsBinaryOpsTex, idx);
     BinaryOp op;
-    op.blend_factor_and_sign = floatBitsToUint(mops_fetch_word(mopsBinaryOpsTex, idx));
+    uint sign_bit = uint(round(t.y)) & 1u;
+    uint op_bits = uint(round(t.z)) & 3u;
+    op.blend_factor_and_sign = (floatBitsToUint(t.x) & (~7u)) | sign_bit | (op_bits << 1);
     return op;
 }}
 
@@ -301,7 +321,7 @@ ActiveNode active_nodes_in_get(int idx) {{
 }}
 
 void active_nodes_out_set(int idx, ActiveNode value) {{
-    imageStore(mopsActiveNodesOutImg, mops_tex_coord(idx), vec4(uintBitsToFloat(value.idx_and_sign), 0.0, 0.0, 0.0));
+    imageStore(mopsActiveNodesOutImg, mops_tex_coord(idx), vec4(float(value.idx_and_sign), 0.0, 0.0, 0.0));
 }}
 
 void active_nodes_out_set(uint idx, ActiveNode value) {{
@@ -313,7 +333,7 @@ uint mops_parents_in_get(int idx) {{
 }}
 
 void mops_parents_out_set(int idx, uint value) {{
-    imageStore(mopsParentsOutImg, mops_tex_coord(idx), vec4(uintBitsToFloat(value), 0.0, 0.0, 0.0));
+    imageStore(mopsParentsOutImg, mops_tex_coord(idx), vec4(float(value), 0.0, 0.0, 0.0));
 }}
 
 void mops_parents_out_set(uint idx, uint value) {{
@@ -325,7 +345,7 @@ int mops_parent_cells_offset_get(int idx) {{
 }}
 
 void mops_child_cells_offset_set(int idx, int value) {{
-    imageStore(mopsChildCellOffsetsImg, mops_tex_coord(idx), vec4(uintBitsToFloat(uint(value)), 0.0, 0.0, 0.0));
+    imageStore(mopsChildCellOffsetsImg, mops_tex_coord(idx), vec4(float(value), 0.0, 0.0, 0.0));
 }}
 
 void mops_child_cells_offset_set(uint idx, int value) {{
@@ -337,7 +357,7 @@ int mops_parent_cells_count_get(int idx) {{
 }}
 
 void mops_cell_counts_set(int idx, int value) {{
-    imageStore(mopsCellCountsImg, mops_tex_coord(idx), vec4(uintBitsToFloat(uint(value)), 0.0, 0.0, 0.0));
+    imageStore(mopsCellCountsImg, mops_tex_coord(idx), vec4(float(value), 0.0, 0.0, 0.0));
 }}
 
 void mops_cell_counts_set(uint idx, int value) {{
@@ -357,7 +377,7 @@ void mops_cell_value_out_set(uint idx, float value) {{
 }}
 
 uint mops_old_to_new_get(int idx) {{
-    return floatBitsToUint(imageLoad(mopsOldToNewImg, mops_tex_coord(idx)).r);
+    return imageLoad(mopsOldToNewImg, mops_tex_coord(idx)).r;
 }}
 
 uint mops_old_to_new_get(uint idx) {{
@@ -365,7 +385,7 @@ uint mops_old_to_new_get(uint idx) {{
 }}
 
 void mops_old_to_new_set(int idx, uint value) {{
-    imageStore(mopsOldToNewImg, mops_tex_coord(idx), vec4(uintBitsToFloat(value), 0.0, 0.0, 0.0));
+    imageStore(mopsOldToNewImg, mops_tex_coord(idx), uvec4(value, 0u, 0u, 0u));
 }}
 
 void mops_old_to_new_set(uint idx, uint value) {{
@@ -374,7 +394,7 @@ void mops_old_to_new_set(uint idx, uint value) {{
 
 Tmp mops_tmp_get(int idx) {{
     Tmp t;
-    t.x = floatBitsToUint(imageLoad(mopsTmpImg, mops_tex_coord(idx)).r);
+    t.x = imageLoad(mopsTmpImg, mops_tex_coord(idx)).r;
     return t;
 }}
 
@@ -383,7 +403,7 @@ Tmp mops_tmp_get(uint idx) {{
 }}
 
 void mops_tmp_set(int idx, Tmp value) {{
-    imageStore(mopsTmpImg, mops_tex_coord(idx), vec4(uintBitsToFloat(value.x), 0.0, 0.0, 0.0));
+    imageStore(mopsTmpImg, mops_tex_coord(idx), uvec4(value.x, 0u, 0u, 0u));
 }}
 
 void mops_tmp_set(uint idx, Tmp value) {{
@@ -500,7 +520,8 @@ def _int_env(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
-_TEXTURE_COUNTER_READBACK = bool(_int_env("MATHOPS_V2_TEXTURE_COUNTER_READBACK", 0))
+_TEXTURE_COUNTER_READBACK = bool(_int_env("MATHOPS_V2_TEXTURE_COUNTER_READBACK", 1))
+_VIEWPORT_FAST = bool(_int_env("MATHOPS_V2_VIEWPORT_FAST", 0))
 
 
 def _shader_root() -> Path:
@@ -888,7 +909,7 @@ def _transform_shader_source(
         )
     if use_int16_storage:
         prefix_lines.append(_GLSL_INT16_HEADER)
-    if stage != "compute":
+    if stage != "compute" and _VIEWPORT_FAST:
         prefix_lines.append("#define MATHOPS_VIEWPORT_FAST 1")
     if prefix_lines:
         source = "\n".join(prefix_lines) + "\n" + source.lstrip()
@@ -1139,6 +1160,7 @@ class MathOPSV2GPUViewport:
         self.counters_tex = None
         self.old_to_new_scratch_tex = None
         self.tmp_tex = None
+        self.scene_static_key = None
 
         self.prims_ssbo = _SSBO()
         self.nodes_ssbo = _SSBO()
@@ -1167,6 +1189,7 @@ class MathOPSV2GPUViewport:
         self.offscreen = None
         self.offscreen_size = (0, 0)
         self.scene_key = None
+        self.scene_static_key = None
         self.pruning_key = None
         self.scene_info = None
         self.runtime_failed = False
@@ -1314,15 +1337,15 @@ class MathOPSV2GPUViewport:
                 )
                 compute_shader_info.image(
                     6,
-                    "R32F",
-                    "FLOAT_2D",
+                    "R32UI",
+                    "UINT_2D",
                     "mopsOldToNewImg",
                     qualifiers={"READ", "WRITE"},
                 )
                 compute_shader_info.image(
                     7,
-                    "R32F",
-                    "FLOAT_2D",
+                    "R32UI",
+                    "UINT_2D",
                     "mopsTmpImg",
                     qualifiers={"READ", "WRITE"},
                 )
@@ -1489,20 +1512,93 @@ class MathOPSV2GPUViewport:
         texture = gpu.types.GPUTexture(
             (_TEXTURE_DATA_WIDTH, height), format="RGBA32F", data=buffer
         )
-        return texture, len(data)
+        return texture, int(texture.width) * int(texture.height) * 16
+
+    def _texture_from_float_rgba(self, payload: np.ndarray):
+        data = np.asarray(payload, dtype=np.float32)
+        texel_count = max(1, data.shape[0])
+        height = max(1, (texel_count + _TEXTURE_DATA_WIDTH - 1) // _TEXTURE_DATA_WIDTH)
+        padded = np.zeros((_TEXTURE_DATA_WIDTH * height, 4), dtype=np.float32)
+        padded[: data.shape[0], :] = data
+        flat = np.ascontiguousarray(padded.reshape(-1), dtype=np.float32)
+        buffer = gpu.types.Buffer("FLOAT", len(flat), flat)
+        texture = gpu.types.GPUTexture(
+            (_TEXTURE_DATA_WIDTH, height), format="RGBA32F", data=buffer
+        )
+        return texture, int(texture.width) * int(texture.height) * 16
+
+    def _pack_nodes_texture(self, node_bytes: bytes):
+        values = np.frombuffer(node_bytes, dtype=np.int32).reshape((-1, 2))
+        payload = np.zeros((values.shape[0], 4), dtype=np.float32)
+        payload[:, 0] = values[:, 0].astype(np.float32)
+        payload[:, 1] = values[:, 1].astype(np.float32)
+        return self._texture_from_float_rgba(payload)
+
+    def _pack_binary_ops_texture(self, op_bytes: bytes):
+        bits = np.frombuffer(op_bytes, dtype=np.uint32)
+        k = (bits & np.uint32(0xFFFFFFF8)).view(np.float32)
+        payload = np.zeros((bits.shape[0], 4), dtype=np.float32)
+        payload[:, 0] = k
+        payload[:, 1] = (bits & np.uint32(1)).astype(np.float32)
+        payload[:, 2] = ((bits >> np.uint32(1)) & np.uint32(3)).astype(np.float32)
+        return self._texture_from_float_rgba(payload)
+
+    def _pack_primitives_texture(self, prim_bytes: bytes):
+        words_u32 = np.frombuffer(prim_bytes, dtype=np.uint32).reshape((-1, 24))
+        words_f32 = words_u32.view(np.float32)
+        payload = np.zeros(
+            (words_u32.shape[0] * _PRIMITIVE_TEXELS, 4), dtype=np.float32
+        )
+        base = np.arange(words_u32.shape[0]) * _PRIMITIVE_TEXELS
+        payload[base + 0, 0:3] = words_f32[:, 0:3]
+        payload[base + 0, 3] = words_u32[:, 18].astype(np.float32)
+        payload[base + 1, :] = words_f32[:, 4:8]
+        payload[base + 2, :] = words_f32[:, 8:12]
+        payload[base + 3, :] = words_f32[:, 12:16]
+        payload[base + 4, 0:2] = words_f32[:, 16:18]
+        payload[base + 4, 2] = words_f32[:, 19]
+        payload[base + 4, 3] = (words_u32[:, 20] & np.uint32(0xFF)).astype(np.float32)
+        payload[base + 5, 0] = (
+            (words_u32[:, 20] >> np.uint32(8)) & np.uint32(0xFF)
+        ).astype(np.float32)
+        payload[base + 5, 1] = (
+            (words_u32[:, 20] >> np.uint32(16)) & np.uint32(0xFF)
+        ).astype(np.float32)
+        payload[base + 5, 2] = (words_u32[:, 3] & np.uint32(0xFF)).astype(np.float32)
+        payload[base + 5, 3] = (
+            (words_u32[:, 3] >> np.uint32(8)) & np.uint32(0xFF)
+        ).astype(np.float32)
+        payload[base + 6, 0] = (
+            (words_u32[:, 3] >> np.uint32(16)) & np.uint32(0xFF)
+        ).astype(np.float32)
+        payload[base + 6, 1] = (
+            (words_u32[:, 3] >> np.uint32(24)) & np.uint32(0xFF)
+        ).astype(np.float32)
+        return self._texture_from_float_rgba(payload)
 
     def _sync_scene_textures(self, packed):
         self._free_scene_textures()
-        self.prims_tex, prim_bytes = self._texture_from_raw_bytes(
+        self.prims_tex, prim_bytes = self._pack_primitives_texture(
             bytes(packed["primitives"])
         )
-        self.nodes_tex, node_bytes = self._texture_from_raw_bytes(
-            bytes(packed["nodes"])
-        )
-        self.binary_ops_tex, op_bytes = self._texture_from_raw_bytes(
+        self.nodes_tex, node_bytes = self._pack_nodes_texture(bytes(packed["nodes"]))
+        self.binary_ops_tex, op_bytes = self._pack_binary_ops_texture(
             bytes(packed["binary_ops"])
         )
         self.scene_texture_bytes = prim_bytes + node_bytes + op_bytes
+
+    def _sync_primitive_texture(self, primitive_bytes: bytes):
+        if self.prims_tex is not None:
+            try:
+                self.prims_tex.free()
+            except Exception:
+                pass
+        self.prims_tex, prim_bytes = self._pack_primitives_texture(primitive_bytes)
+        static_bytes = 0
+        for texture in (self.nodes_tex, self.binary_ops_tex):
+            if texture is not None:
+                static_bytes += int(texture.width) * int(texture.height) * 16
+        self.scene_texture_bytes = prim_bytes + static_bytes
 
     def _sync_texture_init_textures(self):
         for texture_name in ("parents_init_tex", "active_nodes_init_tex"):
@@ -1514,11 +1610,13 @@ class MathOPSV2GPUViewport:
                     pass
                 setattr(self, texture_name, None)
 
+        parent_count = len(self._parents_init_raw) // np.dtype(np.uint16).itemsize
+        active_count = len(self._active_init_raw) // np.dtype(np.uint16).itemsize
         self.parents_init_tex = self._create_r32f_texture_from_uint16(
-            self._parents_init_raw, self.active_capacity
+            self._parents_init_raw, parent_count
         )
         self.active_nodes_init_tex = self._create_r32f_texture_from_uint16(
-            self._active_init_raw, self.active_capacity
+            self._active_init_raw, active_count
         )
 
     def _array_texture_capacity_limit(self) -> int:
@@ -1527,6 +1625,9 @@ class MathOPSV2GPUViewport:
         except Exception:
             max_size = _TEXTURE_DATA_WIDTH
         return _TEXTURE_DATA_WIDTH * max(1, max_size)
+
+    def _texture_precision_active_limit(self) -> int:
+        return min(self._array_texture_capacity_limit(), _FLOAT32_EXACT_UINT_LIMIT)
 
     def _array_texture_size(self, count: int) -> tuple[int, int]:
         height = max(
@@ -1543,7 +1644,7 @@ class MathOPSV2GPUViewport:
         if data:
             src = np.frombuffer(data, dtype=np.uint16).astype(np.uint32)
             values[: len(src)] = src
-        payload = values.view(np.float32)
+        payload = values.astype(np.float32)
         width, height = self._array_texture_size(count)
         needed = width * height
         if payload.size < needed:
@@ -1564,11 +1665,12 @@ class MathOPSV2GPUViewport:
     ):
         default_active, default_tmp = self._capacity_for_scene(node_count)
         texture_cap = self._array_texture_capacity_limit()
+        active_precision_cap = self._texture_precision_active_limit()
         if active_capacity is None:
             active_capacity = max(default_active, self.active_capacity)
         if tmp_capacity is None:
             tmp_capacity = max(default_tmp, self.tmp_capacity)
-        active_capacity = min(active_capacity, texture_cap)
+        active_capacity = min(active_capacity, active_precision_cap)
         tmp_capacity = min(tmp_capacity, texture_cap)
         grid_size = 1 << grid_level
         num_cells = grid_size * grid_size * grid_size
@@ -1626,8 +1728,8 @@ class MathOPSV2GPUViewport:
 
         for texture_name, count, fmt in (
             ("counters_tex", _COUNTERS_SIZE, "R32UI"),
-            ("old_to_new_scratch_tex", tmp_capacity, "R32F"),
-            ("tmp_tex", tmp_capacity, "R32F"),
+            ("old_to_new_scratch_tex", tmp_capacity, "R32UI"),
+            ("tmp_tex", tmp_capacity, "R32UI"),
         ):
             texture = getattr(self, texture_name, None)
             if texture is not None:
@@ -1640,6 +1742,13 @@ class MathOPSV2GPUViewport:
         self._buffer_config_key = key
         self.pruning_key = None
         self._sync_texture_init_textures()
+        if (
+            active_precision_cap < texture_cap
+            and active_capacity == active_precision_cap
+        ):
+            runtime.debug_log(
+                f"Viewport texture active capacity capped at {active_precision_cap:,} to keep float32 cell offsets exact"
+            )
         runtime.debug_log(
             f"Viewport texture buffers: active={active_capacity:,}, tmp={tmp_capacity:,}, cells={num_cells:,}"
         )
@@ -1690,7 +1799,9 @@ class MathOPSV2GPUViewport:
         )
         if self.texture_scene_mode:
             texture_cap = self._array_texture_capacity_limit()
-            active_capacity = min(active_capacity, texture_cap)
+            active_capacity = min(
+                active_capacity, self._texture_precision_active_limit()
+            )
             tmp_capacity = min(tmp_capacity, texture_cap)
         return active_capacity, tmp_capacity
 
@@ -1752,7 +1863,9 @@ class MathOPSV2GPUViewport:
     def _grow_work_buffers(self, node_count: int, grid_level: int) -> bool:
         if self.texture_scene_mode:
             texture_cap = self._array_texture_capacity_limit()
-            next_active = min(max(self.active_capacity * 2, 1), texture_cap)
+            next_active = min(
+                max(self.active_capacity * 2, 1), self._texture_precision_active_limit()
+            )
             next_tmp = min(max(self.tmp_capacity * 2, 1), texture_cap)
             if next_active == self.active_capacity and next_tmp == self.tmp_capacity:
                 return False
@@ -1774,30 +1887,55 @@ class MathOPSV2GPUViewport:
         return True
 
     def _sync_scene(self, scene_path: Path, settings):
-        scene_key = (str(scene_path.resolve()), scene_path.stat().st_mtime_ns)
+        anim_frame_key = bridge.demo_anim_frame_key(settings)
+        anim_active = anim_frame_key is not None
+        scene_static_key = (
+            str(scene_path.resolve()),
+            scene_path.stat().st_mtime_ns,
+            anim_active,
+        )
+        scene_key = (
+            scene_static_key[0],
+            scene_static_key[1],
+            anim_frame_key,
+        )
         if self.scene_key != scene_key:
             native_module = bridge.load_native_module()
-            packed = native_module.pack_scene_file(str(scene_path))
-            self._parents_init_raw = bytes(packed["parents"])
-            self._active_init_raw = bytes(packed["active_nodes"])
-            if self.texture_scene_mode:
-                self._sync_scene_textures(packed)
+            anim_time = bridge.demo_anim_time(settings)
+            if anim_time is None:
+                packed = native_module.pack_scene_file(str(scene_path))
             else:
+                packed = native_module.pack_scene_demo_anim(
+                    str(scene_path), float(anim_time)
+                )
+            full_refresh = self.scene_static_key != scene_static_key
+            if full_refresh:
+                self._parents_init_raw = bytes(packed["parents"])
+                self._active_init_raw = bytes(packed["active_nodes"])
+                if self.texture_scene_mode:
+                    self._sync_scene_textures(packed)
+                else:
+                    self.prims_ssbo.upload(bytes(packed["primitives"]))
+                    self.nodes_ssbo.upload(bytes(packed["nodes"]))
+                    self.binary_ops_ssbo.upload(bytes(packed["binary_ops"]))
+                self.scene_info = {
+                    "aabb_min": tuple(packed["aabb_min"]),
+                    "aabb_max": tuple(packed["aabb_max"]),
+                    "node_count": int(packed["node_count"]),
+                }
+                self.scene_static_key = scene_static_key
+            elif anim_active and self.texture_scene_mode:
+                self._sync_primitive_texture(bytes(packed["primitives"]))
+            elif anim_active:
                 self.prims_ssbo.upload(bytes(packed["primitives"]))
-                self.nodes_ssbo.upload(bytes(packed["nodes"]))
-                self.binary_ops_ssbo.upload(bytes(packed["binary_ops"]))
-            self.scene_info = {
-                "aabb_min": tuple(packed["aabb_min"]),
-                "aabb_max": tuple(packed["aabb_max"]),
-                "node_count": int(packed["node_count"]),
-            }
             self.scene_key = scene_key
             self.pruning_key = None
             self.culling_overflow = False
             self.last_overflow_message = ""
-            runtime.debug_log(
-                f"Viewport scene packed: {scene_path.name}, nodes={self.scene_info['node_count']}"
-            )
+            if full_refresh:
+                runtime.debug_log(
+                    f"Viewport scene packed: {scene_path.name}, nodes={self.scene_info['node_count']}"
+                )
 
         self._ensure_work_buffers(
             self.scene_info["node_count"], bridge.grid_level(settings)
@@ -1814,8 +1952,8 @@ class MathOPSV2GPUViewport:
             self._clear_texture(self.cell_errors_tex[0], "FLOAT", (0.0,))
             self._clear_texture(self.cell_errors_tex[1], "FLOAT", (0.0,))
             self._clear_texture(self.counters_tex, "UINT", (0,))
-            self._clear_texture(self.old_to_new_scratch_tex, "FLOAT", (0.0,))
-            self._clear_texture(self.tmp_tex, "FLOAT", (0.0,))
+            self._clear_texture(self.old_to_new_scratch_tex, "UINT", (0,))
+            self._clear_texture(self.tmp_tex, "UINT", (0,))
             self.max_active_count = 0
             self.max_tmp_count = 0
             self.culling_overflow = False
@@ -2011,10 +2149,17 @@ class MathOPSV2GPUViewport:
             self.frame_culling_ms = (time.perf_counter() - start) * 1000.0
 
             if self.texture_scene_mode and _TEXTURE_COUNTER_READBACK:
-                counter_values = np.frombuffer(
-                    self.counters_tex.read(), dtype=np.uint32
-                )
-                overflow = int(counter_values[_COUNTERS_STATUS]) != 0
+                try:
+                    counter_values = np.frombuffer(
+                        self.counters_tex.read(), dtype=np.uint32
+                    )
+                    overflow = int(counter_values[_COUNTERS_STATUS]) != 0
+                except Exception as exc:
+                    runtime.debug_log(
+                        f"Viewport texture counter readback failed: {exc}"
+                    )
+                    counter_values = np.zeros(_COUNTERS_SIZE, dtype=np.uint32)
+                    overflow = True
             elif self.texture_scene_mode:
                 counter_values = np.zeros(_COUNTERS_SIZE, dtype=np.uint32)
                 overflow = False
@@ -2054,7 +2199,26 @@ class MathOPSV2GPUViewport:
 
     def _allocated_pruning_bytes(self) -> int:
         if self.texture_scene_mode:
-            return 0
+            return sum(
+                0 if texture is None else int(texture.width) * int(texture.height) * 4
+                for texture in (
+                    self.parents_init_tex,
+                    self.active_nodes_init_tex,
+                    self.parents_tex[0],
+                    self.parents_tex[1],
+                    self.active_nodes_tex[0],
+                    self.active_nodes_tex[1],
+                    self.cell_offsets_tex[0],
+                    self.cell_offsets_tex[1],
+                    self.num_active_tex[0],
+                    self.num_active_tex[1],
+                    self.cell_errors_tex[0],
+                    self.cell_errors_tex[1],
+                    self.counters_tex,
+                    self.old_to_new_scratch_tex,
+                    self.tmp_tex,
+                )
+            )
         return sum(
             buffer.size
             for buffer in (
@@ -2076,7 +2240,15 @@ class MathOPSV2GPUViewport:
 
     def _allocated_tracing_bytes(self) -> int:
         if self.texture_scene_mode:
-            return self.scene_texture_bytes
+            return self.scene_texture_bytes + sum(
+                0 if texture is None else int(texture.width) * int(texture.height) * 4
+                for texture in (
+                    self.active_nodes_tex[self.final_output_idx],
+                    self.num_active_tex[self.final_output_idx],
+                    self.cell_offsets_tex[self.final_output_idx],
+                    self.cell_errors_tex[self.final_output_idx],
+                )
+            )
         return sum(
             buffer.size
             for buffer in (
@@ -2156,8 +2328,10 @@ class MathOPSV2GPUViewport:
             if not self._ensure_shaders(settings.shading_mode):
                 return False
 
-            scene_path = bridge.resolve_scene_path(settings)
+            scene_path = bridge.resolve_scene_path(settings, create=True)
             if not scene_path.is_file():
+                if not runtime.last_error_message:
+                    bridge.set_last_error(f"Scene file not found: {scene_path}")
                 return False
 
             self._sync_scene(scene_path, settings)

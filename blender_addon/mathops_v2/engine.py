@@ -4,6 +4,7 @@ import gpu
 import numpy as np
 import bpy
 from bpy.types import RenderEngine
+from gpu_extras.batch import batch_for_shader
 
 from . import runtime
 from .render import bridge, gpu_viewport
@@ -20,6 +21,7 @@ class MathOPSV2RenderEngine(RenderEngine):
         super().__init__(*args, **kwargs)
         self._gpu_viewport = gpu_viewport.MathOPSV2GPUViewport()
         self._logged_ortho_warning = False
+        self._aabb_shader = None
 
     def __del__(self):
         if getattr(self, "_gpu_viewport", None) is not None:
@@ -33,6 +35,42 @@ class MathOPSV2RenderEngine(RenderEngine):
             f"cull {stats['culling_ms']:.2f} | "
             f"upload {stats['upload_ms']:.2f}"
         )
+
+    def _ensure_aabb_shader(self):
+        if self._aabb_shader is not None:
+            return self._aabb_shader
+        shader_info = gpu.types.GPUShaderCreateInfo()
+        shader_info.push_constant("MAT4", "viewProjectionMatrix")
+        shader_info.push_constant("VEC4", "color")
+        shader_info.vertex_in(0, "VEC3", "position")
+        shader_info.fragment_out(0, "VEC4", "FragColor")
+        shader_info.vertex_source(
+            "void main(){  gl_Position = viewProjectionMatrix * vec4(position, 1.0);}"
+        )
+        shader_info.fragment_source("void main(){  FragColor = color;}")
+        self._aabb_shader = gpu.shader.create_from_info(shader_info)
+        return self._aabb_shader
+
+    def _draw_aabb_overlay(self, context, settings):
+        if not getattr(settings, "show_aabb_overlay", True):
+            return
+        if runtime.current_effective_aabb is None:
+            return
+        aabb_min, aabb_max = runtime.current_effective_aabb
+        points = bridge.renderer_aabb_edge_points(aabb_min, aabb_max)
+        if not points:
+            return
+        shader = self._ensure_aabb_shader()
+        batch = batch_for_shader(shader, "LINES", {"position": points})
+        gpu.state.depth_test_set("NONE")
+        gpu.state.depth_mask_set(False)
+        gpu.state.blend_set("ALPHA")
+        shader.uniform_float(
+            "viewProjectionMatrix", context.region_data.perspective_matrix
+        )
+        shader.uniform_float("color", (1.0, 0.35, 0.1, 1.0))
+        batch.draw(shader)
+        gpu.state.blend_set("NONE")
 
     def render(self, depsgraph):
         scene = depsgraph.scene
@@ -51,7 +89,7 @@ class MathOPSV2RenderEngine(RenderEngine):
                 "MathOPS-v2", f"Render {runtime.last_render_stats['render_ms']:.2f} ms"
             )
         except Exception as exc:
-            bridge.set_last_error(settings, str(exc))
+            bridge.set_last_error(str(exc))
             traceback.print_exc()
 
             result = self.begin_result(0, 0, width, height)
@@ -83,12 +121,14 @@ class MathOPSV2RenderEngine(RenderEngine):
 
         self._logged_ortho_warning = False
 
-        scene_path = bridge.resolve_scene_path(settings)
+        scene_path = bridge.resolve_scene_path(settings, create=True)
         if not scene_path.is_file():
-            bridge.set_last_error(settings, f"Scene file not found: {scene_path}")
+            if not runtime.last_error_message:
+                bridge.set_last_error(f"Scene file not found: {scene_path}")
             return None
 
         if self._gpu_viewport.draw(context, depsgraph):
+            self._draw_aabb_overlay(context, settings)
             self.update_stats("MathOPS-v2", self._viewport_status_text("Viewport"))
             return None
 
@@ -99,7 +139,6 @@ class MathOPSV2RenderEngine(RenderEngine):
             pass
         if not runtime.last_error_message:
             bridge.set_last_error(
-                settings,
                 (
                     "Viewport exact GPU path is unavailable on "
                     f"{backend}. OpenGL is currently required because Blender's Python GPU API does not expose storage buffer bindings."

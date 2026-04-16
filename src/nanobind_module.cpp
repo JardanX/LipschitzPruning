@@ -5,6 +5,7 @@
 #include <cstring>
 #include <stdexcept>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <nanobind/nanobind.h>
@@ -174,18 +175,18 @@ private:
     bool closed_ = false;
 };
 
-nb::dict pack_scene_file_impl(const std::string& scene_path) {
-    std::vector<CSGNode> nodes;
-    glm::vec3 aabb_min;
-    glm::vec3 aabb_max;
-    load_json(scene_path.c_str(), nodes, aabb_min, aabb_max);
-
+nb::dict pack_scene_nodes_impl(
+    const std::vector<CSGNode>& nodes,
+    int root_idx,
+    const glm::vec3& aabb_min,
+    const glm::vec3& aabb_max)
+{
     std::vector<GPUNode> gpu_nodes;
     std::vector<Primitive> primitives;
     std::vector<BinaryOp> binary_ops;
     std::vector<uint16_t> parents;
     std::vector<uint16_t> active_nodes;
-    ConvertToGPUTree(0, nodes, gpu_nodes, primitives, binary_ops, parents, active_nodes);
+    ConvertToGPUTree(root_idx, nodes, gpu_nodes, primitives, binary_ops, parents, active_nodes);
 
     nb::dict result;
     result["node_count"] = int(gpu_nodes.size());
@@ -208,6 +209,187 @@ nb::dict pack_scene_file_impl(const std::string& scene_path) {
     return result;
 }
 
+nb::dict pack_scene_packed_impl(
+    const std::vector<GPUNode>& gpu_nodes,
+    const std::vector<Primitive>& primitives,
+    const std::vector<BinaryOp>& binary_ops,
+    const std::vector<uint16_t>& parents,
+    const std::vector<uint16_t>& active_nodes,
+    const glm::vec3& aabb_min,
+    const glm::vec3& aabb_max)
+{
+
+    nb::dict result;
+    result["node_count"] = int(gpu_nodes.size());
+    result["primitive_count"] = int(primitives.size());
+    result["binary_op_count"] = int(binary_ops.size());
+    result["aabb_min"] = std::vector<float>{ aabb_min.x, aabb_min.y, aabb_min.z };
+    result["aabb_max"] = std::vector<float>{ aabb_max.x, aabb_max.y, aabb_max.z };
+
+    const char* prim_ptr = primitives.empty() ? nullptr : reinterpret_cast<const char*>(primitives.data());
+    const char* node_ptr = gpu_nodes.empty() ? nullptr : reinterpret_cast<const char*>(gpu_nodes.data());
+    const char* op_ptr = binary_ops.empty() ? nullptr : reinterpret_cast<const char*>(binary_ops.data());
+    const char* parent_ptr = parents.empty() ? nullptr : reinterpret_cast<const char*>(parents.data());
+    const char* active_ptr = active_nodes.empty() ? nullptr : reinterpret_cast<const char*>(active_nodes.data());
+
+    result["primitives"] = nb::bytes(prim_ptr, primitives.size() * sizeof(Primitive));
+    result["nodes"] = nb::bytes(node_ptr, gpu_nodes.size() * sizeof(GPUNode));
+    result["binary_ops"] = nb::bytes(op_ptr, binary_ops.size() * sizeof(BinaryOp));
+    result["parents"] = nb::bytes(parent_ptr, parents.size() * sizeof(uint16_t));
+    result["active_nodes"] = nb::bytes(active_ptr, active_nodes.size() * sizeof(uint16_t));
+    return result;
+}
+
+nb::dict pack_scene_file_impl(const std::string& scene_path) {
+    std::vector<CSGNode> nodes;
+    glm::vec3 aabb_min;
+    glm::vec3 aabb_max;
+    load_json(scene_path.c_str(), nodes, aabb_min, aabb_max);
+    return pack_scene_nodes_impl(nodes, 0, aabb_min, aabb_max);
+}
+
+nb::dict pack_scene_json_impl(const std::string& scene_json) {
+    std::vector<CSGNode> nodes;
+    glm::vec3 aabb_min;
+    glm::vec3 aabb_max;
+    load_json_string(scene_json.c_str(), nodes, aabb_min, aabb_max);
+    return pack_scene_nodes_impl(nodes, 0, aabb_min, aabb_max);
+}
+
+struct DemoAnimCacheEntry {
+    std::vector<GPUNode> gpu_nodes;
+    std::vector<Primitive> primitives;
+    std::vector<BinaryOp> binary_ops;
+    std::vector<uint16_t> parents;
+    std::vector<uint16_t> active_nodes;
+    glm::vec3 aabb_min;
+    glm::vec3 aabb_max;
+    int root_idx = 0;
+    int sphere_idx = -1;
+    int sphere_primitive_idx = -1;
+};
+
+DemoAnimCacheEntry& get_demo_anim_entry(const std::string& scene_path) {
+    static std::unordered_map<std::string, DemoAnimCacheEntry> cache;
+    auto [it, inserted] = cache.try_emplace(scene_path);
+    if (!inserted) {
+        return it->second;
+    }
+
+    DemoAnimCacheEntry& entry = it->second;
+    std::vector<CSGNode> nodes;
+    load_json(scene_path.c_str(), nodes, entry.aabb_min, entry.aabb_max);
+
+    CSGNode sphere_node{};
+    sphere_node.primitive.sphere = {.radius = glm::vec4(0.2f)};
+    sphere_node.primitive.m_row0 = glm::vec4(1, 0, 0, 0);
+    sphere_node.primitive.m_row1 = glm::vec4(0, 1, 0, 0);
+    sphere_node.primitive.m_row2 = glm::vec4(0, 0, 1, 0);
+    sphere_node.primitive.extrude_rounding = glm::vec2(0.0f);
+    sphere_node.primitive.type = PRIMITIVE_SPHERE;
+    sphere_node.primitive.color = 0xaaaaff;
+    sphere_node.type = NODETYPE_PRIMITIVE;
+    sphere_node.left = -1;
+    sphere_node.right = -1;
+    sphere_node.sign = true;
+    entry.sphere_idx = int(nodes.size());
+    nodes.push_back(sphere_node);
+
+    CSGNode union_node{};
+    union_node.binary_op = BinaryOp(1e-1f, true, OP_UNION);
+    union_node.type = NODETYPE_BINARY;
+    union_node.sign = true;
+    union_node.left = 0;
+    union_node.right = entry.sphere_idx;
+    entry.root_idx = int(nodes.size());
+    nodes.push_back(union_node);
+
+    std::vector<int> cpu_to_gpu(nodes.size());
+    std::vector<int> stack = {entry.root_idx};
+    std::vector<int> preorder;
+    while (!stack.empty()) {
+        int current_idx = stack.back();
+        stack.pop_back();
+        preorder.push_back(current_idx);
+        if (nodes[current_idx].type == NODETYPE_BINARY) {
+            stack.push_back(nodes[current_idx].left);
+            stack.push_back(nodes[current_idx].right);
+        }
+    }
+
+    entry.active_nodes.resize(nodes.size());
+    for (int i = int(nodes.size()) - 1; i >= 0; --i) {
+        int current_idx = preorder[i];
+        const CSGNode& node = nodes[current_idx];
+        switch (node.type) {
+            case NODETYPE_BINARY: {
+                int gpu_left = cpu_to_gpu[node.left];
+                int gpu_right = cpu_to_gpu[node.right];
+                entry.binary_ops.push_back(node.binary_op);
+                GPUNode gpu_node = {
+                    .type = node.type,
+                    .idx_in_type = int(entry.binary_ops.size()) - 1,
+                };
+                entry.gpu_nodes.push_back(gpu_node);
+                entry.parents[gpu_left] = uint16_t(entry.gpu_nodes.size() - 1);
+                entry.parents[gpu_right] = uint16_t(entry.gpu_nodes.size() - 1);
+                entry.parents.push_back(0xffff);
+                break;
+            }
+            case NODETYPE_PRIMITIVE: {
+                entry.primitives.push_back(node.primitive);
+                GPUNode gpu_node = {
+                    .type = node.type,
+                    .idx_in_type = int(entry.primitives.size()) - 1,
+                };
+                entry.gpu_nodes.push_back(gpu_node);
+                entry.parents.push_back(0xffff);
+                if (current_idx == entry.sphere_idx) {
+                    entry.sphere_primitive_idx = gpu_node.idx_in_type;
+                }
+                break;
+            }
+            default:
+                abort();
+        }
+        uint32_t gpu_idx = uint32_t(entry.gpu_nodes.size() - 1);
+        cpu_to_gpu[current_idx] = int(gpu_idx);
+        entry.active_nodes[gpu_idx] = uint16_t(gpu_idx);
+        if (!node.sign) {
+            entry.active_nodes[gpu_idx] |= 1u << 15;
+        }
+    }
+    return entry;
+}
+
+nb::dict pack_scene_demo_anim_impl(const std::string& scene_path, float anim_time) {
+    DemoAnimCacheEntry& entry = get_demo_anim_entry(scene_path);
+
+    const float radius = 0.2f;
+    glm::vec3 center = {
+        cosf(anim_time),
+        cosf(anim_time * 0.3f),
+        sinf(anim_time),
+    };
+    center *= sinf(anim_time * 0.56f + 123.4f);
+    glm::vec3 scale = entry.aabb_max - entry.aabb_min - glm::vec3(2.0f * radius);
+    center = entry.aabb_min + glm::vec3(radius) + (center * 0.5f + glm::vec3(0.5f)) * scale;
+
+    Primitive& sphere = entry.primitives[entry.sphere_primitive_idx];
+    sphere.m_row0[3] = -center.x;
+    sphere.m_row1[3] = -center.y;
+    sphere.m_row2[3] = -center.z;
+
+    return pack_scene_packed_impl(
+        entry.gpu_nodes,
+        entry.primitives,
+        entry.binary_ops,
+        entry.parents,
+        entry.active_nodes,
+        entry.aabb_min,
+        entry.aabb_max);
+}
+
 }
 
 NB_MODULE(lipschitz_pruning_native, m) {
@@ -218,6 +400,8 @@ NB_MODULE(lipschitz_pruning_native, m) {
     m.attr("SHADING_MODE_NORMALS") = SHADING_MODE_NORMALS;
     m.attr("SHADING_MODE_AO") = SHADING_MODE_BEAUTY;
     m.def("pack_scene_file", &pack_scene_file_impl, nb::arg("scene_path"));
+    m.def("pack_scene_json", &pack_scene_json_impl, nb::arg("scene_json"));
+    m.def("pack_scene_demo_anim", &pack_scene_demo_anim_impl, nb::arg("scene_path"), nb::arg("anim_time"));
 
     nb::class_<OffscreenRenderer>(m, "Renderer")
         .def(nb::init<const std::string&, int, int, int, int, bool, int, float>(),

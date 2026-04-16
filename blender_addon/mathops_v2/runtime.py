@@ -19,9 +19,6 @@ COMPAT_PANEL_NAMES = (
     "RENDER_PT_dimensions",
     "RENDER_PT_output",
     "RENDER_PT_color_management",
-    "RENDER_PT_post_processing",
-    "RENDER_PT_stamp",
-    "RENDER_PT_stamp_note",
     "VIEWLAYER_PT_layer",
 )
 
@@ -32,9 +29,17 @@ loaded_scene_key = None
 gpu_viewport_enabled = False
 pruning_cache_key = None
 scene_metadata_cache = {}
+scene_payload_cache = {}
+scene_bounds_cache = {}
+generated_scene_cache = {}
+dynamic_aabb_state = {}
 compat_panels = []
 debug_log_buffer = []
 last_error_message = ""
+demo_anim_running = False
+demo_anim_start_time = 0.0
+demo_anim_timer_registered = False
+current_effective_aabb = None
 last_render_stats = {
     "scene_name": "",
     "scene_path": "",
@@ -77,7 +82,11 @@ def reset_runtime():
         gpu_viewport_enabled, \
         pruning_cache_key, \
         compat_panels, \
-        last_error_message
+        last_error_message, \
+        demo_anim_running, \
+        demo_anim_start_time, \
+        demo_anim_timer_registered, \
+        current_effective_aabb
     native_module = None
     renderer = None
     renderer_key = None
@@ -86,7 +95,15 @@ def reset_runtime():
     pruning_cache_key = None
     compat_panels = []
     scene_metadata_cache.clear()
+    scene_payload_cache.clear()
+    scene_bounds_cache.clear()
+    generated_scene_cache.clear()
+    dynamic_aabb_state.clear()
     last_error_message = ""
+    demo_anim_running = False
+    demo_anim_start_time = 0.0
+    demo_anim_timer_registered = False
+    current_effective_aabb = None
     last_render_stats.update(
         {
             "scene_name": "",
