@@ -186,8 +186,5 @@ void compute_pruning(vec3 cell_center, vec3 cell_size, int cell_idx) {
     child_cells_offset.tab[cell_idx] = cell_offset;
     num_active_out.tab[cell_idx] = cell_num_active;
 
-    // TODO: constant for max grid size
-    if (out_idx == 1 || grid_size == 256) {
-        cell_value_out.tab[cell_idx] = 0;
-    }
+    cell_value_out.tab[cell_idx] = 0;
 }

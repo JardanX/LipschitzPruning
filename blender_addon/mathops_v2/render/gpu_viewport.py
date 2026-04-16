@@ -12,7 +12,7 @@ from gpu_extras.presets import draw_texture_2d
 from mathutils import Matrix
 
 from .. import runtime
-from . import bridge
+from . import bridge, matcap
 
 
 _BINDING_PRIMS = 0
@@ -483,6 +483,7 @@ struct ViewportParams {
 #define mops_aabb_max params.aabb_max
 #define mops_culling_enabled params.ints1.y
 #define mops_num_samples params.ints1.z
+#define mops_show_specular params.ints1.w
 #define mops_viz_max params.floats0.x
 #define mops_alpha params.floats0.y
 #define mops_gamma params.floats0.z
@@ -909,6 +910,8 @@ def _transform_shader_source(
         )
     if use_int16_storage:
         prefix_lines.append(_GLSL_INT16_HEADER)
+    if stage == "fragment":
+        prefix_lines.append("#define MATHOPS_BLENDER_VIEWPORT 1")
     if stage != "compute" and _VIEWPORT_FAST:
         prefix_lines.append("#define MATHOPS_VIEWPORT_FAST 1")
     if prefix_lines:
@@ -1372,6 +1375,8 @@ class MathOPSV2GPUViewport:
                 shader_info.sampler(4, "FLOAT_2D", "mopsCellOffsetsTex")
                 shader_info.sampler(5, "FLOAT_2D", "mopsCellCountsTex")
                 shader_info.sampler(6, "FLOAT_2D", "mopsCellErrorsTex")
+                shader_info.sampler(7, "FLOAT_2D", "mopsMatcapTex")
+                shader_info.sampler(8, "FLOAT_2D", "mopsMatcapSpecularTex")
                 shader_info.vertex_source(
                     "void main(){  gl_Position = vec4(pos, 0.0, 1.0);}"
                 )
@@ -1428,6 +1433,8 @@ class MathOPSV2GPUViewport:
                 shader_info.depth_write("ANY")
                 shader_info.typedef_source(_FRAGMENT_PARAMS_TYPEDEF)
                 shader_info.uniform_buf(0, "ViewportParams", "params")
+                shader_info.sampler(0, "FLOAT_2D", "mopsMatcapTex")
+                shader_info.sampler(1, "FLOAT_2D", "mopsMatcapSpecularTex")
                 shader_info.vertex_source(
                     "void main(){  gl_Position = vec4(pos, 0.0, 1.0);}"
                 )
@@ -1889,9 +1896,10 @@ class MathOPSV2GPUViewport:
     def _sync_scene(self, scene_path: Path, settings):
         anim_frame_key = bridge.demo_anim_frame_key(settings)
         anim_active = anim_frame_key is not None
+        scene_token = bridge.scene_content_token(scene_path)
         scene_static_key = (
             str(scene_path.resolve()),
-            scene_path.stat().st_mtime_ns,
+            scene_token,
             anim_active,
         )
         scene_key = (
@@ -2064,6 +2072,8 @@ class MathOPSV2GPUViewport:
 
     def _memory_barrier(self):
         if self.texture_scene_mode:
+            if _TEXTURE_COUNTER_READBACK and self.counters_tex is not None:
+                self.counters_tex.read()
             return
         _gl_functions()["glMemoryBarrier"](
             _GL_SHADER_STORAGE_BARRIER_BIT | _GL_BUFFER_UPDATE_BARRIER_BIT
@@ -2281,6 +2291,8 @@ class MathOPSV2GPUViewport:
         tan_half_fov = max(1e-4, float(np.tan(float(fov_y) * 0.5)))
         background = bridge.world_background_color(scene)
         use_culling = settings.culling_enabled and not self.culling_overflow
+        shading = getattr(context.space_data, "shading", None)
+        show_specular = int(bool(getattr(shading, "show_specular_highlight", True)))
         params = self.fragment_params_data
         params.aabb_min[:] = (*aabb_min, 0.0)
         params.aabb_max[:] = (*aabb_max, 0.0)
@@ -2299,7 +2311,7 @@ class MathOPSV2GPUViewport:
             }[settings.shading_mode],
             int(use_culling),
             max(settings.num_samples, 1),
-            0,
+            show_specular,
         )
         params.floats0[:] = (
             float(settings.colormap_max),
@@ -2321,6 +2333,11 @@ class MathOPSV2GPUViewport:
 
         self.draw_shader.bind()
         self.draw_shader.uniform_block("params", self.params_ubo)
+        diffuse_texture, specular_texture = matcap.get_matcap_textures(
+            context, getattr(settings, "custom_matcap", "")
+        )
+        self.draw_shader.uniform_sampler("mopsMatcapTex", diffuse_texture)
+        self.draw_shader.uniform_sampler("mopsMatcapSpecularTex", specular_texture)
 
     def draw(self, context, depsgraph):
         settings = depsgraph.scene.mathops_v2_settings

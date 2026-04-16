@@ -117,16 +117,19 @@ def _ensure_output_node(tree):
             node for node in tree.nodes if node.bl_idname == OUTPUT_NODE_IDNAME
         ]
         output_node = _find_output_node(tree)
+        created_output = False
 
         if output_node is None:
             output_node = tree.nodes.new(OUTPUT_NODE_IDNAME)
+            created_output = True
 
         for node in list(output_nodes):
             if node != output_node:
                 tree.nodes.remove(node)
 
         source_node = _surface_root_candidate(tree)
-        _position_output_node(tree, output_node, source_node)
+        if created_output:
+            _position_output_node(tree, output_node, source_node)
 
         if (
             source_node is not None
@@ -273,18 +276,32 @@ def stop_editor_sync():
 
 
 def initialize_scene_trees():
-    for scene in bpy.data.scenes:
+    scenes = getattr(bpy.data, "scenes", None)
+    if scenes is None:
+        return False
+
+    for scene in scenes:
         settings = scene.mathops_v2_settings
         if getattr(settings, "use_sdf_nodes", False):
             ensure_scene_tree(scene, settings)
+    return True
+
+
+def _deferred_post_register():
+    if not initialize_scene_trees():
+        return 0.1
+    start_editor_sync()
+    return None
 
 
 def post_register():
-    initialize_scene_trees()
-    start_editor_sync()
+    if not bpy.app.timers.is_registered(_deferred_post_register):
+        bpy.app.timers.register(_deferred_post_register, first_interval=0.0)
 
 
 def pre_unregister():
+    if bpy.app.timers.is_registered(_deferred_post_register):
+        bpy.app.timers.unregister(_deferred_post_register)
     stop_editor_sync()
 
 
@@ -845,9 +862,11 @@ def ensure_generated_scene(settings, create=False):
     scene_json = compile_tree_json(tree)
     scene_hash = hashlib.sha1(scene_json.encode("utf-8")).hexdigest()
     scene_path = generated_scene_dir() / _scene_file_name(tree.name)
+    scene_path_key = str(scene_path.resolve())
     cache_key = tree.name_full
     cached = runtime.generated_scene_cache.get(cache_key)
     if cached and cached["hash"] == scene_hash and scene_path.is_file():
+        runtime.generated_scene_path_hashes[scene_path_key] = scene_hash
         return scene_path
 
     scene_path.write_text(scene_json, encoding="utf-8")
@@ -855,6 +874,7 @@ def ensure_generated_scene(settings, create=False):
         "hash": scene_hash,
         "path": str(scene_path),
     }
+    runtime.generated_scene_path_hashes[scene_path_key] = scene_hash
     runtime.debug_log(f"Compiled SDF node tree '{tree.name}' to {scene_path.name}")
     return scene_path
 

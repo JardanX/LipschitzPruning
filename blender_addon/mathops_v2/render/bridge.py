@@ -195,7 +195,13 @@ def resolve_scene_path(settings, strict=False, create=False) -> Path:
     try:
         return sdf_nodes.ensure_generated_scene(settings, create=create)
     except Exception as exc:
-        set_last_error(str(exc))
+        message = str(exc)
+        if not strict and message in {
+            "Enable Use Nodes to create a scene SDF graph",
+            "Scene SDF graph is unavailable",
+        }:
+            return sdf_nodes.invalid_scene_path()
+        set_last_error(message)
         if strict:
             raise
         return sdf_nodes.invalid_scene_path()
@@ -261,6 +267,15 @@ def force_redraw_viewports(context=None):
         pass
 
 
+def scene_content_token(scene_path: Path):
+    scene_path = scene_path.resolve()
+    cache_key = str(scene_path)
+    generated_hash = runtime.generated_scene_path_hashes.get(cache_key)
+    if generated_hash is not None:
+        return ("hash", generated_hash)
+    return ("mtime", scene_path.stat().st_mtime_ns)
+
+
 def world_background_color(scene):
     world = getattr(scene, "world", None)
     if world is not None:
@@ -290,10 +305,10 @@ def count_nodes(node) -> int:
 
 def load_scene_metadata(scene_path: Path):
     scene_path = scene_path.resolve()
-    stat = scene_path.stat()
+    token = scene_content_token(scene_path)
     cache_key = str(scene_path)
     cached = runtime.scene_metadata_cache.get(cache_key)
-    if cached and cached["mtime"] == stat.st_mtime_ns:
+    if cached and cached["token"] == token:
         return cached["data"]
 
     runtime.debug_log(f"Reading scene metadata from {scene_path}")
@@ -305,21 +320,21 @@ def load_scene_metadata(scene_path: Path):
         "aabb_max": tuple(float(v) for v in payload.get("aabb_max", (1.0, 1.0, 1.0))),
         "node_count": count_nodes(payload),
     }
-    runtime.scene_metadata_cache[cache_key] = {"mtime": stat.st_mtime_ns, "data": data}
+    runtime.scene_metadata_cache[cache_key] = {"token": token, "data": data}
     return data
 
 
 def load_scene_payload(scene_path: Path):
     scene_path = scene_path.resolve()
-    stat = scene_path.stat()
+    token = scene_content_token(scene_path)
     cache_key = str(scene_path)
     cached = runtime.scene_payload_cache.get(cache_key)
-    if cached and cached["mtime"] == stat.st_mtime_ns:
+    if cached and cached["token"] == token:
         return cached["data"]
 
     payload = json.loads(scene_path.read_text(encoding="utf-8"))
     runtime.scene_payload_cache[cache_key] = {
-        "mtime": stat.st_mtime_ns,
+        "token": token,
         "data": payload,
     }
     return payload
@@ -448,10 +463,10 @@ def _payload_bounds(payload):
 
 def load_scene_tight_bounds(scene_path: Path):
     scene_path = scene_path.resolve()
-    stat = scene_path.stat()
+    token = scene_content_token(scene_path)
     cache_key = str(scene_path)
     cached = runtime.scene_bounds_cache.get(cache_key)
-    if cached and cached["mtime"] == stat.st_mtime_ns:
+    if cached and cached["token"] == token:
         return cached["data"]
 
     payload = load_scene_payload(scene_path)
@@ -460,7 +475,7 @@ def load_scene_tight_bounds(scene_path: Path):
         metadata = load_scene_metadata(scene_path)
         bounds = (metadata["aabb_min"], metadata["aabb_max"])
     runtime.scene_bounds_cache[cache_key] = {
-        "mtime": stat.st_mtime_ns,
+        "token": token,
         "data": bounds,
     }
     return bounds
@@ -529,7 +544,7 @@ def _effective_target_bounds(scene_path: Path, metadata, settings):
 
 
 def _dynamic_aabb(scene_path: Path, metadata, settings):
-    state_key = (str(scene_path.resolve()), scene_path.stat().st_mtime_ns)
+    state_key = (str(scene_path.resolve()), scene_content_token(scene_path))
     now = time.perf_counter()
     target_bounds = _effective_target_bounds(scene_path, metadata, settings)
     target_bounds = _expand_bounds(target_bounds, _DYNAMIC_AABB_SHRINK_PAD)
@@ -780,7 +795,7 @@ def render_rgba(
     )
     renderer = get_renderer(settings, width, height)
 
-    scene_key = (str(scene_path.resolve()), scene_path.stat().st_mtime_ns)
+    scene_key = (str(scene_path.resolve()), scene_content_token(scene_path))
     if runtime.loaded_scene_key != scene_key:
         runtime.debug_log(f"Uploading scene data from {scene_path.name}")
         renderer.load_scene_file(str(scene_path))

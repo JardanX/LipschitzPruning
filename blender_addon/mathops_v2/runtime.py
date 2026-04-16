@@ -32,6 +32,7 @@ scene_metadata_cache = {}
 scene_payload_cache = {}
 scene_bounds_cache = {}
 generated_scene_cache = {}
+generated_scene_path_hashes = {}
 dynamic_aabb_state = {}
 compat_panels = []
 debug_log_buffer = []
@@ -98,6 +99,7 @@ def reset_runtime():
     scene_payload_cache.clear()
     scene_bounds_cache.clear()
     generated_scene_cache.clear()
+    generated_scene_path_hashes.clear()
     dynamic_aabb_state.clear()
     last_error_message = ""
     demo_anim_running = False

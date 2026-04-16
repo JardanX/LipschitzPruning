@@ -1,8 +1,10 @@
+cmake-build-*/
 build-addon/
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+blender_addon/mathops_v2/.generated_scenes/
 blender_addon/lipschitz_pruning/*.spv
 blender_addon/lipschitz_pruning/*.pyd
 blender_addon/lipschitz_pruning/Release/

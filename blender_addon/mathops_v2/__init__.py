@@ -9,7 +9,7 @@ bl_info = {
 }
 
 from . import engine, operators, properties, runtime, sdf_nodes, ui
-from .render import bridge
+from .render import bridge, matcap
 
 
 modules = (
@@ -22,6 +22,7 @@ modules = (
 
 
 def register():
+    matcap.clear_cache()
     runtime.reset_runtime()
     for module in modules:
         if hasattr(module, "register"):
@@ -37,6 +38,7 @@ def unregister():
         sdf_nodes.pre_unregister()
     bridge.unregister_compat_panels()
     bridge.close_renderer()
+    matcap.clear_cache()
     for module in reversed(modules):
         if hasattr(module, "unregister"):
             module.unregister()

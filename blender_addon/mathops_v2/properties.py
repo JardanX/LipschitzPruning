@@ -10,7 +10,7 @@ from bpy.props import (
 )
 
 from . import runtime, sdf_nodes
-from .render import bridge
+from .render import bridge, matcap
 
 
 def _redraw_viewports(context):
@@ -26,6 +26,10 @@ def _reset_bounds_state():
 def _sync_auto_bounds(settings):
     if not getattr(settings, "use_scene_bounds", False):
         return
+    if getattr(settings, "use_sdf_nodes", False):
+        tree = getattr(settings, "sdf_node_tree", None)
+        if tree is None or getattr(tree, "bl_idname", "") != sdf_nodes.TREE_IDNAME:
+            return
     metadata = bridge.safe_scene_metadata(bridge.resolve_scene_path(settings))
     if metadata is None:
         return
@@ -81,6 +85,11 @@ def _update_manual_bounds(self, context):
 
 
 def _update_viewport(self, context):
+    _redraw_viewports(context)
+
+
+def _update_matcap(self, context):
+    matcap.sync_viewport_matcap(context, getattr(self, "custom_matcap", ""))
     _redraw_viewports(context)
 
 
@@ -207,13 +216,19 @@ class MathOPSV2Settings(bpy.types.PropertyGroup):
     shading_mode: EnumProperty(
         name="Shading",
         items=(
-            ("SHADED", "Shaded", "Lit surface shading"),
+            ("SHADED", "Shaded", "Matcap surface shading"),
             ("HEATMAP", "Heatmap", "Evaluation heatmap"),
             ("NORMALS", "Normals", "Surface normal debug"),
-            ("AO", "AO", "Ambient occlusion"),
+            ("AO", "AO", "Compatibility alias for shaded mode"),
         ),
         default="SHADED",
         update=_update_viewport,
+    )
+    custom_matcap: EnumProperty(
+        name="Matcap",
+        description="Matcap used by viewport shaded mode",
+        items=matcap.get_matcaps_enum,
+        update=_update_matcap,
     )
 
 

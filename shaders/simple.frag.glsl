@@ -45,10 +45,18 @@ layout(push_constant) uniform PushConstant {
 
 vec2 smin_blend( float a, float b, float k )
 {
+    if (k <= 0.0) {
+        return (a < b) ? vec2(a, 0.0) : vec2(b, 1.0);
+    }
     float h = max(k-abs(a-b), 0) / k;
     float m = h*h*0.5;
     float s = m*k*0.5;
     return (a<b) ? vec2(a-s,m) : vec2(b-s,1-m);
+}
+
+vec2 csg_blend(float left_val, float right_val, float s, float k) {
+    vec2 blend = smin_blend(s * left_val, s * right_val, k);
+    return vec2(s * blend.x, blend.y);
 }
 
 vec3 get_color_active(vec3 p, int cell_idx) {
@@ -84,7 +92,7 @@ vec3 get_color_active(vec3 p, int cell_idx) {
             BinaryOp op = binary_ops.tab[node.idx_in_type];
             float k = BinaryOp_blend_factor(op);
             float s = BinaryOp_sign(op);
-            vec2 v = s*smin_blend(s*left_val, s*right_val, k);
+            vec2 v = csg_blend(left_val, right_val, s, k);
             d = v.x;
             albedo = mix(left_entry.col, right_entry.col, v.y);
         } else if (node.type == NODETYPE_PRIMITIVE) {
@@ -134,7 +142,7 @@ vec3 get_color(vec3 p) {
             float s = BinaryOp_sign(op);
             uint typ = BinaryOp_op(op);
             if (typ == OP_SUB) right_val *= -1;
-            vec2 v = s*smin_blend(s*left_val, s*right_val, k);
+            vec2 v = csg_blend(left_val, right_val, s, k);
             d = v.x;
             albedo = mix(left_entry.col, right_entry.col, v.y);
         } else if (node.type == NODETYPE_PRIMITIVE) {
@@ -175,6 +183,45 @@ vec3 grad(vec3 p) {
                      k.yyx*sdf(p+k.yyx*h)+
                      k.yxy*sdf(p+k.yxy*h)+
                      k.xxx*sdf(p+k.xxx*h));
+}
+
+
+#ifdef MATHOPS_BLENDER_VIEWPORT
+vec2 matcap_uv(vec3 normal_view, vec3 view_dir_view)
+{
+    float a = 1.0 / max(1.0 + view_dir_view.z, 0.001);
+    float b = -view_dir_view.x * view_dir_view.y * a;
+    vec3 basis_x = vec3(
+        1.0 - view_dir_view.x * view_dir_view.x * a,
+        b,
+        -view_dir_view.x
+    );
+    vec3 basis_y = vec3(
+        b,
+        1.0 - view_dir_view.y * view_dir_view.y * a,
+        -view_dir_view.y
+    );
+    vec2 uv = vec2(dot(basis_x, normal_view), dot(basis_y, normal_view));
+    return clamp(uv * 0.496 + 0.5, vec2(0.0), vec2(1.0));
+}
+#endif
+
+
+vec3 shade_surface(vec3 albedo, vec3 normal, vec3 ray_d_viewspace, mat3 world_to_view)
+{
+#ifdef MATHOPS_BLENDER_VIEWPORT
+    vec3 normal_view = normalize(world_to_view * normal);
+    vec2 uv = matcap_uv(normal_view, normalize(-ray_d_viewspace));
+    vec3 color = texture(mopsMatcapTex, uv).rgb * albedo;
+    if (mops_show_specular != 0) {
+        color += texture(mopsMatcapSpecularTex, uv).rgb;
+    }
+    return color;
+#else
+    vec3 L = normalize(vec3(1,1,1));
+    float ndotl = max(dot(normal, L), 0.0);
+    return albedo * (0.2 + 0.8 * ndotl);
+#endif
 }
 
 
@@ -339,6 +386,7 @@ void main () {
         vec3 up = normalize(cross(right, forward));
 
         mat3 ViewToWorld = mat3(right, up, forward);
+        mat3 WorldToView = transpose(ViewToWorld);
         float aspect = float(u_Resolution.x) / float(u_Resolution.y);
 
     #if 1
@@ -424,7 +472,6 @@ void main () {
 
             int num_active = bool(culling_enabled) ? cells_num_active.tab[cell_idx] : total_num_nodes;
 
-#ifdef MATHOPS_VIEWPORT_FAST
             if (shading_mode == SHADING_MODE_HEATMAP) {
                 color = inferno(min(1, float(num_active) / viz_max));
             } else {
@@ -444,73 +491,9 @@ void main () {
                     } else {
                         albedo = get_color(p);
                     }
-
-                    vec3 L = normalize(vec3(1,1,1));
-                    float ndotl = max(dot(normal, L), 0.0);
-
-                    if (shading_mode == SHADING_MODE_BEAUTY) {
-                        float ao = 0.4 * ambient_occlusion(p, normal, 1e-1, 3);
-                        color = albedo * ao;
-
-                        bool in_shadow;
-                        if (bool(culling_enabled)) {
-                            in_shadow = shadow_ray_intersects_active(p + 5e-4 * normal, L, cell_size);
-                        } else {
-                            in_shadow = shadow_ray_intersects(p + 5e-4 * normal, L, cell_size);
-                        }
-
-                        if (ndotl > 0.0 && !in_shadow) {
-                            color += albedo * ndotl;
-                        }
-                    } else {
-                        color = albedo * (0.2 + 0.8 * ndotl);
-                    }
+                    color = shade_surface(albedo, normal, ray_d_viewspace, WorldToView);
                 }
             }
-#else
-            vec3 normal;
-            if (bool(culling_enabled)) {
-                normal = normalize(grad_active(p, cell_idx));
-            } else {
-                normal = normalize(grad(p));
-            }
-            if (shading_mode == SHADING_MODE_NORMALS) {
-                color = vec3(0.5+0.5*normal);
-            } else {
-                vec3 L = normalize(vec3(1,1,1));
-                //color = p * 0.5 + 0.5;
-                vec3 albedo;
-                if (bool(culling_enabled)) {
-                    albedo = get_color_active(p, cell_idx);
-                } else {
-                    albedo = get_color(p);
-                }
-
-                if (shading_mode == SHADING_MODE_HEATMAP) {
-                    albedo = inferno(min(1, float(num_active) / viz_max));
-                }
-
-                float ao;
-                if (shading_mode == SHADING_MODE_BEAUTY) {
-                    ao = 0.4 * ambient_occlusion(p,normal,1e-1,3);
-                } else {
-                    ao = 0.4;
-                }
-
-                color = albedo * ao;
-
-                bool in_shadow;
-                if (bool(culling_enabled)) {
-                    in_shadow = shadow_ray_intersects_active(p + 5e-4 * normal, L, cell_size);
-                } else {
-                    in_shadow = shadow_ray_intersects(p + 5e-4 * normal, L, cell_size);
-                }
-
-                if (dot(normal,L) > 0 && !in_shadow) {
-                    color += albedo * dot(L,normal);
-                }
-            }
-#endif
             color_alpha = 1;
             //color = vec3(ao);
             //color = vec3(ambient_occlusion(p, normal, cell_idx));
