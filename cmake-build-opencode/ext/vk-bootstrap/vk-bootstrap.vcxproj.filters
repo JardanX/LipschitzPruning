@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="D:\Projects\GitHub\MathOPS-v2\ext\vk-bootstrap\src\VkBootstrap.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="D:\Projects\GitHub\MathOPS-v2\ext\vk-bootstrap\src\VkBootstrap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="D:\Projects\GitHub\MathOPS-v2\ext\vk-bootstrap\src\VkBootstrapDispatch.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\ext\vk-bootstrap\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{D38D6926-4585-37A3-8289-9A7B54E4E411}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{60E0289D-E228-3D87-A0DC-60BB44846E6A}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

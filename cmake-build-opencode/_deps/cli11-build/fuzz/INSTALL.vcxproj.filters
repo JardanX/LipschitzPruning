@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\CMakeFiles\bc74b58135264aa10cc2a576379443bd\INSTALL_force.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{08937ADB-51E9-3142-ABA3-49F790C93327}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

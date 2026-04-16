@@ -100,6 +100,7 @@ class MATHOPS_V2_PT_quality(_MathOPSV2Panel, Panel):
         col = layout.column()
         col.prop(settings, "final_grid_level")
         col.prop(settings, "num_samples")
+        col.prop(settings, "viewport_max_dim")
         col.prop(settings, "gamma")
 
 
@@ -129,6 +130,7 @@ class MATHOPS_V2_PT_debug(_MathOPSV2Panel, Panel):
         settings = context.scene.mathops_v2_settings
         col = layout.column()
         col.prop(settings, "viewport_preview")
+        col.prop(settings, "viewport_profile_timings")
         col.prop(settings, "shading_mode")
         if settings.shading_mode == "HEATMAP":
             col.prop(settings, "colormap_max")
@@ -161,7 +163,10 @@ class MATHOPS_V2_PT_stats(_MathOPSV2Panel, Panel):
         )
         col.label(text=f"Nodes: {stats['node_count'] or settings.last_node_count}")
         col.separator()
+        col.label(text=f"Frame: {stats['frame_ms']:.2f} ms")
         col.label(text=f"Render: {stats['render_ms']:.2f} ms")
+        col.label(text=f"Trace+Shade: {stats['shader_ms']:.2f} ms")
+        col.label(text=f"Upload: {stats['upload_ms']:.2f} ms")
         col.label(text=f"Tracing: {stats['tracing_ms']:.2f} ms")
         col.label(text=f"Culling: {stats['culling_ms']:.2f} ms")
         col.label(text=f"Eval Grid: {stats['eval_grid_ms']:.2f} ms")

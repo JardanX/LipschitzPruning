@@ -325,7 +325,17 @@ void main () {
 
 
         vec3 forward = normalize(cam_target-cam_pos);
-        vec3 right = normalize(cross(forward, cam_up_hint));
+        if (abs(dot(forward, cam_up_hint)) > 0.999) {
+            cam_up_hint = abs(forward.y) < 0.999 ? vec3(0, 1, 0) : vec3(1, 0, 0);
+        }
+        vec3 right = cross(forward, cam_up_hint);
+        float right_len_sq = dot(right, right);
+        if (right_len_sq < 1e-12) {
+            cam_up_hint = abs(forward.y) < 0.999 ? vec3(0, 1, 0) : vec3(1, 0, 0);
+            right = cross(forward, cam_up_hint);
+            right_len_sq = max(dot(right, right), 1e-12);
+        }
+        right *= inversesqrt(right_len_sq);
         vec3 up = normalize(cross(right, forward));
 
         mat3 ViewToWorld = mat3(right, up, forward);
@@ -412,6 +422,52 @@ void main () {
             cell = clamp(cell, ivec3(0), ivec3(grid_size-1));
             int cell_idx = int(get_cell_idx(cell, grid_size));
 
+            int num_active = bool(culling_enabled) ? cells_num_active.tab[cell_idx] : total_num_nodes;
+
+#ifdef MATHOPS_VIEWPORT_FAST
+            if (shading_mode == SHADING_MODE_HEATMAP) {
+                color = inferno(min(1, float(num_active) / viz_max));
+            } else {
+                vec3 normal;
+                if (bool(culling_enabled)) {
+                    normal = normalize(grad_active(p, cell_idx));
+                } else {
+                    normal = normalize(grad(p));
+                }
+
+                if (shading_mode == SHADING_MODE_NORMALS) {
+                    color = vec3(0.5 + 0.5 * normal);
+                } else {
+                    vec3 albedo;
+                    if (bool(culling_enabled)) {
+                        albedo = get_color_active(p, cell_idx);
+                    } else {
+                        albedo = get_color(p);
+                    }
+
+                    vec3 L = normalize(vec3(1,1,1));
+                    float ndotl = max(dot(normal, L), 0.0);
+
+                    if (shading_mode == SHADING_MODE_BEAUTY) {
+                        float ao = 0.4 * ambient_occlusion(p, normal, 1e-1, 3);
+                        color = albedo * ao;
+
+                        bool in_shadow;
+                        if (bool(culling_enabled)) {
+                            in_shadow = shadow_ray_intersects_active(p + 5e-4 * normal, L, cell_size);
+                        } else {
+                            in_shadow = shadow_ray_intersects(p + 5e-4 * normal, L, cell_size);
+                        }
+
+                        if (ndotl > 0.0 && !in_shadow) {
+                            color += albedo * ndotl;
+                        }
+                    } else {
+                        color = albedo * (0.2 + 0.8 * ndotl);
+                    }
+                }
+            }
+#else
             vec3 normal;
             if (bool(culling_enabled)) {
                 normal = normalize(grad_active(p, cell_idx));
@@ -430,9 +486,6 @@ void main () {
                     albedo = get_color(p);
                 }
 
-                // divide by 2 to get number of primitives
-                int num_active = (cells_num_active.tab[cell_idx] + 1 )/ 2;
-        
                 if (shading_mode == SHADING_MODE_HEATMAP) {
                     albedo = inferno(min(1, float(num_active) / viz_max));
                 }
@@ -444,13 +497,7 @@ void main () {
                     ao = 0.4;
                 }
 
-                //outColor = vec4(vec3(ao), 1);
-                //return;
-                // half-lambert
-                //color = albedo * (dot(L,normal) * 0.5 + 0.5);
-                //color = albedo * ao;
                 color = albedo * ao;
-                //color = vec3(dot(L,normal));
 
                 bool in_shadow;
                 if (bool(culling_enabled)) {
@@ -463,6 +510,7 @@ void main () {
                     color += albedo * dot(L,normal);
                 }
             }
+#endif
             color_alpha = 1;
             //color = vec3(ao);
             //color = vec3(ambient_occlusion(p, normal, cell_idx));

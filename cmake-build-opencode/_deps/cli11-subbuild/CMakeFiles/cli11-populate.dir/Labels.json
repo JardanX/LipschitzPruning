@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild/CMakeFiles/cli11-populate"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild/CMakeFiles/85f077cc23704d72839f1f2589aa5191/cli11-populate.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild/CMakeFiles/83214e93471eded5d7b497675acde8f0/cli11-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild/CMakeFiles/618ca823d4e69dd3482c4e31360ffb9a/cli11-populate-build.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild/CMakeFiles/618ca823d4e69dd3482c4e31360ffb9a/cli11-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild/CMakeFiles/618ca823d4e69dd3482c4e31360ffb9a/cli11-populate-download.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild/CMakeFiles/618ca823d4e69dd3482c4e31360ffb9a/cli11-populate-install.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild/CMakeFiles/618ca823d4e69dd3482c4e31360ffb9a/cli11-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild/CMakeFiles/618ca823d4e69dd3482c4e31360ffb9a/cli11-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild/CMakeFiles/618ca823d4e69dd3482c4e31360ffb9a/cli11-populate-test.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild/CMakeFiles/618ca823d4e69dd3482c4e31360ffb9a/cli11-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"cli11-populate"
+		],
+		"name" : "cli11-populate"
+	}
+}

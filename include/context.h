@@ -36,9 +36,9 @@ public:
     std::vector<uint8_t> readback_rgba();
     void shutdown();
 
-    Init init;
-    RenderData render_data;
-    bool gui;
+    Init init{};
+    RenderData render_data{};
+    bool gui = false;
     bool culling = true;
     bool initialized = false;
 };

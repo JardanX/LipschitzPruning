@@ -37,8 +37,22 @@ class MathOPSV2Settings(bpy.types.PropertyGroup):
     image_name: StringProperty(name="Image Name", default="MathOPS-v2 Render")
     final_grid_level: IntProperty(name="Final Grid Level", default=8, min=2, max=8)
     num_samples: IntProperty(name="Samples", default=1, min=1, max=64)
+    viewport_max_dim: IntProperty(
+        name="Viewport Max Dim",
+        default=0,
+        min=0,
+        max=8192,
+        description="Maximum internal viewport render dimension, 0 keeps full region resolution",
+    )
     gamma: FloatProperty(name="Gamma", default=1.2, min=0.5, max=4.0)
     viewport_preview: BoolProperty(name="Viewport Preview", default=True)
+    viewport_profile_timings: BoolProperty(
+        name="Profile Viewport Timings",
+        default=False,
+        description=(
+            "Collect GPU timing breakdown in the viewport. Slows the Vulkan fallback path because it forces synchronized profiling"
+        ),
+    )
     culling_enabled: BoolProperty(name="Enable Pruning", default=True)
     recompute_pruning: BoolProperty(name="Recompute Pruning", default=True)
     use_scene_bounds: BoolProperty(name="Use Scene Bounds", default=True)

@@ -1,0 +1,78 @@
+^D:\PROJECTS\GITHUB\MATHOPS-V2\SHADERS\CULLING.COMP.GLSL
+setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=comp --target-spv=spv1.4 -g D:/Projects/GitHub/MathOPS-v2/shaders/culling.comp.glsl -o D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/culling.comp.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\SHADERS\DENSE_EVAL.COMP.GLSL
+setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=comp --target-spv=spv1.4 -g D:/Projects/GitHub/MathOPS-v2/shaders/dense_eval.comp.glsl -o D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/dense_eval.comp.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\SHADERS\SIMPLE.FRAG.GLSL
+setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=frag --target-spv=spv1.4 -g D:/Projects/GitHub/MathOPS-v2/shaders/simple.frag.glsl -o D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/frag.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\SHADERS\PLANE.FRAG.GLSL
+setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=frag --target-spv=spv1.4 -g D:/Projects/GitHub/MathOPS-v2/shaders/plane.frag.glsl -o D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/plane.frag.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\SHADERS\PLANE.VERT.GLSL
+setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=vert --target-spv=spv1.4 -g D:/Projects/GitHub/MathOPS-v2/shaders/plane.vert.glsl -o D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/plane.vert.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\SHADERS\SIMPLE.VERT.GLSL
+setlocal
+C:\VulkanSDK\1.4.341.1\Bin\glslc.exe -fshader-stage=vert --target-spv=spv1.4 -g D:/Projects/GitHub/MathOPS-v2/shaders/simple.vert.glsl -o D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/vert.spv
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\CMAKE-BUILD-OPENCODE\CMAKEFILES\F4FAD766FC226A5E63993CBEE142A9C7\LIPSCHITZ_SHADERS.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/MathOPS-v2 -BD:/Projects/GitHub/MathOPS-v2/cmake-build-opencode --check-stamp-file D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

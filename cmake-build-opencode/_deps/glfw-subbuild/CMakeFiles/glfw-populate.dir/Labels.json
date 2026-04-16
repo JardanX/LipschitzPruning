@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/glfw-subbuild/CMakeFiles/glfw-populate"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/glfw-subbuild/CMakeFiles/58e92c61c5ae254e2522888896d6f911/glfw-populate.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/glfw-subbuild/CMakeFiles/c6816f420de0d70ade0010eea2131e9c/glfw-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/glfw-subbuild/CMakeFiles/054dccb2eb5b9289e9459bf6d1c14339/glfw-populate-build.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/glfw-subbuild/CMakeFiles/054dccb2eb5b9289e9459bf6d1c14339/glfw-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/glfw-subbuild/CMakeFiles/054dccb2eb5b9289e9459bf6d1c14339/glfw-populate-download.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/glfw-subbuild/CMakeFiles/054dccb2eb5b9289e9459bf6d1c14339/glfw-populate-install.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/glfw-subbuild/CMakeFiles/054dccb2eb5b9289e9459bf6d1c14339/glfw-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/glfw-subbuild/CMakeFiles/054dccb2eb5b9289e9459bf6d1c14339/glfw-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/glfw-subbuild/CMakeFiles/054dccb2eb5b9289e9459bf6d1c14339/glfw-populate-test.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/glfw-subbuild/CMakeFiles/054dccb2eb5b9289e9459bf6d1c14339/glfw-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"glfw-populate"
+		],
+		"name" : "glfw-populate"
+	}
+}

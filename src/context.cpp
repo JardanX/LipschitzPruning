@@ -200,8 +200,6 @@ int create_swapchain(Init& init, RenderData& data) {
 
     data.swapchain_images = init.swapchain.get_images().value();
     data.swapchain_image_views = init.swapchain.get_image_views().value();
-    data.swapchain_images.resize(MAX_FRAMES_IN_FLIGHT);
-    data.swapchain_image_views.resize(MAX_FRAMES_IN_FLIGHT);
     return 0;
 }
 
@@ -284,7 +282,7 @@ int create_render_pass(Init& init, RenderData& data) {
     VkAttachmentDescription color_attachment = {};
     color_attachment.format = VK_FORMAT_R8G8B8A8_SRGB;
     color_attachment.samples = VK_SAMPLE_COUNT_1_BIT;
-    color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+    color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
     color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
     color_attachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
     color_attachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -295,7 +293,7 @@ int create_render_pass(Init& init, RenderData& data) {
             .flags = 0,
             .format = VK_FORMAT_D16_UNORM,
             .samples = VK_SAMPLE_COUNT_1_BIT,
-            .loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,
+            .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
             .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
             .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
             .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
@@ -366,7 +364,7 @@ void get_pipeline_stats(Init& init, VkPipeline pipeline, uint32_t executable_idx
         buf_size -= n;
         switch (stats[i].format) {
             case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_BOOL32_KHR:
-                if (stats[i].value.b32) { printf("TRUE"); } else { printf("FALSE"); }
+                n = snprintf(buf, buf_size, "%s", stats[i].value.b32 ? "TRUE" : "FALSE");
                 break;
 
             case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_INT64_KHR:
@@ -573,8 +571,8 @@ int create_graphics_pipeline(Init& init, RenderData& data) {
 
 
 Pipeline create_culling_pipeline(Init& init, RenderData& render_data, const char* shader_path, const char* debug_name) {
-    auto code = readFile("culling.comp.spv");
-    VkShaderModule module = createShaderModule(init, code, "culling.comp.glsl");
+    auto code = readFile(shader_path);
+    VkShaderModule module = createShaderModule(init, code, debug_name);
     if (module == VK_NULL_HANDLE) abort();
 
     VkPushConstantRange range = {
@@ -612,6 +610,7 @@ Pipeline create_culling_pipeline(Init& init, RenderData& render_data, const char
             .basePipelineIndex = -1
     };
     VK_CHECK(vkCreateComputePipelines(init.device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline.pipe));
+    init.disp.destroyShaderModule(module, nullptr);
 
     return pipeline;
 }
@@ -694,6 +693,44 @@ int create_framebuffers(Init& init, RenderData& data) {
         }
     }
     return 0;
+}
+
+void destroy_frame_resources(Init& init, RenderData& data) {
+    for (auto framebuffer : data.framebuffers) {
+        if (framebuffer != VK_NULL_HANDLE) {
+            init.disp.destroyFramebuffer(framebuffer, nullptr);
+        }
+    }
+    data.framebuffers.clear();
+
+    for (auto image_view : data.render_image_views) {
+        if (image_view != VK_NULL_HANDLE) {
+            init.disp.destroyImageView(image_view, nullptr);
+        }
+    }
+    data.render_image_views.clear();
+
+    for (size_t i = 0; i < data.render_images.size(); i++) {
+        if (data.render_images[i] != VK_NULL_HANDLE) {
+            vmaDestroyImage(data.alloc, data.render_images[i], data.render_image_allocations[i]);
+        }
+    }
+    data.render_images.clear();
+    data.render_image_allocations.clear();
+
+    for (auto image_view : data.depth_image_views) {
+        if (image_view != VK_NULL_HANDLE) {
+            init.disp.destroyImageView(image_view, nullptr);
+        }
+    }
+    data.depth_image_views.clear();
+
+    for (auto& image : data.depth_images) {
+        if (image.img != VK_NULL_HANDLE) {
+            vmaDestroyImage(data.alloc, image.img, image.alloc);
+        }
+    }
+    data.depth_images.clear();
 }
 
 int create_command_pool(Init& init, RenderData& data) {
@@ -804,10 +841,7 @@ int recreate_swapchain(Init& init, RenderData& data) {
     init.disp.deviceWaitIdle();
 
     init.disp.destroyCommandPool(data.command_pool, nullptr);
-
-    for (auto framebuffer : data.framebuffers) {
-        init.disp.destroyFramebuffer(framebuffer, nullptr);
-    }
+    destroy_frame_resources(init, data);
 
     {
         int width = 0;
@@ -824,6 +858,7 @@ int recreate_swapchain(Init& init, RenderData& data) {
     init.swapchain.destroy_image_views(data.swapchain_image_views);
 
     if (0 != create_swapchain(init, data)) return -1;
+    data.image_in_flight.assign(init.swapchain.image_count, VK_NULL_HANDLE);
     create_render_images(init, data, true);
     if (0 != create_framebuffers(init, data)) return -1;
     if (0 != create_command_pool(init, data)) return -1;
@@ -902,19 +937,22 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
         init.disp.waitForFences(1, &data.image_in_flight[image_index], VK_TRUE, UINT64_MAX);
     }
     data.image_in_flight[image_index] = data.in_flight_fences[data.current_frame];
-    data.last_image_index = image_index;
+    const uint32_t frame_index = data.current_frame;
+    const uint32_t query_base = frame_index * 8;
+    data.last_image_index = frame_index;
 
 
     {
-        int i = image_index;
+        int i = (int)frame_index;
 
         VkCommandBufferBeginInfo begin_info = {};
         begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         VK_CHECK(init.disp.beginCommandBuffer(data.command_buffers[i], &begin_info));
 
-        vkResetQueryPool(init.device, data.query_pool, 0, 128);
-
-        vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, data.query_pool, 4);
+        if (collect_stats) {
+            vkResetQueryPool(init.device, data.query_pool, query_base, 8);
+            vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, data.query_pool, query_base + 4);
+        }
 
         if (data.culling_enabled && data.compute_culling) {
             data.input_idx = 0;
@@ -939,7 +977,9 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
         }
 
         // CULLING
-        vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, data.query_pool, 0);
+        if (collect_stats) {
+            vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, data.query_pool, query_base + 0);
+        }
         bool first_lvl = true;
        
         set_push_constants(data, data.final_grid_lvl, first_lvl);
@@ -966,7 +1006,9 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
         }
 
 
-        vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, data.query_pool, 1);
+        if (collect_stats) {
+            vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, data.query_pool, query_base + 1);
+        }
 
         pipeline_barrier(data.command_buffers[i], VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT | VK_ACCESS_2_SHADER_STORAGE_READ_BIT, VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, VK_ACCESS_2_SHADER_STORAGE_READ_BIT);
 
@@ -1083,21 +1125,6 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
                 .pStencilAttachment = nullptr
         };
 
-        vkCmdBeginRendering(data.command_buffers[i], &rendering_info);
-
-
-#if 0
-        static bool draw_plane = false;
-        if (gui) {
-            ImGui::Checkbox("Draw plane", &draw_plane);
-        }
-        if (draw_plane) {
-            draw_debug_plane(init, data, data.command_buffers[i]);
-        }
-#endif
-
-        vkCmdEndRendering(data.command_buffers[i]);
-
         VkRenderPassBeginInfo render_pass_info = {};
         render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
         render_pass_info.renderPass = data.render_pass;
@@ -1118,11 +1145,15 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
         set_push_constants(data, data.final_grid_lvl, false);
         init.disp.cmdPushConstants(data.command_buffers[i], data.pipeline_layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(PushConstants), &data.push_constants);
 
-        vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, data.query_pool, 2);
+        if (collect_stats) {
+            vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, data.query_pool, query_base + 2);
+        }
         if (data.render_enabled) {
             init.disp.cmdDraw(data.command_buffers[i], 3, 1, 0, 0);
         }
-        vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, data.query_pool, 3);
+        if (collect_stats) {
+            vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, data.query_pool, query_base + 3);
+        }
 
         init.disp.cmdEndRenderPass(data.command_buffers[i]);
 
@@ -1172,7 +1203,7 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
                             .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                             .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                             .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                            .image = data.swapchain_images[i],
+                            .image = data.swapchain_images[image_index],
                             .subresourceRange = {
                                     .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
                                     .baseMipLevel = 0,
@@ -1213,7 +1244,7 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
             };
             if (gui) {
                 //vkCmdCopyImage(data.command_buffers[i], data.render_images[i], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, data.swapchain_images[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-                vkCmdBlitImage(data.command_buffers[i], data.render_images[i], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, data.swapchain_images[i], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
+                vkCmdBlitImage(data.command_buffers[i], data.render_images[i], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, data.swapchain_images[image_index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_NEAREST);
             }
         }
 
@@ -1230,7 +1261,7 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
                     .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
                     .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                     .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                    .image = data.swapchain_images[i],
+                    .image = data.swapchain_images[image_index],
                     .subresourceRange = {
                             .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
                             .baseMipLevel = 0,
@@ -1253,7 +1284,9 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
             vkCmdPipelineBarrier2(data.command_buffers[i], &dependency_info);
         }
 
-        vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, data.query_pool, 6);
+        if (collect_stats) {
+            vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, data.query_pool, query_base + 6);
+        }
         if (data.eval_grid_enabled)
         {
             EvalGridPushConstants eval_grid_push_constants = {
@@ -1277,9 +1310,10 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
             int num_groups = (grid_size + 3) / 4;
             vkCmdDispatch(data.command_buffers[i], num_groups, num_groups, num_groups);
         }
-        vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, data.query_pool, 7);
-
-        vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, data.query_pool, 5);
+        if (collect_stats) {
+            vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, data.query_pool, query_base + 7);
+            vkCmdWriteTimestamp(data.command_buffers[i], VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, data.query_pool, query_base + 5);
+        }
 
         if (init.disp.endCommandBuffer(data.command_buffers[i]) != VK_SUCCESS) {
             std::cout << "failed to record command buffer\n";
@@ -1305,7 +1339,7 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
     }
 
     submitInfo.commandBufferCount = 1;
-    submitInfo.pCommandBuffers = &data.command_buffers[image_index];
+    submitInfo.pCommandBuffers = &data.command_buffers[frame_index];
 
     VkSemaphore signal_semaphores[] = { data.finished_semaphore[data.current_frame] };
     if (gui) {
@@ -1352,11 +1386,8 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
         return 0;
     }
 
-    VK_CHECK(vkDeviceWaitIdle(init.device));
-
     std::vector<uint64_t> timestamps(8);
-    //TODO: don't wait for results
-    VK_CHECK(vkGetQueryPoolResults(init.device, data.query_pool, 0, timestamps.size(), timestamps.size() * sizeof(timestamps[0]), timestamps.data(), sizeof(timestamps[0]), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
+    VK_CHECK(vkGetQueryPoolResults(init.device, data.query_pool, query_base, timestamps.size(), timestamps.size() * sizeof(timestamps[0]), timestamps.data(), sizeof(timestamps[0]), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT));
     VkPhysicalDeviceProperties props;
     vkGetPhysicalDeviceProperties(init.device.physical_device, &props);
     float period = props.limits.timestampPeriod;
@@ -1367,8 +1398,6 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
 
     //g_timings[g_frame] = data.render_elapsed_ms;
 
-    // TODO: don't sync
-    vkDeviceWaitIdle(init.device);
     CopyBuffer(data, init, data.active_count_buffer, data.staging_buffer, 10*sizeof(int));
     std::vector<int> active_counts(10);
     TransferFromBuffer(data.alloc, data.staging_buffer, active_counts.data(), active_counts.size()*sizeof(active_counts[0]));
@@ -1384,7 +1413,6 @@ int draw_frame(Init& init, RenderData& data, bool gui, bool collect_stats) {
     for (int i = 2; i <= data.final_grid_lvl; i += 2) {
         uint64_t pruning_mem_usage = g_mem_usage_baseline_pruning + (uint64_t)active_counts[i] * 4 * sizeof(uint16_t)
             + (uint64_t)tmp_counts[i] * (sizeof(uint16_t) + sizeof(uint32_t));
-        uint64_t tracing_mem_usage = 
         data.pruning_mem_usage = std::max(data.pruning_mem_usage, pruning_mem_usage);
         data.max_tmp_count = std::max(data.max_tmp_count, tmp_counts[i]);
         data.max_active_count = std::max(data.max_active_count, active_counts[i]);
@@ -1701,7 +1729,7 @@ void create_query_pool(Init& init, RenderData& render_data) {
             .pNext = nullptr,
             .flags = 0,
             .queryType = VK_QUERY_TYPE_TIMESTAMP,
-            .queryCount = 128,
+            .queryCount = 8 * MAX_FRAMES_IN_FLIGHT,
             .pipelineStatistics = 0
     };
     VK_CHECK(vkCreateQueryPool(init.device, &query_pool_info, nullptr, &render_data.query_pool));
@@ -1724,11 +1752,6 @@ void UploadGPUTree(const std::vector<BinaryOp>& binary_ops, const std::vector<GP
         CopyBuffer(render_data, init, render_data.staging_buffer, render_data.binary_ops_buffer, binary_ops.size() * sizeof(binary_ops[0]));
     }
 
-    if (!primitives.empty()) {
-        TransferToBuffer(render_data.alloc, render_data.staging_buffer, primitives.data(), primitives.size() * sizeof(primitives[0]));
-        CopyBuffer(render_data, init, render_data.staging_buffer, render_data.prims_buffer, primitives.size() * sizeof(primitives[0]));
-    }
-
     {
         TransferToBuffer(render_data.alloc, render_data.staging_buffer, parent.data(),
             parent.size() * sizeof(parent[0]));
@@ -1741,7 +1764,6 @@ void UploadGPUTree(const std::vector<BinaryOp>& binary_ops, const std::vector<GP
         TransferToBuffer(render_data.alloc, render_data.staging_buffer, active_nodes.data(), active_nodes.size() * sizeof(active_nodes[0]));
         CopyBuffer(render_data, init, render_data.staging_buffer, render_data.active_nodes_init_buffer, active_nodes.size() * sizeof(active_nodes[0]));
     }
-    vkDeviceWaitIdle(init.device);
 }
 
 void UploadScene(const std::vector<CSGNode>& csg_tree, int root_idx, Init& init, RenderData& render_data) {
@@ -1773,6 +1795,7 @@ void UploadAnim(const std::vector<std::vector<CSGNode>>& csg_trees, const std::v
 
 void Context::initialize(bool gui, int final_grid_lvl, uint32_t width, uint32_t height, int shading_mode) {
     this->gui = gui;
+    init = {};
     render_data = {};
     render_data.output_width = width;
     render_data.output_height = height;
@@ -1893,16 +1916,24 @@ void Context::initialize(bool gui, int final_grid_lvl, uint32_t width, uint32_t 
 }
 
 void Context::alloc_input_buffers(int num_nodes) {
-    if (render_data.nodes_buffer.address) {
-        vmaDestroyBuffer(render_data.alloc, render_data.nodes_buffer.buf, render_data.nodes_buffer.alloc);
-        vmaDestroyBuffer(render_data.alloc, render_data.binary_ops_buffer.buf, render_data.binary_ops_buffer.alloc);
-        vmaDestroyBuffer(render_data.alloc, render_data.prims_buffer.buf, render_data.prims_buffer.alloc);
-        vmaDestroyBuffer(render_data.alloc, render_data.parents_init_buffer.buf, render_data.parents_init_buffer.alloc);
-        vmaDestroyBuffer(render_data.alloc, render_data.active_nodes_init_buffer.buf, render_data.active_nodes_init_buffer.alloc);
+    auto destroy_buffer = [&](Buffer& buffer) {
+        if (buffer.buf != VK_NULL_HANDLE) {
+            vmaDestroyBuffer(render_data.alloc, buffer.buf, buffer.alloc);
+            buffer = {};
+        }
+    };
+
+    if (render_data.nodes_buffer.buf != VK_NULL_HANDLE) {
+        VK_CHECK(vkDeviceWaitIdle(init.device));
+        destroy_buffer(render_data.nodes_buffer);
+        destroy_buffer(render_data.binary_ops_buffer);
+        destroy_buffer(render_data.prims_buffer);
+        destroy_buffer(render_data.parents_init_buffer);
+        destroy_buffer(render_data.active_nodes_init_buffer);
     }
     VkBufferUsageFlags buffer_usage = VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     render_data.nodes_buffer = create_buffer(init, render_data, num_nodes * sizeof(GPUNode), buffer_usage, "nodes_buffer");
-    render_data.binary_ops_buffer = create_buffer(init, render_data, (num_nodes/2) * sizeof(GPUNode), buffer_usage, "binary_ops_buffer");
+    render_data.binary_ops_buffer = create_buffer(init, render_data, std::max(1, num_nodes / 2) * (int)sizeof(BinaryOp), buffer_usage, "binary_ops_buffer");
     render_data.prims_buffer = create_buffer(init, render_data, num_nodes*sizeof(Primitive), buffer_usage, "prims_buffer");
     render_data.parents_init_buffer = create_buffer(init, render_data, num_nodes * sizeof(uint16_t), buffer_usage | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, "parents_init_buffer");
     render_data.active_nodes_init_buffer = create_buffer(init, render_data, num_nodes * sizeof(uint16_t), buffer_usage | VK_BUFFER_USAGE_TRANSFER_SRC_BIT, "active_nodes_init");
@@ -1938,10 +1969,23 @@ Timings Context::render(glm::vec3 cam_position, glm::vec3 cam_target, glm::vec3 
     if (glm::dot(cam_up, cam_up) < 1e-8f) {
         cam_up = glm::vec3(0, 1, 0);
     }
+    glm::vec3 forward = cam_target - cam_position;
+    if (glm::dot(forward, forward) < 1e-8f) {
+        forward = glm::vec3(0, 0, 1);
+    }
+    else {
+        forward = glm::normalize(forward);
+    }
+
+    cam_up -= forward * glm::dot(cam_up, forward);
+    if (glm::dot(cam_up, cam_up) < 1e-8f) {
+        cam_up = std::abs(forward.y) < 0.999f ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0);
+        cam_up -= forward * glm::dot(cam_up, forward);
+    }
     cam_up = glm::normalize(cam_up);
 
     const float clamped_fov_y = glm::clamp(fov_y, 0.1f, 3.0f);
-    glm::mat4 view_mat = glm::lookAt(cam_position, cam_target, cam_up);
+    glm::mat4 view_mat = glm::lookAt(cam_position, cam_position + forward, cam_up);
     glm::mat4 proj_mat = glm::perspective(clamped_fov_y, (float)init.swapchain.extent.width / (float)init.swapchain.extent.height, 0.01f, 10.f);
     glm::mat4 mvp = proj_mat * view_mat;
     TransferToBuffer(render_data.alloc, render_data.mvp_buffer, &mvp[0], sizeof(mvp));
@@ -1950,7 +1994,7 @@ Timings Context::render(glm::vec3 cam_position, glm::vec3 cam_target, glm::vec3 
 
     glm::vec4 cam_data[4];
     cam_data[0] = glm::vec4(cam_position, 0);
-    cam_data[1] = glm::vec4(cam_target, 0);
+    cam_data[1] = glm::vec4(cam_position + forward, 0);
     cam_data[2] = glm::vec4(cam_up, tanf(clamped_fov_y * 0.5f));
     cam_data[3] = glm::vec4(render_data.background_color, 1);
     TransferToBuffer(render_data.alloc, render_data.cam_buffer, cam_data, sizeof(cam_data));
@@ -1959,11 +2003,15 @@ Timings Context::render(glm::vec3 cam_position, glm::vec3 cam_target, glm::vec3 
         int w, h;
         glfwGetFramebufferSize(init.window, &w, &h);
         if (w != init.swapchain.extent.width || h != init.swapchain.extent.height) {
-            recreate_swapchain(init, render_data);
+            if (recreate_swapchain(init, render_data) != 0) {
+                abort();
+            }
         }
     }
 
-    draw_frame(init, render_data, gui, collect_stats);
+    if (draw_frame(init, render_data, gui, collect_stats) != 0) {
+        abort();
+    }
 
     return {
         .culling_elapsed_ms = render_data.culling_elapsed_ms,

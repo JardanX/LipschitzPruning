@@ -1,0 +1,11 @@
+D:\Projects\GitHub\MathOPS-v2\src\utils.cpp;D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\lipschitz_core.dir\Debug\utils.obj
+D:\Projects\GitHub\MathOPS-v2\src\debug_plane.cpp;D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\lipschitz_core.dir\Debug\debug_plane.obj
+D:\Projects\GitHub\MathOPS-v2\src\context.cpp;D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\lipschitz_core.dir\Debug\context.obj
+D:\Projects\GitHub\MathOPS-v2\src\scene.cpp;D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\lipschitz_core.dir\Debug\scene.obj
+D:\Projects\GitHub\MathOPS-v2\ext\imgui\imgui.cpp;D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\lipschitz_core.dir\Debug\imgui.obj
+D:\Projects\GitHub\MathOPS-v2\ext\imgui\imgui_draw.cpp;D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\lipschitz_core.dir\Debug\imgui_draw.obj
+D:\Projects\GitHub\MathOPS-v2\ext\imgui\imgui_demo.cpp;D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\lipschitz_core.dir\Debug\imgui_demo.obj
+D:\Projects\GitHub\MathOPS-v2\ext\imgui\imgui_tables.cpp;D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\lipschitz_core.dir\Debug\imgui_tables.obj
+D:\Projects\GitHub\MathOPS-v2\ext\imgui\imgui_widgets.cpp;D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\lipschitz_core.dir\Debug\imgui_widgets.obj
+D:\Projects\GitHub\MathOPS-v2\ext\imgui\backends\imgui_impl_vulkan.cpp;D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\lipschitz_core.dir\Debug\imgui_impl_vulkan.obj
+D:\Projects\GitHub\MathOPS-v2\ext\imgui\backends\imgui_impl_glfw.cpp;D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\lipschitz_core.dir\Debug\imgui_impl_glfw.obj

@@ -149,8 +149,9 @@ int main(int argc, char** argv) {
             ImGui::EndCombo();
         }
         if (ImGui::Button("Reload scene")) {
-            std::vector<CSGNode> csg_tree;
-            int root_idx = create_scene(csg_tree, input_file, ctx.render_data.aabb_min, ctx.render_data.aabb_max);
+            root_idx = create_scene(csg_tree, input_file, ctx.render_data.aabb_min, ctx.render_data.aabb_max);
+            num_nodes = csg_tree.size();
+            ctx.alloc_input_buffers(num_nodes);
             ctx.upload(csg_tree, root_idx);
         }
         ImGui::SliderFloat3("AABB min", &ctx.render_data.aabb_min[0], -3, 0);
@@ -310,7 +311,11 @@ int main(int argc, char** argv) {
 
         ImGui::SeparatorText("Render");
         if (ImGui::Combo("Shading mode", &ctx.render_data.shading_mode, "Shaded\0Heatmap\0Normals\0AO\0")) {
+            VK_CHECK(ctx.init.disp.deviceWaitIdle());
             ctx.init.disp.destroyPipeline(ctx.render_data.graphics_pipeline, nullptr);
+            ctx.init.disp.destroyPipelineLayout(ctx.render_data.pipeline_layout, nullptr);
+            ctx.render_data.graphics_pipeline = VK_NULL_HANDLE;
+            ctx.render_data.pipeline_layout = VK_NULL_HANDLE;
             create_graphics_pipeline(ctx.init, ctx.render_data);
         }
         if (ctx.render_data.shading_mode == SHADING_MODE_HEATMAP) {

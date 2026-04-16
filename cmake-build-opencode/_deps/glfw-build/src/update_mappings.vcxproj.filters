@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\CMakeFiles\3f2c07f2ee276e3216c1d307b05ecda3\update_mappings.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\_deps\glfw-src\src\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\_deps\glfw-src\src\mappings.h.in">
+      <Filter>Header Files</Filter>
+    </None>
+    <None Include="D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\_deps\glfw-src\CMake\GenerateMappings.cmake" />
+    <None Include="D:\Projects\GitHub\MathOPS-v2\cmake-build-opencode\_deps\glfw-build\src\CMakeFiles\update_mappings" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{08937ADB-51E9-3142-ABA3-49F790C93327}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{D38D6926-4585-37A3-8289-9A7B54E4E411}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

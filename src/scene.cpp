@@ -271,6 +271,12 @@ rapidjson::Value write_node(rapidjson::Document &d, const std::vector<CSGNode> &
                     v.AddMember("radius", node.primitive.cone.radius, a);
                     break;
 
+                case PRIMITIVE_CYLINDER:
+                    v.AddMember("primitiveType", "cylinder", a);
+                    v.AddMember("height", node.primitive.cylinder.height, a);
+                    v.AddMember("radius", node.primitive.cylinder.radius, a);
+                    break;
+
                 case PRIMITIVE_SPHERE:
                     v.AddMember("primitiveType", "sphere", a);
                     v.AddMember("radius", node.primitive.sphere.radius.x, a);
@@ -307,6 +313,10 @@ void write_json(const std::vector<CSGNode> &nodes, const char *path) {
     }
 
     FILE *fp = fopen(path, "w");
+    if (!fp) {
+        fprintf(stderr, "Failed to open file for writing: %s\n", path);
+        abort();
+    }
 
     char write_buf[64 * 1024];
     rapidjson::FileWriteStream os(fp, write_buf, sizeof(write_buf));
@@ -330,6 +340,7 @@ void load_json(const char *path, std::vector<CSGNode> &nodes, glm::vec3& aabb_mi
     fseek(fp, 0, SEEK_SET);
     std::vector<char> buf(s + 1);
     if (fread(buf.data(), 1, s, fp) != s) {
+        fclose(fp);
         fprintf(stderr, "Failed to read file: %s\n", path);
         abort();
     }

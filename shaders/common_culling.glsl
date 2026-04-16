@@ -1,6 +1,3 @@
-shared ActiveNode s_parent_active_nodes[64];
-shared uint16_t s_parent_node_parents[64];
-
 #define INVALID_INDEX 0xffffu
 
 
@@ -57,20 +54,11 @@ void compute_pruning(vec3 cell_center, vec3 cell_size, int cell_idx) {
     tmp_offset = subgroupBroadcastFirst(tmp_offset);
 
     for (int block = 0; block < (num_nodes+63) / 64; block++) {
-        if (block*64+gl_LocalInvocationIndex < num_nodes) {
-            s_parent_active_nodes[gl_LocalInvocationIndex] = active_nodes_in.tab[parent_offset + block*64 + gl_LocalInvocationIndex];
-        }
-        barrier();
-
         for (int element_idx = 0; element_idx < 64; element_idx++) {
             int i = block*64 + element_idx;
             if (i >= num_nodes) break;
 
-#if 1
             ActiveNode active_node = active_nodes_in.tab[parent_offset + i];
-#else
-            ActiveNode active_node = s_parent_active_nodes[element_idx];
-#endif
             int node_idx = ActiveNode_index(active_node);
             Node node = nodes.tab[node_idx];
 

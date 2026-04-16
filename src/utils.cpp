@@ -220,6 +220,7 @@ Pipeline create_compute_pipeline(Init& init, const char* shader_path, const char
             .basePipelineIndex = -1
     };
     VK_CHECK(vkCreateComputePipelines(init.device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline.pipe));
+    init.disp.destroyShaderModule(module, nullptr);
 
     return pipeline;
 }

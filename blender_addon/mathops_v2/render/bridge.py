@@ -4,6 +4,8 @@ import json
 import math
 import shutil
 import sys
+import time
+import gc
 
 import bpy
 import numpy as np
@@ -86,9 +88,28 @@ def get_render_size(scene):
     return width, height
 
 
-def get_viewport_render_size(context, settings):
-    del settings
-    return max(1, int(context.region.width)), max(1, int(context.region.height))
+def get_viewport_render_size(
+    context, settings, max_dim_override=None, region_size=None
+):
+    if region_size is None:
+        width = max(1, int(context.region.width))
+        height = max(1, int(context.region.height))
+    else:
+        width = max(1, int(region_size[0]))
+        height = max(1, int(region_size[1]))
+    if max_dim_override is None:
+        max_dim = max(0, int(getattr(settings, "viewport_max_dim", 0)))
+    else:
+        max_dim = max(0, int(max_dim_override))
+    if max_dim <= 0:
+        return width, height
+
+    current_max = max(width, height)
+    if current_max <= max_dim:
+        return width, height
+
+    scale = float(max_dim) / float(current_max)
+    return max(1, int(width * scale)), max(1, int(height * scale))
 
 
 def blender_to_renderer_vec(value):
@@ -164,7 +185,7 @@ def view_camera(context, scene):
     view_inv = region3d.view_matrix.inverted()
     origin = view_inv.translation
     forward = -(view_inv.to_3x3().col[2])
-    up = Vector((0.0, 0.0, 1.0))
+    up = view_inv.to_3x3().col[1]
 
     if region3d.view_perspective == "CAMERA" and scene.camera is not None:
         camera = scene.camera.data
@@ -177,7 +198,7 @@ def view_camera(context, scene):
             raise RuntimeError("Orthographic viewport preview is not supported yet")
         proj_y = abs(float(region3d.window_matrix[1][1]))
         fov_y = 2.0 * math.atan(1.0 / max(proj_y, 1e-6))
-        target = region3d.view_location
+        target = origin + forward
 
     return (
         blender_to_renderer_vec(origin),
@@ -272,15 +293,16 @@ def shading_mode_value(native_module, shading_mode):
 
 def close_renderer():
     if runtime.renderer is not None:
-        runtime.debug_log("Closing native renderer")
+        runtime.debug_log("Releasing native renderer")
         try:
             runtime.renderer.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            runtime.debug_log(f"Renderer close failed: {exc}")
     runtime.renderer = None
     runtime.renderer_key = None
     runtime.loaded_scene_key = None
     runtime.pruning_cache_key = None
+    gc.collect()
 
 
 def get_renderer(settings, width, height):
@@ -371,12 +393,19 @@ def effective_aabb(settings, scene_path: Path):
 
 def store_render_stats(settings, scene_path: Path, timings, scene_info):
     runtime.last_error_message = ""
+    render_ms = float(timings.get("render_ms", 0.0))
+    upload_ms = float(timings.get("upload_ms", 0.0))
     runtime.last_render_stats.update(
         {
             "scene_name": scene_path.stem,
             "scene_path": str(scene_path),
             "node_count": int(scene_info.get("node_count", settings.last_node_count)),
-            "render_ms": float(timings.get("render_ms", 0.0)),
+            "render_ms": render_ms,
+            "shader_ms": float(
+                timings.get("shader_ms", timings.get("tracing_ms", 0.0))
+            ),
+            "upload_ms": upload_ms,
+            "frame_ms": float(timings.get("frame_ms", render_ms + upload_ms)),
             "tracing_ms": float(timings.get("tracing_ms", 0.0)),
             "culling_ms": float(timings.get("culling_ms", 0.0)),
             "eval_grid_ms": float(timings.get("eval_grid_ms", 0.0)),
@@ -407,6 +436,7 @@ def render_rgba(
     background_alpha=1.0,
     background_color=None,
     interactive=False,
+    collect_shader_stats=False,
 ):
     settings = scene.mathops_v2_settings
     scene_path = resolve_scene_path(settings)
@@ -438,7 +468,9 @@ def render_rgba(
 
     runtime.debug_log(
         f"Starting render: scene={scene_path.name}, size={width}x{height}, "
-        f"camera={tuple(round(v, 3) for v in camera_position)}, fov_y={float(fov_y):.3f}"
+        f"camera={tuple(round(v, 3) for v in camera_position)}, "
+        f"target={tuple(round(v, 3) for v in camera_target_value)}, "
+        f"up={tuple(round(v, 3) for v in camera_up)}, fov_y={float(fov_y):.3f}"
     )
     renderer = get_renderer(settings, width, height)
 
@@ -477,16 +509,28 @@ def render_rgba(
         float(runtime.last_render_stats.get("background_alpha", 1.0)),
     )
 
+    render_start = time.perf_counter()
     rgba = renderer.render_rgba(
         list(camera_position),
         list(camera_target_value),
         list(camera_up),
         float(fov_y),
-        interactive,
+        interactive and not collect_shader_stats,
     )
+    render_elapsed_ms = (time.perf_counter() - render_start) * 1000.0
     if settings.culling_enabled:
         runtime.pruning_cache_key = pruning_cache_key
     timings = dict(renderer.last_timings())
+    if interactive and not collect_shader_stats:
+        timings["render_ms"] = render_elapsed_ms
+        timings["shader_ms"] = render_elapsed_ms
+        timings["frame_ms"] = render_elapsed_ms
+        timings["tracing_ms"] = render_elapsed_ms
+        timings["culling_ms"] = 0.0
+        timings["eval_grid_ms"] = 0.0
+    else:
+        timings["shader_ms"] = float(timings.get("tracing_ms", 0.0))
+        timings.setdefault("frame_ms", render_elapsed_ms)
     scene_info = dict(renderer.scene_info())
     scene_info.setdefault("node_count", metadata["node_count"])
     store_render_stats(settings, scene_path, timings, scene_info)

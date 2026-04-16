@@ -50,14 +50,5 @@ void main() {
     vec3 cell_size = (aabb_max.xyz - aabb_min.xyz) / float(grid_size);
     vec3 cell_center = aabb_min.xyz + cell_size * (vec3(gl_GlobalInvocationID.xyz) + 0.5);
 
-
-    int num_nodes;
-    if (bool(first_lvl)) {
-        num_nodes = total_num_nodes;
-    } else {
-        uint parent_cell_idx = get_parent_cell_idx(cell_idx, grid_size);
-        num_nodes = parent_cells_num_active.tab[parent_cell_idx];
-    }
-
     compute_pruning(cell_center, cell_size, int(cell_idx));
 }

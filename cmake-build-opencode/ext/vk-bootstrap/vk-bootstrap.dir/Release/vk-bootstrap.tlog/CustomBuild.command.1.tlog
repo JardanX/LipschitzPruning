@@ -1,0 +1,10 @@
+^D:\PROJECTS\GITHUB\MATHOPS-V2\EXT\VK-BOOTSTRAP\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/MathOPS-v2 -BD:/Projects/GitHub/MathOPS-v2/cmake-build-opencode --check-stamp-file D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/ext/vk-bootstrap/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

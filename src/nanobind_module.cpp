@@ -47,15 +47,21 @@ public:
     }
 
     ~OffscreenRenderer() {
-        ctx.shutdown();
+        close();
     }
 
     void close() {
+        if (closed_) {
+            return;
+        }
         ctx.shutdown();
         scene_loaded = false;
+        timings = {};
+        closed_ = true;
     }
 
     void load_scene_file(const std::string& scene_path) {
+        ensure_open();
         std::vector<CSGNode> nodes;
         glm::vec3 aabb_min;
         glm::vec3 aabb_max;
@@ -64,6 +70,7 @@ public:
     }
 
     void load_scene_json(const std::string& scene_json) {
+        ensure_open();
         std::vector<CSGNode> nodes;
         glm::vec3 aabb_min;
         glm::vec3 aabb_max;
@@ -80,6 +87,7 @@ public:
         const std::vector<float>& background_color,
         float background_alpha)
     {
+        ensure_open();
         ctx.render_data.culling_enabled = culling_enabled;
         ctx.render_data.compute_culling = compute_culling;
         ctx.render_data.num_samples = num_samples;
@@ -90,6 +98,7 @@ public:
     }
 
     void set_aabb(const std::vector<float>& aabb_min, const std::vector<float>& aabb_max) {
+        ensure_open();
         ctx.render_data.aabb_min = to_vec3(aabb_min);
         ctx.render_data.aabb_max = to_vec3(aabb_max);
     }
@@ -101,6 +110,7 @@ public:
         float fov_y,
         bool interactive)
     {
+        ensure_open();
         if (!scene_loaded) {
             throw std::runtime_error("load_scene_file() or load_scene_json() must be called before render_rgba()");
         }
@@ -111,6 +121,7 @@ public:
     }
 
     nb::dict last_timings() const {
+        ensure_open();
         nb::dict result;
         result["culling_ms"] = timings.culling_elapsed_ms;
         result["tracing_ms"] = timings.tracing_elapsed_ms;
@@ -124,6 +135,7 @@ public:
     }
 
     nb::dict scene_info() const {
+        ensure_open();
         nb::dict result;
         result["node_count"] = ctx.render_data.total_num_nodes;
         result["aabb_min"] = std::vector<float>{ ctx.render_data.aabb_min.x, ctx.render_data.aabb_min.y, ctx.render_data.aabb_min.z };
@@ -132,14 +144,22 @@ public:
     }
 
     int width() const {
+        ensure_open();
         return (int)ctx.init.swapchain.extent.width;
     }
 
     int height() const {
+        ensure_open();
         return (int)ctx.init.swapchain.extent.height;
     }
 
 private:
+    void ensure_open() const {
+        if (closed_) {
+            throw std::runtime_error("renderer is closed");
+        }
+    }
+
     void upload_scene(const std::vector<CSGNode>& nodes, const glm::vec3& aabb_min, const glm::vec3& aabb_max) {
         ctx.render_data.aabb_min = aabb_min;
         ctx.render_data.aabb_max = aabb_max;
@@ -151,6 +171,7 @@ private:
     Context ctx;
     Timings timings{};
     bool scene_loaded = false;
+    bool closed_ = false;
 };
 
 nb::dict pack_scene_file_impl(const std::string& scene_path) {

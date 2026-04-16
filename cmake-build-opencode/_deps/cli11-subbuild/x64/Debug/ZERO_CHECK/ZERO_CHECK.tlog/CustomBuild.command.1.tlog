@@ -1,0 +1,10 @@
+^D:\PROJECTS\GITHUB\MATHOPS-V2\CMAKE-BUILD-OPENCODE\_DEPS\CLI11-SUBBUILD\CMAKEFILES\85F077CC23704D72839F1F2589AA5191\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild -BD:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file D:/Projects/GitHub/MathOPS-v2/cmake-build-opencode/_deps/cli11-subbuild/cli11-populate.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
