@@ -44,6 +44,14 @@ _MAX_TMP_CAP = 400_000_000
 _FLOAT32_EXACT_UINT_LIMIT = 1 << 24
 _TEXTURE_DATA_WIDTH = 4096
 _PRIMITIVE_TEXELS = 7
+_VIEWPORT_SHADER_FILES = (
+    "culling.comp.glsl",
+    "common.glsl",
+    "common_culling.glsl",
+    "eval.glsl",
+    "extensions.glsl",
+    "simple.frag.glsl",
+)
 
 _INCLUDE_RE = re.compile(r'^\s*#include\s+"([^"]+)"\s*$', re.M)
 _BUFFER_REFERENCE_RE = re.compile(
@@ -206,7 +214,7 @@ Primitive mops_fetch_primitive(int idx) {{
     prim.type = int(round(t0.w));
     prim.bevel = t4.z;
     prim.color = uint(round(t4.w)) | (uint(round(t5.x)) << 8) | (uint(round(t5.y)) << 16);
-    prim.pad0 = 0.0;
+    prim.pad0 = t6.z;
     prim.pad1 = 0.0;
     prim.pad2 = 0.0;
     return prim;
@@ -291,7 +299,7 @@ Primitive mops_fetch_primitive(int idx) {{
     prim.type = int(round(t0.w));
     prim.bevel = t4.z;
     prim.color = uint(round(t4.w)) | (uint(round(t5.x)) << 8) | (uint(round(t5.y)) << 16);
-    prim.pad0 = 0.0;
+    prim.pad0 = t6.z;
     prim.pad1 = 0.0;
     prim.pad2 = 0.0;
     return prim;
@@ -470,6 +478,9 @@ struct ViewportParams {
   ivec4 ints1;
   vec4 floats0;
   mat4 u_mvp;
+  mat4 u_view;
+  mat4 u_view_inv;
+  mat4 u_proj_inv;
   vec4 u_cam0;
   vec4 u_cam1;
   vec4 u_cam2;
@@ -488,6 +499,9 @@ struct ViewportParams {
 #define mops_alpha params.floats0.y
 #define mops_gamma params.floats0.z
 #define mops_u_mvp params.u_mvp
+#define mops_u_view params.u_view
+#define mops_u_view_inv params.u_view_inv
+#define mops_u_proj_inv params.u_proj_inv
 #define mops_u_cam0 params.u_cam0
 #define mops_u_cam1 params.u_cam1
 #define mops_u_cam2 params.u_cam2
@@ -503,11 +517,18 @@ class _FragmentParamsUBO(ctypes.Structure):
         ("ints1", ctypes.c_int * 4),
         ("floats0", ctypes.c_float * 4),
         ("u_mvp", ctypes.c_float * 16),
+        ("u_view", ctypes.c_float * 16),
+        ("u_view_inv", ctypes.c_float * 16),
+        ("u_proj_inv", ctypes.c_float * 16),
         ("u_cam0", ctypes.c_float * 4),
         ("u_cam1", ctypes.c_float * 4),
         ("u_cam2", ctypes.c_float * 4),
         ("u_cam3", ctypes.c_float * 4),
     ]
+
+
+def _flatten_matrix_column_major(matrix: Matrix) -> tuple[float, ...]:
+    return tuple(float(matrix[row][col]) for col in range(4) for row in range(4))
 
 
 def _int_env(name: str, default: int) -> int:
@@ -927,7 +948,15 @@ def _shader_source(
     use_int16_storage: bool = False,
     texture_backend: bool = False,
 ) -> str:
-    key = (filename, stage, shading_mode_value, use_int16_storage, texture_backend)
+    source_token = _shader_source_token()
+    key = (
+        filename,
+        stage,
+        shading_mode_value,
+        use_int16_storage,
+        texture_backend,
+        source_token,
+    )
     cached = _SHADER_CACHE.get(key)
     if cached is not None:
         return cached
@@ -942,6 +971,15 @@ def _shader_source(
     )
     _SHADER_CACHE[key] = source
     return source
+
+
+def _shader_source_token() -> tuple[int, ...]:
+    root = _shader_root()
+    mtimes = []
+    for filename in _VIEWPORT_SHADER_FILES:
+        mtimes.append((root / filename).stat().st_mtime_ns)
+    mtimes.append((bridge.repo_dir() / "include" / "constants.h").stat().st_mtime_ns)
+    return tuple(mtimes)
 
 
 def _declare_push_constants(shader_info, entries):
@@ -1164,6 +1202,7 @@ class MathOPSV2GPUViewport:
         self.old_to_new_scratch_tex = None
         self.tmp_tex = None
         self.scene_static_key = None
+        self.shader_source_token = None
 
         self.prims_ssbo = _SSBO()
         self.nodes_ssbo = _SSBO()
@@ -1196,6 +1235,7 @@ class MathOPSV2GPUViewport:
         self.pruning_key = None
         self.scene_info = None
         self.runtime_failed = False
+        self.shader_source_token = None
         self.int16_storage_supported = (
             True if _int_env("MATHOPS_V2_TRY_GL_INT16", 1) else False
         )
@@ -1273,11 +1313,13 @@ class MathOPSV2GPUViewport:
         if self.runtime_failed:
             return False
         backend = self._backend_type()
+        source_token = _shader_source_token()
         if (
             self.draw_shader is not None
             and self.draw_shader_mode == shading_mode
             and self.draw_shader_backend == backend
             and self.compute_shader is not None
+            and self.shader_source_token == source_token
         ):
             return True
         if not self.supported():
@@ -1392,6 +1434,7 @@ class MathOPSV2GPUViewport:
                 self.draw_shader = gpu.shader.create_from_info(shader_info)
                 self.draw_shader_mode = shading_mode
                 self.draw_shader_backend = backend
+                self.shader_source_token = source_token
                 self.use_int16_storage = False
                 verts = ((-1.0, -1.0), (3.0, -1.0), (-1.0, 3.0))
                 self.batch = batch_for_shader(self.draw_shader, "TRIS", {"pos": verts})
@@ -1452,6 +1495,7 @@ class MathOPSV2GPUViewport:
                 self.draw_shader = draw_shader
                 self.draw_shader_mode = shading_mode
                 self.draw_shader_backend = backend
+                self.shader_source_token = source_token
                 if self.use_int16_storage != use_int16_storage:
                     self.pruning_key = None
                     self._buffer_config_key = None
@@ -1484,6 +1528,7 @@ class MathOPSV2GPUViewport:
         self.draw_shader_mode = None
         self.compute_shader = None
         self.batch = None
+        self.shader_source_token = None
         self.runtime_failed = True
         return False
 
@@ -1581,6 +1626,7 @@ class MathOPSV2GPUViewport:
         payload[base + 6, 1] = (
             (words_u32[:, 3] >> np.uint32(24)) & np.uint32(0xFF)
         ).astype(np.float32)
+        payload[base + 6, 2] = words_f32[:, 21]
         return self._texture_from_float_rgba(payload)
 
     def _sync_scene_textures(self, packed):
@@ -1922,6 +1968,7 @@ class MathOPSV2GPUViewport:
                 self._active_init_raw = bytes(packed["active_nodes"])
                 if self.texture_scene_mode:
                     self._sync_scene_textures(packed)
+                    self._sync_texture_init_textures()
                 else:
                     self.prims_ssbo.upload(bytes(packed["primitives"]))
                     self.nodes_ssbo.upload(bytes(packed["nodes"]))
@@ -2287,7 +2334,11 @@ class MathOPSV2GPUViewport:
         fov_y,
     ):
         region3d = context.space_data.region_3d
-        mvp = region3d.perspective_matrix @ self._renderer_to_blender_matrix()
+        renderer_to_blender = self._renderer_to_blender_matrix()
+        mvp = region3d.perspective_matrix @ renderer_to_blender
+        view = region3d.view_matrix @ renderer_to_blender
+        view_inv = view.inverted()
+        proj_inv = region3d.window_matrix.inverted()
         tan_half_fov = max(1e-4, float(np.tan(float(fov_y) * 0.5)))
         background = bridge.world_background_color(scene)
         use_culling = settings.culling_enabled and not self.culling_overflow
@@ -2319,7 +2370,10 @@ class MathOPSV2GPUViewport:
             float(settings.gamma),
             0.0,
         )
-        params.u_mvp[:] = tuple(value for row in mvp for value in row)
+        params.u_mvp[:] = _flatten_matrix_column_major(mvp)
+        params.u_view[:] = _flatten_matrix_column_major(view)
+        params.u_view_inv[:] = _flatten_matrix_column_major(view_inv)
+        params.u_proj_inv[:] = _flatten_matrix_column_major(proj_inv)
         params.u_cam0[:] = (*camera_position, 0.0)
         params.u_cam1[:] = (*camera_target_value, 0.0)
         params.u_cam2[:] = (*camera_up, tan_half_fov)

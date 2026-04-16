@@ -41,49 +41,101 @@ def template_scene_path(template_id: str) -> Path:
 
 def load_native_module():
     if runtime.native_module is None:
-        runtime.debug_log("Loading native renderer module")
         abi_tag = f"cp{sys.version_info.major}{sys.version_info.minor}"
-        candidates = sorted(
-            addon_dir().glob(f"lipschitz_pruning_native*{abi_tag}*.pyd")
+        runtime.debug_log(f"Loading native renderer module for {abi_tag}")
+        required_attrs = (
+            "pack_scene_file",
+            "pack_scene_json",
+            "pack_scene_demo_anim",
+            "Renderer",
         )
+
+        def _candidate_list(pattern):
+            items = []
+            for directory in (addon_dir(), addon_dir() / "Release"):
+                if not directory.is_dir():
+                    continue
+                for path in directory.glob(pattern):
+                    try:
+                        mtime_ns = path.stat().st_mtime_ns
+                    except OSError:
+                        continue
+                    items.append((mtime_ns, path))
+            items.sort(key=lambda item: item[0], reverse=True)
+
+            ordered = []
+            seen = set()
+            for _mtime_ns, path in items:
+                resolved = str(path.resolve())
+                if resolved in seen:
+                    continue
+                seen.add(resolved)
+                ordered.append(path)
+            return ordered
+
+        candidates = _candidate_list(f"lipschitz_pruning_native*{abi_tag}*.pyd")
         if not candidates:
-            candidates = sorted(
-                (addon_dir() / "Release").glob(
-                    f"lipschitz_pruning_native*{abi_tag}*.pyd"
-                )
-            )
-        if not candidates:
-            candidates = sorted(addon_dir().glob("lipschitz_pruning_native*.pyd"))
-        if not candidates:
-            candidates = sorted(
-                (addon_dir() / "Release").glob("lipschitz_pruning_native*.pyd")
-            )
+            candidates = _candidate_list("lipschitz_pruning_native*.pyd")
         if not candidates:
             raise ImportError(f"No native module found in {addon_dir()}")
 
-        module_path = candidates[0]
-        module_mtime = module_path.stat().st_mtime_ns
         cache_dir = addon_dir() / ".native_cache"
         cache_dir.mkdir(exist_ok=True)
-        cached_module_path = (
-            cache_dir / f"{module_path.stem}.{module_mtime}{module_path.suffix}"
-        )
-        if not cached_module_path.exists():
-            shutil.copy2(module_path, cached_module_path)
-
         module_name = f"{addon_dir().name}.lipschitz_pruning_native"
-        sys.modules.pop(module_name, None)
-        spec = importlib.util.spec_from_file_location(module_name, cached_module_path)
-        if spec is None or spec.loader is None:
-            raise ImportError(
-                f"Unable to load native module spec from {cached_module_path}"
-            )
+        last_exc = None
 
-        native_module = importlib.util.module_from_spec(spec)
-        sys.modules[module_name] = native_module
-        spec.loader.exec_module(native_module)
-        runtime.debug_log(f"Native module loaded from {cached_module_path.name}")
-        runtime.native_module = native_module
+        for module_path in candidates:
+            module_mtime = module_path.stat().st_mtime_ns
+            cached_module_path = (
+                cache_dir / f"{module_path.stem}.{module_mtime}{module_path.suffix}"
+            )
+            for attempt in range(2):
+                if not cached_module_path.exists():
+                    shutil.copy2(module_path, cached_module_path)
+
+                sys.modules.pop(module_name, None)
+                try:
+                    spec = importlib.util.spec_from_file_location(
+                        module_name, cached_module_path
+                    )
+                    if spec is None or spec.loader is None:
+                        raise ImportError(
+                            f"Unable to load native module spec from {cached_module_path}"
+                        )
+
+                    native_module = importlib.util.module_from_spec(spec)
+                    sys.modules[module_name] = native_module
+                    spec.loader.exec_module(native_module)
+                    missing_attrs = [
+                        name
+                        for name in required_attrs
+                        if not hasattr(native_module, name)
+                    ]
+                    if missing_attrs:
+                        raise ImportError(
+                            "Native module is missing required attributes: "
+                            + ", ".join(missing_attrs)
+                        )
+                    runtime.debug_log(
+                        f"Native module loaded from {cached_module_path.name}"
+                    )
+                    runtime.native_module = native_module
+                    return runtime.native_module
+                except Exception as exc:
+                    last_exc = exc
+                    sys.modules.pop(module_name, None)
+                    runtime.debug_log(
+                        f"Native module load failed from {cached_module_path.name}: {exc}"
+                    )
+                    if attempt == 0:
+                        try:
+                            cached_module_path.unlink()
+                        except OSError:
+                            pass
+                        continue
+                    break
+
+        raise ImportError(f"Failed to load native module: {last_exc}")
     return runtime.native_module
 
 

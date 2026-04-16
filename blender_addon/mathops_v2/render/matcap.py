@@ -7,6 +7,8 @@ import bpy
 import gpu
 import numpy as np
 
+from . import bridge
+
 
 _MATCAP_TEXTURES = {}
 _WHITE_TEXTURE = None
@@ -203,7 +205,95 @@ def _texture_from_array(width, height, values):
     )
 
 
+def _extract_exr_with_helper(path, output_dir):
+    helper_candidates = [
+        bridge.addon_dir() / "matcap_exr_extract.exe",
+        bridge.addon_dir() / "Release" / "matcap_exr_extract.exe",
+    ]
+    for helper_path in helper_candidates:
+        if not helper_path.is_file():
+            continue
+        result = subprocess.run(
+            [str(helper_path), path, output_dir],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    return ""
+
+
+def _load_helper_exr_textures(path):
+    try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            output = _extract_exr_with_helper(path, tmp_dir)
+            if not output:
+                return None
+
+            parts = output.split(",")
+            if len(parts) < 3:
+                return None
+
+            width, height, has_specular = int(parts[0]), int(parts[1]), int(parts[2])
+            diffuse_path = os.path.join(tmp_dir, "diffuse.bin")
+            if not os.path.exists(diffuse_path):
+                return None
+
+            diffuse = np.fromfile(diffuse_path, dtype=np.float32)
+            specular = None
+            if has_specular:
+                specular_path = os.path.join(tmp_dir, "specular.bin")
+                if os.path.exists(specular_path):
+                    specular = np.fromfile(specular_path, dtype=np.float32)
+
+            diffuse_texture = _texture_from_array(width, height, diffuse)
+            specular_texture = (
+                _texture_from_array(width, height, specular)
+                if specular is not None
+                else _black_texture()
+            )
+            return diffuse_texture, specular_texture
+    except Exception:
+        return None
+
+
+def _load_native_exr_textures(path):
+    try:
+        native_module = bridge.load_native_module()
+        if not hasattr(native_module, "extract_matcap_exr"):
+            return None
+
+        result = native_module.extract_matcap_exr(path)
+        width = int(result["width"])
+        height = int(result["height"])
+        diffuse = np.frombuffer(result["diffuse"], dtype=np.float32).copy()
+        specular = None
+        if bool(result.get("has_specular", False)):
+            specular_bytes = result.get("specular", b"")
+            if specular_bytes:
+                specular = np.frombuffer(specular_bytes, dtype=np.float32).copy()
+
+        diffuse_texture = _texture_from_array(width, height, diffuse)
+        specular_texture = (
+            _texture_from_array(width, height, specular)
+            if specular is not None
+            else _black_texture()
+        )
+        return diffuse_texture, specular_texture
+    except Exception:
+        return None
+
+
 def _load_exr_textures(path):
+    textures = _load_helper_exr_textures(path)
+    if textures is not None:
+        return textures
+
+    textures = _load_native_exr_textures(path)
+    if textures is not None:
+        return textures
+
     try:
         with tempfile.TemporaryDirectory() as tmp_dir:
             script = _EXR_CORE + (f"_extract({path!r}, {tmp_dir!r})\n")

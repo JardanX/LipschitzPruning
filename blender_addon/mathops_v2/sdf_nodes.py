@@ -5,7 +5,7 @@ from pathlib import Path
 
 import bpy
 import nodeitems_utils
-from bpy.props import FloatProperty, FloatVectorProperty
+from bpy.props import EnumProperty, FloatProperty, FloatVectorProperty
 from bpy.types import Node, NodeSocket, NodeTree, Operator, Panel
 from mathutils import Euler, Matrix, Vector
 from nodeitems_utils import NodeCategory, NodeItem
@@ -20,13 +20,25 @@ SPHERE_NODE_IDNAME = "MATHOPS_V2_SDF_SPHERE"
 BOX_NODE_IDNAME = "MATHOPS_V2_SDF_BOX"
 CYLINDER_NODE_IDNAME = "MATHOPS_V2_SDF_CYLINDER"
 CONE_NODE_IDNAME = "MATHOPS_V2_SDF_CONE"
+CSG_NODE_IDNAME = "MATHOPS_V2_CSG"
 UNION_NODE_IDNAME = "MATHOPS_V2_CSG_UNION"
 SUBTRACT_NODE_IDNAME = "MATHOPS_V2_CSG_SUBTRACT"
 INTERSECT_NODE_IDNAME = "MATHOPS_V2_CSG_INTERSECT"
+PRIMITIVE_NODE_IDNAMES = {
+    SPHERE_NODE_IDNAME,
+    BOX_NODE_IDNAME,
+    CYLINDER_NODE_IDNAME,
+    CONE_NODE_IDNAME,
+}
 NODE_CATEGORY_ID = "MATHOPS_V2_SDF_NODES"
 _INVALID_SCENE_NAME = "_invalid_.json"
 _OUTPUT_ENFORCE_LOCKS = set()
 _IDENTITY_MATRIX_3X4 = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+_CSG_BLEND_MODE_ITEMS = (
+    ("union", "Union", "Combine both SDF shapes"),
+    ("sub", "Subtract", "Subtract B from A"),
+    ("inter", "Intersect", "Keep only the overlap"),
+)
 
 
 def _graph_updated(_owner=None, context=None):
@@ -57,6 +69,47 @@ def _surface_output_socket(node):
         if getattr(socket, "bl_idname", "") == SOCKET_IDNAME:
             return socket
     return None
+
+
+def is_primitive_node(node) -> bool:
+    return getattr(node, "bl_idname", "") in PRIMITIVE_NODE_IDNAMES
+
+
+def iter_primitive_nodes(tree):
+    for node in getattr(tree, "nodes", []):
+        if is_primitive_node(node):
+            yield node
+
+
+def primitive_node_token(node) -> str:
+    pointer = getattr(node, "as_pointer", None)
+    if pointer is None:
+        return ""
+    try:
+        return str(int(pointer()))
+    except Exception:
+        return ""
+
+
+def find_primitive_node(tree, node_id):
+    if not node_id:
+        return None
+    for node in iter_primitive_nodes(tree):
+        if primitive_node_token(node) == node_id:
+            return node
+    return None
+
+
+def active_primitive_node(scene, create=False):
+    settings = getattr(scene, "mathops_v2_settings", None)
+    if settings is None or not getattr(settings, "use_sdf_nodes", False):
+        return None
+    try:
+        tree = get_selected_tree(settings, create=create, ensure=create)
+    except Exception:
+        return None
+    active = getattr(getattr(tree, "nodes", None), "active", None)
+    return active if is_primitive_node(active) else None
 
 
 def _surface_root_candidate(tree):
@@ -393,7 +446,7 @@ class _MathOPSV2PrimitiveNodeBase(_MathOPSV2NodeBase):
                 max=1.0,
                 default=(0.8, 0.8, 0.8),
                 update=_graph_updated,
-            )
+            ),
         }
     )
 
@@ -426,8 +479,7 @@ class _MathOPSV2CSGNodeBase(_MathOPSV2NodeBase):
         self.inputs.new(SOCKET_IDNAME, "B")
         self.outputs.new(SOCKET_IDNAME, "SDF")
 
-    def draw_buttons(self, context, layout):
-        del context
+    def _draw_csg_buttons(self, layout):
         layout.prop(self, "blend_radius")
 
     def draw_buttons_ext(self, context, layout):
@@ -580,17 +632,46 @@ class MathOPSV2CSGUnionNode(_MathOPSV2CSGNodeBase, Node):
     bl_label = "CSG Union"
     blend_mode = "union"
 
+    def draw_buttons(self, context, layout):
+        del context
+        self._draw_csg_buttons(layout)
+
 
 class MathOPSV2CSGSubtractNode(_MathOPSV2CSGNodeBase, Node):
     bl_idname = SUBTRACT_NODE_IDNAME
     bl_label = "CSG Subtract"
     blend_mode = "sub"
 
+    def draw_buttons(self, context, layout):
+        del context
+        self._draw_csg_buttons(layout)
+
 
 class MathOPSV2CSGIntersectNode(_MathOPSV2CSGNodeBase, Node):
     bl_idname = INTERSECT_NODE_IDNAME
     bl_label = "CSG Intersect"
     blend_mode = "inter"
+
+    def draw_buttons(self, context, layout):
+        del context
+        self._draw_csg_buttons(layout)
+
+
+class MathOPSV2CSGNode(_MathOPSV2CSGNodeBase, Node):
+    bl_idname = CSG_NODE_IDNAME
+    bl_label = "CSG"
+
+    blend_mode: EnumProperty(
+        name="Operation",
+        items=_CSG_BLEND_MODE_ITEMS,
+        default="union",
+        update=_graph_updated,
+    )
+
+    def draw_buttons(self, context, layout):
+        del context
+        layout.prop(self, "blend_mode")
+        self._draw_csg_buttons(layout)
 
 
 def _matrix_to_json_values(matrix: Matrix):
@@ -754,6 +835,7 @@ def _socket_source_node(socket, label, node):
 def _serialize_primitive(node, primitive_type):
     payload = {
         "nodeType": "primitive",
+        "nodeId": primitive_node_token(node),
         "primitiveType": primitive_type,
         "color": [float(v) for v in node.color],
         "round_x": 0.0,
@@ -788,6 +870,7 @@ def _serialize_node(node, active_stack):
         if node.bl_idname == CONE_NODE_IDNAME:
             return _serialize_primitive(node, "cone")
         if node.bl_idname in {
+            CSG_NODE_IDNAME,
             UNION_NODE_IDNAME,
             SUBTRACT_NODE_IDNAME,
             INTERSECT_NODE_IDNAME,
@@ -836,9 +919,22 @@ def compile_tree_payload(tree):
     return compiled
 
 
+def _strip_runtime_payload_metadata(node_payload):
+    if not isinstance(node_payload, dict):
+        return node_payload
+    cleaned = {
+        key: _strip_runtime_payload_metadata(value)
+        for key, value in node_payload.items()
+        if key != "nodeId"
+    }
+    return cleaned
+
+
 def compile_tree_json(tree):
     return json.dumps(
-        compile_tree_payload(tree), ensure_ascii=True, separators=(",", ":")
+        _strip_runtime_payload_metadata(compile_tree_payload(tree)),
+        ensure_ascii=True,
+        separators=(",", ":"),
     )
 
 
@@ -987,9 +1083,7 @@ node_categories = [
         "MATHOPS_V2_SDF_CSG",
         "CSG",
         items=[
-            NodeItem(UNION_NODE_IDNAME),
-            NodeItem(SUBTRACT_NODE_IDNAME),
-            NodeItem(INTERSECT_NODE_IDNAME),
+            NodeItem(CSG_NODE_IDNAME),
         ],
     ),
 ]
@@ -1003,6 +1097,7 @@ classes = (
     MathOPSV2SDFBoxNode,
     MathOPSV2SDFCylinderNode,
     MathOPSV2SDFConeNode,
+    MathOPSV2CSGNode,
     MathOPSV2CSGUnionNode,
     MathOPSV2CSGSubtractNode,
     MathOPSV2CSGIntersectNode,

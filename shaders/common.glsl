@@ -342,6 +342,7 @@ float sdCone(vec3 position, float radius, float halfHeight) {
 float eval_prim(vec3 p, Primitive prim) {
     mat4x3 m = transpose(mat3x4(prim.m_row0, prim.m_row1, prim.m_row2));
     p = vec3(m * vec4(p, 1));
+    float distance_scale = prim.pad0 > 0.0 ? prim.pad0 : 1.0;
 
     float dist;
     if (prim.type == PRIMITIVE_SPHERE) {
@@ -373,5 +374,5 @@ float eval_prim(vec3 p, Primitive prim) {
         dist = 1e20;
     }
     //dist -= prim.rounding;
-    return dist;
+    return dist * distance_scale;
 }

@@ -8,7 +8,15 @@ bl_info = {
     "description": "Custom Blender render engine bridge for the MathOPS-v2 Vulkan renderer",
 }
 
-from . import engine, operators, properties, runtime, sdf_nodes, ui
+from . import (
+    engine,
+    operators,
+    properties,
+    runtime,
+    sdf_nodes,
+    viewport_interaction,
+    ui,
+)
 from .render import bridge, matcap
 
 
@@ -16,6 +24,7 @@ modules = (
     sdf_nodes,
     properties,
     operators,
+    viewport_interaction,
     engine,
     ui,
 )

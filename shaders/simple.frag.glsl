@@ -207,11 +207,21 @@ vec2 matcap_uv(vec3 normal_view, vec3 view_dir_view)
 #endif
 
 
-vec3 shade_surface(vec3 albedo, vec3 normal, vec3 ray_d_viewspace, mat3 world_to_view)
+vec3 shade_surface(
+    vec3 albedo,
+    vec3 normal,
+    vec3 hit_pos
+)
 {
 #ifdef MATHOPS_BLENDER_VIEWPORT
-    vec3 normal_view = normalize(world_to_view * normal);
-    vec2 uv = matcap_uv(normal_view, normalize(-ray_d_viewspace));
+    vec3 normal_view = normalize(mat3(mops_u_view) * normal);
+    vec3 hit_view_pos = (mops_u_view * vec4(hit_pos, 1.0)).xyz;
+    vec3 incident = vec3(0.0, 0.0, 1.0);
+    float hit_view_len_sq = dot(hit_view_pos, hit_view_pos);
+    if (hit_view_len_sq > 1e-12) {
+        incident = normalize(-hit_view_pos);
+    }
+    vec2 uv = matcap_uv(normal_view, incident);
     vec3 color = texture(mopsMatcapTex, uv).rgb * albedo;
     if (mops_show_specular != 0) {
         color += texture(mopsMatcapSpecularTex, uv).rgb;
@@ -371,6 +381,17 @@ void main () {
         uv += (vec2(du,dv) * 2 - 1) * 0.5 / vec2(u_Resolution);
 
 
+        vec3 ray_o;
+        vec3 ray_d;
+
+#ifdef MATHOPS_BLENDER_VIEWPORT
+        vec2 screen = uv * 2.0 - 1.0;
+        vec4 far_plane = mops_u_proj_inv * vec4(screen, 1.0, 1.0);
+        far_plane /= max(far_plane.w, 1e-8);
+        ray_o = (mops_u_view_inv * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+        vec3 far_world = (mops_u_view_inv * far_plane).xyz;
+        ray_d = normalize(far_world - ray_o);
+#else
         vec3 forward = normalize(cam_target-cam_pos);
         if (abs(dot(forward, cam_up_hint)) > 0.999) {
             cam_up_hint = abs(forward.y) < 0.999 ? vec3(0, 1, 0) : vec3(1, 0, 0);
@@ -386,27 +407,12 @@ void main () {
         vec3 up = normalize(cross(right, forward));
 
         mat3 ViewToWorld = mat3(right, up, forward);
-        mat3 WorldToView = transpose(ViewToWorld);
         float aspect = float(u_Resolution.x) / float(u_Resolution.y);
-
-    #if 1
-        // perspective
-
-        vec3 ray_o = vec3(cam_pos);
         vec2 screen = uv * 2 - 1;
         vec3 ray_d_viewspace = normalize(vec3(screen.x * aspect * tan_half_fov, screen.y * tan_half_fov, 1));
-        vec3 ray_d = ViewToWorld * ray_d_viewspace;
-    #else
-        // orthographic
-
-        vec3 ray_d_viewspace = vec3(0,0,1);
-        vec3 ray_o_viewspace = vec3(uv * 2.0 -1.0, 0);
-        ray_o_viewspace.x *= aspect;
-        vec3 ray_o = vec3(cam_pos) + ViewToWorld * ray_o_viewspace;
-        //vec3 ray_o = vec3(cam_pos) + ray_o_viewspace;
-        //vec3 ray_d = ray_d_viewspace;
-        vec3 ray_d = ViewToWorld * ray_d_viewspace;
-    #endif
+        ray_o = vec3(cam_pos);
+        ray_d = ViewToWorld * ray_d_viewspace;
+#endif
 
         gl_FragDepth = 1;
 
@@ -491,7 +497,7 @@ void main () {
                     } else {
                         albedo = get_color(p);
                     }
-                    color = shade_surface(albedo, normal, ray_d_viewspace, WorldToView);
+                    color = shade_surface(albedo, normal, p);
                 }
             }
             color_alpha = 1;

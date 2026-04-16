@@ -1,4 +1,5 @@
 #include "scene.h"
+#include <algorithm>
 #include <queue>
 #include <random>
 #include <rapidjson/document.h>
@@ -10,6 +11,15 @@
 #include "glm/gtx/transform.hpp"
 
 namespace {
+
+float primitive_distance_scale(const glm::mat4 &world_to_prim)
+{
+    glm::vec3 row0(world_to_prim[0][0], world_to_prim[1][0], world_to_prim[2][0]);
+    glm::vec3 row1(world_to_prim[0][1], world_to_prim[1][1], world_to_prim[2][1]);
+    glm::vec3 row2(world_to_prim[0][2], world_to_prim[1][2], world_to_prim[2][2]);
+    float max_inv_scale = std::max(std::max(glm::length(row0), glm::length(row1)), glm::length(row2));
+    return max_inv_scale > 0.0f ? 1.0f / max_inv_scale : 1.0f;
+}
 
 void load_json_document(rapidjson::Document& d, std::vector<CSGNode>& nodes, glm::vec3& aabb_min, glm::vec3& aabb_max) {
     if (d.HasParseError()) {
@@ -69,6 +79,9 @@ void load_json_document(rapidjson::Document& d, std::vector<CSGNode>& nodes, glm
                                               world_to_prim[3][1]);
             node.primitive.m_row2 = glm::vec4(world_to_prim[0][2], world_to_prim[1][2], world_to_prim[2][2],
                                               world_to_prim[3][2]);
+            node.primitive.pad0 = primitive_distance_scale(world_to_prim);
+            node.primitive.pad1 = 0.0f;
+            node.primitive.pad2 = 0.0f;
 
             node.primitive.extrude_rounding.x = j["round_x"].GetFloat();
             node.primitive.extrude_rounding.y = j["round_y"].GetFloat();

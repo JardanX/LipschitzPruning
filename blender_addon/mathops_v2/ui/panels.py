@@ -1,7 +1,7 @@
 import bpy
 from bpy.types import Panel
 
-from .. import runtime, sdf_nodes
+from .. import runtime, sdf_nodes, viewport_interaction
 from .. import operators
 from ..render import bridge
 
@@ -176,6 +176,39 @@ class MATHOPS_V2_PT_debug(_MathOPSV2Panel, Panel):
         col.label(text="Viewport-only debug sphere", icon="INFO")
 
 
+class MATHOPS_V2_PT_view3d_tools(Panel):
+    bl_label = "MathOPS-v2"
+    bl_idname = "MATHOPS_V2_PT_view3d_tools"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "MathOPS-v2"
+
+    @classmethod
+    def poll(cls, context):
+        settings = getattr(getattr(context, "scene", None), "mathops_v2_settings", None)
+        return settings is not None and getattr(settings, "use_sdf_nodes", False)
+
+    def draw(self, context):
+        layout = self.layout
+        settings = context.scene.mathops_v2_settings
+        node = viewport_interaction.active_primitive_node(context.scene)
+
+        layout.operator(
+            viewport_interaction.MATHOPS_V2_OT_pick_sdf.bl_idname, icon="EYEDROPPER"
+        )
+        layout.prop(settings, "viewport_transform_mode", expand=True)
+        if node is None:
+            layout.label(text="Active primitive: none", icon="INFO")
+            layout.label(text="Pick in viewport or select a primitive node")
+            return
+
+        layout.label(text=f"Active primitive: {node.name}", icon="NODE")
+        col = layout.column(align=True)
+        col.prop(node, "sdf_location")
+        col.prop(node, "sdf_rotation")
+        col.prop(node, "sdf_scale")
+
+
 def draw_shading_popover(self, context):
     if context.engine != runtime.ENGINE_ID:
         return
@@ -202,6 +235,7 @@ classes = (
     MATHOPS_V2_PT_viewport,
     MATHOPS_V2_PT_bounds,
     MATHOPS_V2_PT_debug,
+    MATHOPS_V2_PT_view3d_tools,
 )
 
 

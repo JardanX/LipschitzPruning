@@ -176,6 +176,7 @@ int main(int argc, char** argv) {
                 node.primitive.m_row0 = glm::vec4(1,0,0,0);;
                 node.primitive.m_row1 = glm::vec4(0,1,0,0);;
                 node.primitive.m_row2 = glm::vec4(0,0,1,0);;
+                node.primitive.pad0 = 1.0f;
                 node.primitive.type = PRIMITIVE_SPHERE;
                 node.primitive.color = 0xaaaaff;
                 node.type = NODETYPE_PRIMITIVE;

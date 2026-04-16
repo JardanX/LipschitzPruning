@@ -159,6 +159,16 @@ class MathOPSV2Settings(bpy.types.PropertyGroup):
         description="Draw the MathOPS-v2 viewport preview in Rendered mode",
         update=_update_viewport,
     )
+    viewport_transform_mode: EnumProperty(
+        name="Transform Mode",
+        items=(
+            ("TRANSLATE", "Move", "Move the active SDF primitive"),
+            ("ROTATE", "Rotate", "Rotate the active SDF primitive"),
+            ("SCALE", "Scale", "Scale the active SDF primitive"),
+        ),
+        default="TRANSLATE",
+        update=_update_viewport,
+    )
     demo_anim_speed: FloatProperty(
         name="Demo Anim Speed",
         default=4.0,
