@@ -14,6 +14,7 @@ PRIMITIVE_ITEMS = (
 
 def _tag_redraw(_self=None, context=None):
     runtime.clear_error()
+    runtime.note_interaction()
     runtime.tag_redraw(context)
 
 
@@ -57,6 +58,38 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
         size=3,
         default=(0.45, 0.55, 0.7),
         subtype="DIRECTION",
+        update=_tag_redraw,
+    )
+    culling_enabled: BoolProperty(
+        name="Pruning Enabled",
+        default=True,
+        description="Use Lipschitz pruning to accelerate the raymarch",
+        update=_tag_redraw,
+    )
+    pruning_grid_level: bpy.props.IntProperty(
+        name="Pruning Grid Level",
+        default=4,
+        min=2,
+        max=10,
+        description="Even grid exponent used by the pruning hierarchy (4 = 16^3 cells)",
+        update=_tag_redraw,
+    )
+    debug_shading: EnumProperty(
+        name="Debug Shading",
+        items=(
+            ("SHADED", "Shaded", "Normal shaded raymarch"),
+            ("PRUNING_ACTIVE", "Pruning Active", "Visualize active node counts per cell"),
+            ("PRUNING_FIELD", "Pruning Field", "Visualize the far-field cell values"),
+        ),
+        default="SHADED",
+        update=_tag_redraw,
+    )
+    colormap_max: bpy.props.IntProperty(
+        name="Heatmap Max",
+        default=25,
+        min=1,
+        max=64,
+        description="Upper range for heatmap shading",
         update=_tag_redraw,
     )
 

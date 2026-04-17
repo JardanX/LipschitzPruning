@@ -42,6 +42,7 @@ _object_node_updates_suppressed = 0
 
 def _tag_redraw(_self=None, context=None):
     runtime.clear_error()
+    runtime.note_interaction()
     runtime.tag_redraw(context)
 
 
@@ -87,13 +88,14 @@ class MathOPSV2SDFSocket(NodeSocket):
         return (0.45, 0.65, 1.0, 1.0)
 
 
-class MathOPSV2SDFTree(NodeTree):
+class MathOPSV2NodeTree(NodeTree):
     bl_idname = runtime.TREE_IDNAME
     bl_label = "MathOPS SDF"
     bl_icon = "NODETREE"
 
     def update(self):
         ensure_graph_output(self)
+        runtime.note_interaction()
         runtime.tag_redraw()
 
 
@@ -103,10 +105,11 @@ class _MathOPSV2NodeBase(Node):
         return getattr(node_tree, "bl_idname", "") == runtime.TREE_IDNAME
 
     def update(self):
+        runtime.note_interaction()
         runtime.tag_redraw()
 
 
-class MathOPSV2SceneOutputNode(_MathOPSV2NodeBase):
+class MathOPSV2OutputNode(_MathOPSV2NodeBase):
     bl_idname = runtime.OUTPUT_NODE_IDNAME
     bl_label = "Scene Output"
     bl_width_default = 180
@@ -592,7 +595,7 @@ def _node_transform_matrix(node):
     return Matrix.LocRotScale(location, rotation, None)
 
 
-def _primitive_rows_from_node(node):
+def _primitive_parameters_from_node(node):
     primitive_type = str(node.primitive_type or "sphere").strip().lower()
     meta = [0.0, 0.0, 0.0, 0.0]
     meta[0] = _PRIMITIVE_TYPE_TO_ID.get(primitive_type, 0.0)
@@ -610,18 +613,91 @@ def _primitive_rows_from_node(node):
         meta[2] = float(node.minor_radius)
     else:
         raise RuntimeError(f"Unsupported primitive type '{primitive_type}'")
-
-    world_to_local = _node_transform_matrix(node).inverted_safe()
-    rows = []
-    for index in range(3):
-        rows.append(tuple(float(value) for value in world_to_local[index]))
     scale = (
         abs(float(node.sdf_scale[0])),
         abs(float(node.sdf_scale[1])),
         abs(float(node.sdf_scale[2])),
-        0.0,
     )
-    return [tuple(meta), rows[0], rows[1], rows[2], scale]
+    return primitive_type, tuple(meta), scale
+
+
+def _primitive_local_extents(primitive_type, meta, scale):
+    if primitive_type == "sphere":
+        return Vector((meta[1] * scale[0], meta[1] * scale[1], meta[1] * scale[2]))
+    if primitive_type == "box":
+        return Vector((meta[1] * scale[0], meta[2] * scale[1], meta[3] * scale[2]))
+    if primitive_type == "cylinder":
+        radial_scale = max(0.5 * (scale[0] + scale[2]), 1.0e-6)
+        return Vector((meta[1] * radial_scale, meta[2] * scale[1], meta[1] * radial_scale))
+    if primitive_type == "torus":
+        radial_scale = max(0.5 * (scale[0] + scale[2]), 1.0e-6)
+        minor_scale = max(min(radial_scale, scale[1]), 1.0e-6)
+        outer = (meta[1] * radial_scale) + (meta[2] * minor_scale)
+        vertical = meta[2] * minor_scale
+        return Vector((outer, vertical, outer))
+    return Vector((1.0, 1.0, 1.0))
+
+
+def _primitive_lipschitz(primitive_type, scale):
+    if primitive_type == "sphere":
+        min_scale = max(min(scale[0], scale[1], scale[2]), 1.0e-6)
+        return max(scale[0], scale[1], scale[2]) / min_scale
+    return 1.0
+
+
+def _primitive_spec_from_node(node, primitive_index):
+    primitive_type, meta, scale = _primitive_parameters_from_node(node)
+    transform = _node_transform_matrix(node)
+    world_to_local = transform.inverted_safe()
+    rows = [tuple(float(value) for value in world_to_local[index]) for index in range(3)]
+    center = tuple(float(component) for component in node.sdf_location)
+    rotation = transform.to_3x3()
+    local_extents = _primitive_local_extents(primitive_type, meta, scale)
+    world_extents = Vector((
+        abs(rotation[0][0]) * local_extents[0] + abs(rotation[0][1]) * local_extents[1] + abs(rotation[0][2]) * local_extents[2],
+        abs(rotation[1][0]) * local_extents[0] + abs(rotation[1][1]) * local_extents[1] + abs(rotation[1][2]) * local_extents[2],
+        abs(rotation[2][0]) * local_extents[0] + abs(rotation[2][1]) * local_extents[1] + abs(rotation[2][2]) * local_extents[2],
+    ))
+    bounds_min = tuple(center[axis] - float(world_extents[axis]) for axis in range(3))
+    bounds_max = tuple(center[axis] + float(world_extents[axis]) for axis in range(3))
+    return {
+        "primitive_index": int(primitive_index),
+        "primitive_type": primitive_type,
+        "meta": meta,
+        "world_to_local": tuple(rows),
+        "scale": tuple(scale),
+        "center": center,
+        "bounds_min": bounds_min,
+        "bounds_max": bounds_max,
+        "lipschitz": float(_primitive_lipschitz(primitive_type, scale)),
+    }
+
+
+def _scene_bounds_from_specs(primitive_specs):
+    if not primitive_specs:
+        return ((-2.0, -2.0, -2.0), (2.0, 2.0, 2.0))
+
+    mins = [float("inf"), float("inf"), float("inf")]
+    maxs = [float("-inf"), float("-inf"), float("-inf")]
+    for spec in primitive_specs:
+        for axis in range(3):
+            mins[axis] = min(mins[axis], float(spec["bounds_min"][axis]))
+            maxs[axis] = max(maxs[axis], float(spec["bounds_max"][axis]))
+
+    extents = [maxs[axis] - mins[axis] for axis in range(3)]
+    max_extent = max(extents) if extents else 1.0
+    padding = max(0.5, max_extent * 0.1)
+    return (
+        tuple(mins[axis] - padding for axis in range(3)),
+        tuple(maxs[axis] + padding for axis in range(3)),
+    )
+
+
+def _primitive_rows_from_node(node):
+    _primitive_type, meta, scale = _primitive_parameters_from_node(node)
+    transform = _node_transform_matrix(node).inverted_safe()
+    rows = [tuple(float(value) for value in transform[index]) for index in range(3)]
+    return [tuple(meta), rows[0], rows[1], rows[2], (scale[0], scale[1], scale[2], 0.0)]
 
 
 def _node_key(node):
@@ -653,7 +729,7 @@ def _stack_usage(instructions):
     return max_depth
 
 
-def _emit_node(node, primitive_rows, instructions, primitive_map, visiting):
+def _emit_node(node, primitive_rows, instructions, primitive_map, primitive_specs, visiting):
     node_key = node.as_pointer()
     if node_key in visiting:
         raise RuntimeError(f"Cycle detected at node '{node.name}'")
@@ -669,26 +745,42 @@ def _emit_node(node, primitive_rows, instructions, primitive_map, visiting):
                 primitive_index = len(primitive_map)
                 primitive_map[proxy_key] = primitive_index
                 primitive_rows.extend(_primitive_rows_from_node(node))
+                primitive_specs.append(_primitive_spec_from_node(node, primitive_index))
+            instruction_index = len(instructions)
             _append_instruction(instructions, (0.0, float(primitive_index), 0.0, 0.0))
-            return
+            return {
+                "kind": "primitive",
+                "primitive_index": int(primitive_index),
+                "instruction_index": int(instruction_index),
+            }
 
         if node_idname == runtime.CSG_NODE_IDNAME:
             left = _linked_source_node(node.inputs[0])
             right = _linked_source_node(node.inputs[1])
             if left is None or right is None:
                 raise RuntimeError(f"Node '{node.name}' needs both inputs connected")
-            _emit_node(left, primitive_rows, instructions, primitive_map, visiting)
-            _emit_node(right, primitive_rows, instructions, primitive_map, visiting)
+            left_compiled = _emit_node(left, primitive_rows, instructions, primitive_map, primitive_specs, visiting)
+            right_compiled = _emit_node(right, primitive_rows, instructions, primitive_map, primitive_specs, visiting)
+            operation = _CSG_OPERATION_TO_ID.get(getattr(node, "operation", "UNION"), 1.0)
+            blend = float(getattr(node, "blend", 0.0))
+            instruction_index = len(instructions)
             _append_instruction(
                 instructions,
                 (
-                    _CSG_OPERATION_TO_ID.get(getattr(node, "operation", "UNION"), 1.0),
+                    operation,
                     0.0,
                     0.0,
-                    float(getattr(node, "blend", 0.0)),
+                    blend,
                 ),
             )
-            return
+            return {
+                "kind": "op",
+                "op": int(operation),
+                "blend": blend,
+                "instruction_index": int(instruction_index),
+                "left": left_compiled,
+                "right": right_compiled,
+            }
 
         raise RuntimeError(f"Unsupported node type '{getattr(node, 'bl_label', node.name)}'")
     finally:
@@ -706,18 +798,23 @@ def _compile_tree(tree):
     primitive_rows = []
     instructions = []
     primitive_map = {}
-    _emit_node(root, primitive_rows, instructions, primitive_map, set())
-    return primitive_rows, instructions
+    primitive_specs = []
+    root_node = _emit_node(root, primitive_rows, instructions, primitive_map, primitive_specs, set())
+    return primitive_rows, instructions, primitive_specs, root_node
 
 
 def _compile_scene_union(scene):
     primitive_rows = []
     instructions = []
+    primitive_specs = []
+    root_node = None
     proxies = list_proxy_objects(scene)
+    tree = get_scene_tree(scene, create=False)
     for primitive_index, obj in enumerate(proxies):
-        node = find_initializer_node(get_scene_tree(scene, create=False), obj=obj)
+        node = find_initializer_node(tree, obj=obj)
         if node is not None:
             primitive_rows.extend(_primitive_rows_from_node(node))
+            primitive_specs.append(_primitive_spec_from_node(node, primitive_index))
         else:
             temp_node = type("_TempNode", (), {})()
             settings = runtime.object_settings(obj)
@@ -731,10 +828,29 @@ def _compile_scene_union(scene):
             temp_node.sdf_rotation = tuple(float(component) for component in obj.rotation_euler)
             temp_node.sdf_scale = tuple(float(component) for component in obj.scale)
             primitive_rows.extend(_primitive_rows_from_node(temp_node))
+            primitive_specs.append(_primitive_spec_from_node(temp_node, primitive_index))
+        primitive_instruction_index = len(instructions)
         _append_instruction(instructions, (0.0, float(primitive_index), 0.0, 0.0))
+        primitive_node = {
+            "kind": "primitive",
+            "primitive_index": int(primitive_index),
+            "instruction_index": int(primitive_instruction_index),
+        }
+        if root_node is None:
+            root_node = primitive_node
+        else:
+            op_instruction_index = len(instructions)
+            root_node = {
+                "kind": "op",
+                "op": int(_CSG_OPERATION_TO_ID["UNION"]),
+                "blend": 0.0,
+                "instruction_index": int(op_instruction_index),
+                "left": root_node,
+                "right": primitive_node,
+            }
         if primitive_index > 0:
             _append_instruction(instructions, (1.0, 0.0, 0.0, 0.0))
-    return primitive_rows, instructions
+    return primitive_rows, instructions, primitive_specs, root_node
 
 
 def ensure_unique_initializer_ids(tree):
@@ -808,17 +924,19 @@ def prune_tree(tree, valid_target_pointers=None):
 def compile_scene(scene):
     primitive_rows = []
     instructions = []
+    primitive_specs = []
+    root_node = None
     message = ""
     settings = runtime.scene_settings(scene)
     tree = None if settings is None else getattr(settings, "node_tree", None)
     if tree is not None and getattr(tree, "bl_idname", "") == runtime.TREE_IDNAME:
         try:
-            primitive_rows, instructions = _compile_tree(tree)
+            primitive_rows, instructions, primitive_specs, root_node = _compile_tree(tree)
         except RuntimeError as exc:
             message = f"Graph fallback: {exc}"
 
     if not instructions:
-        primitive_rows, instructions = _compile_scene_union(scene)
+        primitive_rows, instructions, primitive_specs, root_node = _compile_scene_union(scene)
 
     stack_depth = _stack_usage(instructions)
     if stack_depth > runtime.MAX_STACK:
@@ -826,15 +944,21 @@ def compile_scene(scene):
             f"Graph stack depth {stack_depth} exceeds shader stack limit {runtime.MAX_STACK}"
         )
 
+    scene_bounds = _scene_bounds_from_specs(primitive_specs)
     scene_hash = runtime.hash_compiled_rows(primitive_rows, instructions)
+    topology_hash = runtime.hash_instruction_rows(instructions)
     return {
         "primitive_rows": primitive_rows,
         "instruction_rows": instructions,
+        "primitive_specs": primitive_specs,
+        "root_node": root_node,
         "primitive_count": len(primitive_rows) // runtime.PRIMITIVE_TEXELS,
         "instruction_count": len(instructions),
         "stack_depth": stack_depth,
+        "scene_bounds": scene_bounds,
         "rows": primitive_rows + instructions,
         "hash": scene_hash,
+        "topology_hash": topology_hash,
         "message": message,
     }
 
@@ -862,8 +986,8 @@ node_categories = [
 
 classes = (
     MathOPSV2SDFSocket,
-    MathOPSV2SDFTree,
-    MathOPSV2SceneOutputNode,
+    MathOPSV2NodeTree,
+    MathOPSV2OutputNode,
     MathOPSV2ObjectNode,
     MathOPSV2CSGNode,
 )

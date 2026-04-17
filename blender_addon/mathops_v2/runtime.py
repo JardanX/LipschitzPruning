@@ -1,5 +1,6 @@
 import hashlib
 import struct
+import time
 
 
 ENGINE_ID = "MATHOPS_V2"
@@ -14,6 +15,7 @@ PRIMITIVE_TEXELS = 5
 BACKGROUND_COLOR = (0.035, 0.04, 0.05, 1.0)
 
 last_error_message = ""
+graph_interaction_time = 0.0
 
 
 def set_error(message: str) -> None:
@@ -24,6 +26,17 @@ def set_error(message: str) -> None:
 def clear_error() -> None:
     global last_error_message
     last_error_message = ""
+
+
+def note_interaction() -> None:
+    global graph_interaction_time
+    graph_interaction_time = time.perf_counter()
+
+
+def interaction_active(grace_period: float) -> bool:
+    if grace_period <= 0.0:
+        return False
+    return (time.perf_counter() - graph_interaction_time) < grace_period
 
 
 def scene_settings(scene):
@@ -91,6 +104,14 @@ def hash_compiled_rows(primitive_rows, instruction_rows) -> str:
     digest.update(struct.pack("<II", len(primitive_rows), len(instruction_rows)))
     for row in primitive_rows:
         digest.update(struct.pack("<4f", *[float(value) for value in row]))
+    for row in instruction_rows:
+        digest.update(struct.pack("<4f", *[float(value) for value in row]))
+    return digest.hexdigest()
+
+
+def hash_instruction_rows(instruction_rows) -> str:
+    digest = hashlib.sha1()
+    digest.update(struct.pack("<I", len(instruction_rows)))
     for row in instruction_rows:
         digest.update(struct.pack("<4f", *[float(value) for value in row]))
     return digest.hexdigest()

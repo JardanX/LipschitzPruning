@@ -49,9 +49,14 @@ class MathOPSV2RenderEngine(RenderEngine):
 
         try:
             compiled = self._viewport.draw(context, depsgraph)
+            stats = f"Prims {compiled['primitive_count']} | Ops {compiled['instruction_count']}"
+            if compiled.get("pruning_active"):
+                stats += f" | Cull {compiled['pruning_cells']} cells {compiled.get('pruning_ms', 0.0):.2f}ms"
+            elif compiled.get("pruning_pending"):
+                stats += " | Cull pending"
             self.update_stats(
                 "MathOPS V2",
-                f"Prims {compiled['primitive_count']} | Ops {compiled['instruction_count']}",
+                stats,
             )
         except Exception as exc:
             runtime.set_error(str(exc))

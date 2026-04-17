@@ -1,4 +1,4 @@
-from . import raymarch
+from . import pruning, raymarch
 
 
 def register():

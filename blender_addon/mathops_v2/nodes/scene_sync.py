@@ -96,6 +96,7 @@ def ensure_scene_graph(scene):
         added = True
 
     if added or changed:
+        runtime.note_interaction()
         runtime.tag_redraw()
 
 

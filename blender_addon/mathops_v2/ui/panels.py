@@ -41,6 +41,15 @@ class MATHOPS_V2_PT_render_settings(Panel):
         layout.prop(settings, "surface_epsilon")
         layout.prop(settings, "light_direction")
 
+        layout.separator()
+        layout.prop(settings, "culling_enabled")
+        pruning_col = layout.column()
+        pruning_col.enabled = settings.culling_enabled
+        pruning_col.prop(settings, "pruning_grid_level")
+        pruning_col.prop(settings, "debug_shading")
+        if settings.debug_shading != "SHADED":
+            pruning_col.prop(settings, "colormap_max")
+
         if runtime.last_error_message:
             layout.separator()
             layout.label(text=runtime.last_error_message, icon="ERROR")
