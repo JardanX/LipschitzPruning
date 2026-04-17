@@ -1,11 +1,20 @@
 import hashlib
 import json
 import re
+import time
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 import bpy
 import nodeitems_utils
-from bpy.props import EnumProperty, FloatProperty, FloatVectorProperty
+from bpy.props import (
+    BoolProperty,
+    EnumProperty,
+    FloatProperty,
+    FloatVectorProperty,
+    StringProperty,
+)
 from bpy.types import Node, NodeSocket, NodeTree, Operator, Panel
 from mathutils import Euler, Matrix, Vector
 from nodeitems_utils import NodeCategory, NodeItem
@@ -33,7 +42,19 @@ PRIMITIVE_NODE_IDNAMES = {
 NODE_CATEGORY_ID = "MATHOPS_V2_SDF_NODES"
 _INVALID_SCENE_NAME = "_invalid_.json"
 _OUTPUT_ENFORCE_LOCKS = set()
+_GRAPH_UPDATE_SUPPRESS = 0
+_GRAPH_UPDATE_PENDING = False
+_PROXY_TREE_MATERIALIZED_KEY = "mathops_v2_proxy_tree_materialized"
 _IDENTITY_MATRIX_3X4 = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+_BLENDER_TO_RENDERER_BASIS = Matrix(
+    (
+        (1.0, 0.0, 0.0, 0.0),
+        (0.0, 0.0, 1.0, 0.0),
+        (0.0, -1.0, 0.0, 0.0),
+        (0.0, 0.0, 0.0, 1.0),
+    )
+)
+_RENDERER_TO_BLENDER_BASIS = _BLENDER_TO_RENDERER_BASIS.inverted()
 _CSG_BLEND_MODE_ITEMS = (
     ("union", "Union", "Combine both SDF shapes"),
     ("sub", "Subtract", "Subtract B from A"),
@@ -42,15 +63,64 @@ _CSG_BLEND_MODE_ITEMS = (
 
 
 def _graph_updated(_owner=None, context=None):
-    runtime.dynamic_aabb_state.clear()
-    runtime.current_effective_aabb = None
-    runtime.last_error_message = ""
+    global _GRAPH_UPDATE_PENDING
+    if _GRAPH_UPDATE_SUPPRESS > 0:
+        _GRAPH_UPDATE_PENDING = True
+        return
+
+    tree = (
+        _owner
+        if getattr(_owner, "bl_idname", "") == TREE_IDNAME
+        else getattr(_owner, "id_data", None)
+    )
+    mark_tree_dirty(tree)
+
     try:
         from .render import bridge
 
         bridge.force_redraw_viewports(context)
     except Exception:
         pass
+    try:
+        from . import sdf_proxies
+
+        sdf_proxies.sync_from_graph(context)
+    except Exception:
+        pass
+
+
+def mark_tree_dirty(tree):
+    if getattr(tree, "bl_idname", "") == TREE_IDNAME:
+        runtime.generated_scene_dirty.add(tree.name_full)
+
+    runtime.dynamic_aabb_state.clear()
+    runtime.current_effective_aabb = None
+    runtime.last_error_message = ""
+    runtime.graph_interaction_time = time.perf_counter()
+
+
+def suspend_graph_updates():
+    global _GRAPH_UPDATE_SUPPRESS
+    _GRAPH_UPDATE_SUPPRESS += 1
+
+
+def resume_graph_updates(context=None):
+    global _GRAPH_UPDATE_SUPPRESS, _GRAPH_UPDATE_PENDING
+    if _GRAPH_UPDATE_SUPPRESS <= 0:
+        return
+    _GRAPH_UPDATE_SUPPRESS -= 1
+    if _GRAPH_UPDATE_SUPPRESS == 0 and _GRAPH_UPDATE_PENDING:
+        _GRAPH_UPDATE_PENDING = False
+        _graph_updated(context=context)
+
+
+@contextmanager
+def deferred_graph_updates(context=None):
+    suspend_graph_updates()
+    try:
+        yield
+    finally:
+        resume_graph_updates(context)
 
 
 def _owner_scene(settings):
@@ -82,20 +152,24 @@ def iter_primitive_nodes(tree):
 
 
 def primitive_node_token(node) -> str:
-    pointer = getattr(node, "as_pointer", None)
-    if pointer is None:
-        return ""
-    try:
-        return str(int(pointer()))
-    except Exception:
-        return ""
+    token = str(getattr(node, "proxy_token", "") or "")
+    if not token:
+        token = uuid.uuid4().hex
+        try:
+            node.proxy_token = token
+        except Exception:
+            pass
+    return token
 
 
 def find_primitive_node(tree, node_id):
     if not node_id:
         return None
     for node in iter_primitive_nodes(tree):
-        if primitive_node_token(node) == node_id:
+        token = str(getattr(node, "proxy_token", "") or "")
+        if not token:
+            token = primitive_node_token(node)
+        if token == node_id:
             return node
     return None
 
@@ -109,7 +183,13 @@ def active_primitive_node(scene, create=False):
     except Exception:
         return None
     active = getattr(getattr(tree, "nodes", None), "active", None)
-    return active if is_primitive_node(active) else None
+    if is_primitive_node(active):
+        return active
+
+    active_object = getattr(bpy.context, "active_object", None)
+    if getattr(active_object, "mathops_v2_sdf_proxy", False):
+        return find_primitive_node(tree, active_object.mathops_v2_sdf_node_id)
+    return None
 
 
 def _surface_root_candidate(tree):
@@ -159,6 +239,78 @@ def _find_output_node(tree):
     return linked_outputs[0] if linked_outputs else output_nodes[0]
 
 
+def proxy_tree_materialized(tree) -> bool:
+    try:
+        return bool(tree.get(_PROXY_TREE_MATERIALIZED_KEY, False))
+    except Exception:
+        return False
+
+
+def set_proxy_tree_materialized(tree, value: bool):
+    try:
+        tree[_PROXY_TREE_MATERIALIZED_KEY] = bool(value)
+    except Exception:
+        pass
+
+
+def _is_pure_proxy_union_tree(tree) -> bool:
+    for node in tree.nodes:
+        node_idname = getattr(node, "bl_idname", "")
+        if node_idname == OUTPUT_NODE_IDNAME:
+            continue
+        if is_primitive_node(node):
+            if not getattr(node, "proxy_managed", False):
+                return False
+            continue
+        if node_idname == CSG_NODE_IDNAME:
+            if getattr(node, "blend_mode", "") != "union":
+                return False
+            if abs(float(getattr(node, "blend_radius", 0.0))) > 1.0e-9:
+                return False
+            continue
+        return False
+    return True
+
+
+def _tree_open_in_node_editor(tree) -> bool:
+    try:
+        for window in bpy.context.window_manager.windows:
+            for area in window.screen.areas:
+                if area.type != "NODE_EDITOR":
+                    continue
+                space = area.spaces.active
+                if getattr(space, "tree_type", None) != TREE_IDNAME:
+                    continue
+                if getattr(space, "node_tree", None) == tree:
+                    return True
+    except Exception:
+        pass
+    return False
+
+
+def dematerialize_proxy_tree(tree):
+    if not proxy_tree_materialized(tree):
+        return False
+    if not _is_pure_proxy_union_tree(tree):
+        return False
+    if _tree_open_in_node_editor(tree):
+        return False
+
+    output = _find_output_node(tree)
+    if output is None:
+        output = _ensure_output_node(tree)
+    removable_names = [node.name for node in tree.nodes if node != output]
+    for name in removable_names:
+        node = tree.nodes.get(name)
+        if node is not None and node != output:
+            tree.nodes.remove(node)
+    for link in list(output.inputs[0].links):
+        tree.links.remove(link)
+    _position_output_node(tree, output)
+    set_proxy_tree_materialized(tree, False)
+    return True
+
+
 def _ensure_output_node(tree):
     tree_key = tree.as_pointer()
     if tree_key in _OUTPUT_ENFORCE_LOCKS:
@@ -201,14 +353,8 @@ def _ensure_output_node(tree):
 
 def _build_default_tree(tree):
     output = _ensure_output_node(tree)
-    if any(node.bl_idname != OUTPUT_NODE_IDNAME for node in tree.nodes):
-        return tree
-
-    sphere = tree.nodes.new(SPHERE_NODE_IDNAME)
-    sphere.location = (0.0, 0.0)
-    if output is not None and output.inputs and not output.inputs[0].is_linked:
-        tree.links.new(sphere.outputs[0], output.inputs[0])
-    _position_output_node(tree, output, sphere)
+    if output is not None:
+        _position_output_node(tree, output)
     return tree
 
 
@@ -218,6 +364,7 @@ def ensure_scene_tree(scene, settings=None):
 
     tree = getattr(settings, "sdf_node_tree", None)
     if tree is not None and tree.bl_idname == TREE_IDNAME:
+        dematerialize_proxy_tree(tree)
         _build_default_tree(tree)
         return tree
 
@@ -227,6 +374,7 @@ def ensure_scene_tree(scene, settings=None):
         tree = existing
     else:
         tree = bpy.data.node_groups.new(tree_name, TREE_IDNAME)
+    dematerialize_proxy_tree(tree)
     _build_default_tree(tree)
     settings.sdf_node_tree = tree
     runtime.debug_log(f"Using scene SDF tree '{tree.name}'")
@@ -247,6 +395,7 @@ def new_scene_tree(scene, settings=None):
 def get_selected_tree(settings, create=False, ensure=False):
     tree = getattr(settings, "sdf_node_tree", None)
     if tree is not None and tree.bl_idname == TREE_IDNAME:
+        dematerialize_proxy_tree(tree)
         if ensure:
             _build_default_tree(tree)
         return tree
@@ -263,6 +412,7 @@ def get_selected_tree(settings, create=False, ensure=False):
     tree_name = _default_tree_name(scene)
     tree = bpy.data.node_groups.get(tree_name)
     if tree is not None and tree.bl_idname == TREE_IDNAME:
+        dematerialize_proxy_tree(tree)
         return tree
     raise RuntimeError("Scene SDF graph is unavailable")
 
@@ -285,6 +435,7 @@ def _focus_tree_in_editor(context, tree):
 def focus_scene_tree(context, create=False):
     settings = context.scene.mathops_v2_settings
     tree = get_selected_tree(settings, create=create, ensure=create)
+    materialize_proxy_tree(context.scene, tree)
     _focus_tree_in_editor(context, tree)
     return tree
 
@@ -343,7 +494,6 @@ def initialize_scene_trees():
 def _deferred_post_register():
     if not initialize_scene_trees():
         return 0.1
-    start_editor_sync()
     return None
 
 
@@ -379,6 +529,122 @@ def _active_editor_tree(context, create=False):
             context.area.tag_redraw()
         except Exception:
             pass
+    return tree
+
+
+def materialize_proxy_tree(scene, tree):
+    if proxy_tree_materialized(tree):
+        return tree
+
+    for node in tree.nodes:
+        node_idname = getattr(node, "bl_idname", "")
+        if node_idname == OUTPUT_NODE_IDNAME:
+            continue
+        if is_primitive_node(node):
+            if not getattr(node, "proxy_managed", False):
+                return tree
+            continue
+        if node_idname == CSG_NODE_IDNAME:
+            if getattr(node, "blend_mode", "") != "union":
+                return tree
+            if abs(float(getattr(node, "blend_radius", 0.0))) > 1.0e-9:
+                return tree
+            continue
+        return tree
+
+    try:
+        from . import sdf_proxies
+    except Exception:
+        return tree
+
+    cached = runtime.generated_scene_cache.get(tree.name_full, {})
+    proxy_order = list(cached.get("proxy_order") or [])
+    records = list(getattr(scene, "mathops_v2_primitives", ()))
+    ordered_entries = []
+    if records:
+        record_lookup = {str(record.primitive_id): record for record in records}
+        ordered_entries = [
+            (proxy_id, record_lookup[proxy_id])
+            for proxy_id in proxy_order
+            if proxy_id in record_lookup
+        ]
+        seen_ids = {proxy_id for proxy_id, _record in ordered_entries}
+        ordered_entries.extend(
+            (str(record.primitive_id), record)
+            for record in records
+            if str(record.primitive_id) not in seen_ids
+        )
+    else:
+        proxies = [
+            obj for obj in scene.objects if getattr(obj, "mathops_v2_sdf_proxy", False)
+        ]
+        if not proxies:
+            set_proxy_tree_materialized(tree, False)
+            return tree
+        proxy_lookup = {}
+        for obj in proxies:
+            proxy_id = str(
+                getattr(obj, "mathops_v2_sdf_node_id", "")
+                or getattr(obj, "mathops_v2_sdf_proxy_id", "")
+            )
+            if not proxy_id:
+                continue
+            proxy_lookup[proxy_id] = obj
+        ordered_entries = [
+            (proxy_id, proxy_lookup[proxy_id])
+            for proxy_id in proxy_order
+            if proxy_id in proxy_lookup
+        ]
+        seen_names = {obj.name for _proxy_id, obj in ordered_entries}
+        ordered_entries.extend(
+            (
+                str(
+                    getattr(obj, "mathops_v2_sdf_node_id", "")
+                    or getattr(obj, "mathops_v2_sdf_proxy_id", "")
+                ),
+                obj,
+            )
+            for obj in proxies
+            if obj.name not in seen_names
+        )
+
+    with (
+        sdf_proxies.suppress_proxy_sync_handlers(),
+        sdf_proxies.suppress_graph_to_proxy_sync(),
+        deferred_graph_updates(bpy.context),
+    ):
+        output = _ensure_output_node(tree)
+        for node in list(tree.nodes):
+            if node != output:
+                tree.nodes.remove(node)
+        for primitive_id, source in ordered_entries:
+            if hasattr(source, "primitive_type"):
+                primitive_type = str(source.primitive_type or "sphere").strip().lower()
+            else:
+                primitive_type = (
+                    str(source.get("sdf_type", "sphere") or "sphere").strip().lower()
+                )
+            node = create_primitive_node(tree, primitive_type)
+            node.proxy_managed = True
+            node.proxy_token = primitive_id
+            insert_primitive_above_output(tree, node)
+            if hasattr(source, "primitive_type"):
+                node.sdf_location = tuple(float(v) for v in source.location)
+                node.sdf_rotation = tuple(float(v) for v in source.rotation)
+                node.sdf_scale = tuple(float(v) for v in source.scale)
+                node.color = tuple(float(v) for v in source.color)
+                if primitive_type == "box":
+                    node.size = tuple(float(v) for v in source.size)
+                    node.bevel = float(source.bevel)
+                else:
+                    node.radius = float(source.radius)
+                    if primitive_type in {"cylinder", "cone"}:
+                        node.height = float(source.height)
+            else:
+                source.mathops_v2_sdf_node_id = node.proxy_token
+                sdf_proxies._apply_proxy_to_node(source, node)
+
+    set_proxy_tree_materialized(tree, True)
     return tree
 
 
@@ -438,6 +704,8 @@ class _MathOPSV2PrimitiveNodeBase(_MathOPSV2NodeBase):
     __annotations__ = dict(_transform_annotations())
     __annotations__.update(
         {
+            "proxy_token": StringProperty(default="", options={"HIDDEN"}),
+            "proxy_managed": BoolProperty(default=False, options={"HIDDEN"}),
             "color": FloatVectorProperty(
                 name="Color",
                 size=3,
@@ -826,6 +1094,132 @@ def _count_payload_nodes(payload):
     return count
 
 
+def _primitive_payload_bounds(node_payload):
+    node_matrix = _json_matrix_to_world_to_local(
+        node_payload.get("matrix", list(_IDENTITY_MATRIX_3X4))
+    )
+    try:
+        local_to_world = node_matrix.inverted()
+    except Exception:
+        return None
+    world_points = [
+        local_to_world @ corner for corner in _primitive_local_corners(node_payload)
+    ]
+    return (
+        tuple(min(point[i] for point in world_points) for i in range(3)),
+        tuple(max(point[i] for point in world_points) for i in range(3)),
+    )
+
+
+def _is_exact_union_payload(node_payload):
+    return (
+        isinstance(node_payload, dict)
+        and node_payload.get("nodeType") == "binaryOperator"
+        and node_payload.get("blendMode") == "union"
+        and abs(float(node_payload.get("blendRadius", 0.0))) <= 1.0e-9
+    )
+
+
+def _bounds_center(bounds):
+    if bounds is None:
+        return (0.0, 0.0, 0.0)
+    return tuple((float(a) + float(b)) * 0.5 for a, b in zip(bounds[0], bounds[1]))
+
+
+def _balanced_union_payload_sorted(items):
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        left_payload, left_bounds = items[0]
+        right_payload, right_bounds = items[1]
+        return (
+            {
+                "nodeType": "binaryOperator",
+                "leftChild": left_payload,
+                "rightChild": right_payload,
+                "blendMode": "union",
+                "blendRadius": 0.0,
+                "matrix": list(_IDENTITY_MATRIX_3X4),
+            },
+            _union_bounds(left_bounds, right_bounds),
+        )
+
+    midpoint = len(items) // 2
+    left_payload, left_bounds = _balanced_union_payload_sorted(items[:midpoint])
+    right_payload, right_bounds = _balanced_union_payload_sorted(items[midpoint:])
+    return (
+        {
+            "nodeType": "binaryOperator",
+            "leftChild": left_payload,
+            "rightChild": right_payload,
+            "blendMode": "union",
+            "blendRadius": 0.0,
+            "matrix": list(_IDENTITY_MATRIX_3X4),
+        },
+        _union_bounds(left_bounds, right_bounds),
+    )
+
+
+def _balanced_union_payload(items):
+    if len(items) == 1:
+        return items[0]
+
+    combined_bounds = None
+    for _payload, bounds in items:
+        combined_bounds = _union_bounds(combined_bounds, bounds)
+
+    axis = 0
+    if combined_bounds is not None:
+        extents = [
+            float(combined_bounds[1][index]) - float(combined_bounds[0][index])
+            for index in range(3)
+        ]
+        axis = max(range(3), key=lambda index: extents[index])
+
+    ordered = sorted(items, key=lambda item: _bounds_center(item[1])[axis])
+    return _balanced_union_payload_sorted(ordered)
+
+
+def _optimize_payload(node_payload):
+    if not isinstance(node_payload, dict):
+        return node_payload, None, []
+
+    node_type = node_payload.get("nodeType")
+    if node_type == "primitive":
+        bounds = _primitive_payload_bounds(node_payload)
+        return node_payload, bounds, [(node_payload, bounds)]
+
+    if node_type != "binaryOperator":
+        return node_payload, None, [(node_payload, None)]
+
+    left_payload, left_bounds, left_terms = _optimize_payload(
+        node_payload.get("leftChild")
+    )
+    right_payload, right_bounds, right_terms = _optimize_payload(
+        node_payload.get("rightChild")
+    )
+    blend_mode = node_payload.get("blendMode")
+    blend_radius = max(0.0, float(node_payload.get("blendRadius", 0.0)))
+
+    if blend_mode == "union" and blend_radius <= 1.0e-9:
+        union_terms = left_terms + right_terms
+        optimized_payload, bounds = _balanced_union_payload(union_terms)
+        return optimized_payload, bounds, union_terms
+
+    optimized_payload = {
+        "nodeType": "binaryOperator",
+        "leftChild": left_payload,
+        "rightChild": right_payload,
+        "blendMode": blend_mode,
+        "blendRadius": blend_radius,
+        "matrix": list(_IDENTITY_MATRIX_3X4),
+    }
+    bounds = _union_bounds(left_bounds, right_bounds)
+    if blend_mode == "union" and blend_radius > 0.0:
+        bounds = _inflate_bounds(bounds, blend_radius * 0.25)
+    return optimized_payload, bounds, [(optimized_payload, bounds)]
+
+
 def _socket_source_node(socket, label, node):
     if not socket.is_linked or not socket.links:
         raise RuntimeError(f"Node '{node.name}' is missing its {label} input")
@@ -906,11 +1300,117 @@ def _root_output_node(tree):
     return output_node
 
 
+def primitive_type_from_node(node) -> str | None:
+    return {
+        SPHERE_NODE_IDNAME: "sphere",
+        BOX_NODE_IDNAME: "box",
+        CYLINDER_NODE_IDNAME: "cylinder",
+        CONE_NODE_IDNAME: "cone",
+    }.get(getattr(node, "bl_idname", ""))
+
+
+def create_primitive_node(tree, primitive_type):
+    node_idname = {
+        "sphere": SPHERE_NODE_IDNAME,
+        "box": BOX_NODE_IDNAME,
+        "cylinder": CYLINDER_NODE_IDNAME,
+        "cone": CONE_NODE_IDNAME,
+    }.get(primitive_type)
+    if node_idname is None:
+        raise RuntimeError(f"Unsupported primitive type '{primitive_type}'")
+    node = tree.nodes.new(node_idname)
+    primitive_node_token(node)
+    return node
+
+
+def insert_primitive_above_output(tree, primitive_node):
+    output_node = _ensure_output_node(tree)
+    surface_socket = output_node.inputs[0]
+    current_root = None
+    if surface_socket.is_linked and surface_socket.links:
+        current_root = surface_socket.links[0].from_node
+        tree.links.remove(surface_socket.links[0])
+        if current_root == primitive_node:
+            current_root = None
+
+    if current_root is None:
+        primitive_node.location = (0.0, 0.0)
+        tree.links.new(primitive_node.outputs[0], surface_socket)
+        _position_output_node(tree, output_node, primitive_node)
+        _graph_updated(tree, bpy.context)
+        return primitive_node
+
+    csg_node = tree.nodes.new(CSG_NODE_IDNAME)
+    csg_node.blend_mode = "union"
+    csg_node.location = (current_root.location.x + 260.0, current_root.location.y)
+    primitive_node.location = (current_root.location.x, current_root.location.y - 220.0)
+    tree.links.new(current_root.outputs[0], csg_node.inputs[0])
+    tree.links.new(primitive_node.outputs[0], csg_node.inputs[1])
+    tree.links.new(csg_node.outputs[0], surface_socket)
+    _position_output_node(tree, output_node, csg_node)
+    _graph_updated(tree, bpy.context)
+    return csg_node
+
+
+def remove_primitive_node(tree, primitive_node):
+    if primitive_node is None or primitive_node.id_data != tree:
+        return False
+
+    output_node = _find_output_node(tree)
+    if (
+        output_node is not None
+        and output_node.inputs
+        and output_node.inputs[0].is_linked
+    ):
+        root_link = output_node.inputs[0].links[0]
+        if root_link.from_node == primitive_node:
+            tree.links.remove(root_link)
+            tree.nodes.remove(primitive_node)
+            _graph_updated(tree, bpy.context)
+            return True
+
+    parent_link = None
+    for link in list(primitive_node.outputs[0].links):
+        if getattr(link.to_node, "bl_idname", "") in {
+            CSG_NODE_IDNAME,
+        }:
+            parent_link = link
+            break
+
+    if parent_link is None:
+        tree.nodes.remove(primitive_node)
+        _graph_updated(tree, bpy.context)
+        return True
+
+    parent_node = parent_link.to_node
+    input_index = 0 if parent_link.to_socket == parent_node.inputs[0] else 1
+    sibling_socket = parent_node.inputs[1 - input_index]
+    sibling_node = None
+    if sibling_socket.is_linked and sibling_socket.links:
+        sibling_node = sibling_socket.links[0].from_node
+
+    consumer_sockets = [link.to_socket for link in list(parent_node.outputs[0].links)]
+    for link in list(parent_node.outputs[0].links):
+        tree.links.remove(link)
+
+    tree.nodes.remove(parent_node)
+    tree.nodes.remove(primitive_node)
+
+    if sibling_node is not None:
+        sibling_output = _surface_output_socket(sibling_node)
+        for socket in consumer_sockets:
+            if sibling_output is not None:
+                tree.links.new(sibling_output, socket)
+
+    _graph_updated(tree, bpy.context)
+    return True
+
+
 def compile_tree_payload(tree):
     output_node = _root_output_node(tree)
     root_node = _socket_source_node(output_node.inputs[0], "Surface", output_node)
     payload = _serialize_node(root_node, set())
-    bounds = _payload_bounds(payload)
+    payload, bounds, _union_terms = _optimize_payload(payload)
     if bounds is None:
         bounds = ((-1.0, -1.0, -1.0), (1.0, 1.0, 1.0))
     compiled = dict(payload)
@@ -945,7 +1445,40 @@ def generated_scene_dir() -> Path:
 
 
 def invalid_scene_path() -> Path:
-    return generated_scene_dir() / _INVALID_SCENE_NAME
+    path = generated_scene_dir() / _INVALID_SCENE_NAME
+    if not path.is_file():
+        path.write_text(
+            json.dumps(
+                {
+                    "nodeType": "primitive",
+                    "primitiveType": "sphere",
+                    "color": [0.0, 0.0, 0.0],
+                    "round_x": 0.0,
+                    "round_y": 0.0,
+                    "matrix": [
+                        1.0,
+                        0.0,
+                        0.0,
+                        -1000000.0,
+                        0.0,
+                        1.0,
+                        0.0,
+                        -1000000.0,
+                        0.0,
+                        0.0,
+                        1.0,
+                        -1000000.0,
+                    ],
+                    "radius": 0.0,
+                    "aabb_min": [-1.0, -1.0, -1.0],
+                    "aabb_max": [1.0, 1.0, 1.0],
+                },
+                ensure_ascii=True,
+                separators=(",", ":"),
+            ),
+            encoding="utf-8",
+        )
+    return path
 
 
 def _scene_file_name(tree_name: str) -> str:
@@ -953,25 +1486,251 @@ def _scene_file_name(tree_name: str) -> str:
     return f"{safe_name or 'scene'}.json"
 
 
-def ensure_generated_scene(settings, create=False):
+def _blender_to_renderer_matrix(matrix):
+    return _BLENDER_TO_RENDERER_BASIS @ matrix @ _RENDERER_TO_BLENDER_BASIS
+
+
+def _scene_store_items(scene):
+    records = getattr(scene, "mathops_v2_primitives", ())
+    if len(records) == 0:
+        return None
+    items = []
+    for record in records:
+        primitive_type = str(record.primitive_type or "sphere").strip().lower()
+        if primitive_type not in {"sphere", "box", "cylinder", "cone"}:
+            return None
+        blender_matrix = Matrix.LocRotScale(
+            Vector(record.location),
+            Euler(record.rotation, "XYZ"),
+            Vector(record.scale),
+        )
+        renderer_matrix = _blender_to_renderer_matrix(blender_matrix)
+        world_to_local = renderer_matrix.inverted_safe()
+        payload = {
+            "nodeType": "primitive",
+            "nodeId": str(record.primitive_id),
+            "primitiveType": primitive_type,
+            "color": [float(v) for v in record.color],
+            "round_x": 0.0,
+            "round_y": 0.0,
+            "matrix": _matrix_to_json_values(world_to_local),
+        }
+        if primitive_type == "sphere":
+            payload["radius"] = float(record.radius)
+        elif primitive_type == "box":
+            bevel = max(0.0, float(record.bevel))
+            payload["sides"] = [float(v) for v in record.size]
+            payload["bevel"] = [bevel, bevel, bevel, bevel]
+        else:
+            payload["radius"] = float(record.radius)
+            payload["height"] = float(record.height)
+        items.append(
+            (str(record.primitive_id), payload, _primitive_payload_bounds(payload))
+        )
+    return items
+
+
+def _proxy_scene_items(scene, tree):
+    store_items = _scene_store_items(scene)
+    if store_items is not None:
+        return store_items
+
+    proxies = [
+        obj for obj in scene.objects if getattr(obj, "mathops_v2_sdf_proxy", False)
+    ]
+    if not proxies:
+        return None
+
+    def build_items():
+        items = []
+        for obj in proxies:
+            proxy_id = str(
+                getattr(obj, "mathops_v2_sdf_node_id", "")
+                or getattr(obj, "mathops_v2_sdf_proxy_id", "")
+            )
+            primitive_type = (
+                str(obj.get("sdf_type", "sphere") or "sphere").strip().lower()
+            )
+            if primitive_type not in {"sphere", "box", "cylinder", "cone"}:
+                return None
+            color = obj.get("sdf_color", (0.8, 0.8, 0.8))
+            renderer_matrix = _blender_to_renderer_matrix(obj.matrix_world)
+            world_to_local = renderer_matrix.inverted_safe()
+            payload = {
+                "nodeType": "primitive",
+                "nodeId": proxy_id,
+                "primitiveType": primitive_type,
+                "color": [float(color[0]), float(color[1]), float(color[2])],
+                "round_x": 0.0,
+                "round_y": 0.0,
+                "matrix": _matrix_to_json_values(world_to_local),
+            }
+            if primitive_type == "sphere":
+                payload["radius"] = float(obj.get("sdf_radius", 0.5))
+            elif primitive_type == "box":
+                bevel = max(0.0, float(obj.get("sdf_bevel", 0.0)))
+                sides = obj.get("sdf_size", (1.0, 1.0, 1.0))
+                payload["sides"] = [float(sides[0]), float(sides[1]), float(sides[2])]
+                payload["bevel"] = [bevel, bevel, bevel, bevel]
+            else:
+                payload["radius"] = float(obj.get("sdf_radius", 0.35))
+                payload["height"] = float(obj.get("sdf_height", 1.0))
+            items.append((proxy_id, payload, _primitive_payload_bounds(payload)))
+        return items
+
+    if not proxy_tree_materialized(tree):
+        return build_items()
+
+    proxy_node_ids = {
+        str(getattr(obj, "mathops_v2_sdf_node_id", "") or "") for obj in proxies
+    }
+    primitive_count = 0
+    for node in tree.nodes:
+        node_idname = getattr(node, "bl_idname", "")
+        if node_idname == OUTPUT_NODE_IDNAME:
+            continue
+        if is_primitive_node(node):
+            primitive_count += 1
+            if not getattr(node, "proxy_managed", False):
+                return None
+            if primitive_node_token(node) not in proxy_node_ids:
+                return None
+            continue
+        if node_idname == CSG_NODE_IDNAME:
+            if getattr(node, "blend_mode", "") != "union":
+                return None
+            if abs(float(getattr(node, "blend_radius", 0.0))) > 1.0e-9:
+                return None
+            continue
+        return None
+
+    if primitive_count != len(proxies):
+        return None
+
+    return build_items()
+
+
+def _compile_proxy_scene_payload(scene, tree, cached=None):
+    items = _proxy_scene_items(scene, tree)
+    if not items:
+        return None
+    item_map = {proxy_id: (payload, bounds) for proxy_id, payload, bounds in items}
+    proxy_ids = set(item_map)
+
+    ordered_ids = None
+    cached_order = None if cached is None else cached.get("proxy_order")
+    if isinstance(cached_order, list) and len(cached_order) == len(item_map):
+        if set(cached_order) == proxy_ids:
+            ordered_ids = list(cached_order)
+
+    if ordered_ids is None:
+        combined_bounds = None
+        for _proxy_id, _payload, bounds in items:
+            combined_bounds = _union_bounds(combined_bounds, bounds)
+        axis = 0
+        if combined_bounds is not None:
+            extents = [
+                float(combined_bounds[1][index]) - float(combined_bounds[0][index])
+                for index in range(3)
+            ]
+            axis = max(range(3), key=lambda index: extents[index])
+        ordered_ids = [
+            proxy_id
+            for proxy_id, _payload, _bounds in sorted(
+                items, key=lambda item: _bounds_center(item[2])[axis]
+            )
+        ]
+
+    ordered = [item_map[proxy_id] for proxy_id in ordered_ids]
+    combined_bounds = None
+    for _payload, bounds in ordered:
+        combined_bounds = _union_bounds(combined_bounds, bounds)
+    payload, bounds = _balanced_union_payload_sorted(ordered)
+    compiled = dict(payload)
+    compiled["aabb_min"] = [float(v) for v in bounds[0]]
+    compiled["aabb_max"] = [float(v) for v in bounds[1]]
+    topology_hash = hashlib.sha1("\n".join(ordered_ids).encode("utf-8")).hexdigest()
+    return {
+        "payload": compiled,
+        "proxy_order": ordered_ids,
+        "topology_hash": topology_hash,
+    }
+
+
+def ensure_compiled_scene_cache(settings, create=False):
     tree = get_selected_tree(settings, create=create, ensure=False)
-    scene_json = compile_tree_json(tree)
-    scene_hash = hashlib.sha1(scene_json.encode("utf-8")).hexdigest()
     scene_path = generated_scene_dir() / _scene_file_name(tree.name)
     scene_path_key = str(scene_path.resolve())
     cache_key = tree.name_full
     cached = runtime.generated_scene_cache.get(cache_key)
-    if cached and cached["hash"] == scene_hash and scene_path.is_file():
-        runtime.generated_scene_path_hashes[scene_path_key] = scene_hash
-        return scene_path
+    if cached and cache_key not in runtime.generated_scene_dirty:
+        runtime.generated_scene_path_hashes[scene_path_key] = cached["hash"]
+        return cached
 
-    scene_path.write_text(scene_json, encoding="utf-8")
-    runtime.generated_scene_cache[cache_key] = {
+    scene = _owner_scene(settings)
+    if scene is not None and len(getattr(scene, "mathops_v2_primitives", ())) == 0:
+        try:
+            from . import sdf_proxies
+
+            sdf_proxies._migrate_legacy_proxies(scene)
+        except Exception:
+            pass
+    proxy_compiled = (
+        _compile_proxy_scene_payload(scene, tree, cached) if scene is not None else None
+    )
+    if proxy_compiled is None:
+        if scene is not None:
+            try:
+                from . import sdf_proxies
+
+                sdf_proxies.sync_proxy_nodes_to_tree(scene, tree)
+            except Exception:
+                pass
+        payload = compile_tree_payload(tree)
+        topology_hash = None
+        proxy_order = None
+    else:
+        payload = proxy_compiled["payload"]
+        topology_hash = proxy_compiled["topology_hash"]
+        proxy_order = proxy_compiled["proxy_order"]
+    scene_json = json.dumps(
+        _strip_runtime_payload_metadata(payload),
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    scene_hash = hashlib.sha1(scene_json.encode("utf-8")).hexdigest()
+    metadata = {
+        "aabb_min": tuple(
+            float(v) for v in payload.get("aabb_min", (-1.0, -1.0, -1.0))
+        ),
+        "aabb_max": tuple(float(v) for v in payload.get("aabb_max", (1.0, 1.0, 1.0))),
+        "node_count": _count_payload_nodes(payload),
+    }
+    cached = {
         "hash": scene_hash,
         "path": str(scene_path),
+        "json": scene_json,
+        "payload": payload,
+        "metadata": metadata,
+        "tree_name": tree.name_full,
+        "topology_hash": topology_hash or scene_hash,
+        "proxy_order": proxy_order,
     }
+    runtime.generated_scene_cache[cache_key] = cached
     runtime.generated_scene_path_hashes[scene_path_key] = scene_hash
-    runtime.debug_log(f"Compiled SDF node tree '{tree.name}' to {scene_path.name}")
+    runtime.generated_scene_dirty.discard(cache_key)
+    return cached
+
+
+def ensure_generated_scene(settings, create=False):
+    cached = ensure_compiled_scene_cache(settings, create=create)
+    scene_path = Path(cached["path"])
+    if cached.get("file_hash") != cached["hash"] or not scene_path.is_file():
+        scene_path.write_text(cached["json"], encoding="utf-8")
+        cached["file_hash"] = cached["hash"]
+        runtime.debug_log(
+            f"Compiled SDF node tree '{cached['tree_name']}' to {scene_path.name}"
+        )
     return scene_path
 
 
@@ -1049,12 +1808,21 @@ class MATHOPS_V2_PT_sdf_graph(Panel):
         layout.operator(MATHOPS_V2_OT_edit_scene_sdf_tree.bl_idname, icon="NODETREE")
         layout.separator()
         try:
-            payload = compile_tree_payload(tree)
-            layout.label(text=f"Nodes: {_count_payload_nodes(payload)}")
+            if proxy_tree_materialized(tree):
+                payload = compile_tree_payload(tree)
+                node_count = _count_payload_nodes(payload)
+                bounds_min = payload["aabb_min"]
+                bounds_max = payload["aabb_max"]
+            else:
+                cached = ensure_compiled_scene_cache(settings, create=False)
+                node_count = int(cached["metadata"]["node_count"])
+                bounds_min = cached["metadata"]["aabb_min"]
+                bounds_max = cached["metadata"]["aabb_max"]
+            layout.label(text=f"Nodes: {node_count}")
             layout.label(
                 text=(
-                    f"Bounds: ({payload['aabb_min'][0]:.2f}, {payload['aabb_min'][1]:.2f}, {payload['aabb_min'][2]:.2f}) "
-                    f"to ({payload['aabb_max'][0]:.2f}, {payload['aabb_max'][1]:.2f}, {payload['aabb_max'][2]:.2f})"
+                    f"Bounds: ({bounds_min[0]:.2f}, {bounds_min[1]:.2f}, {bounds_min[2]:.2f}) "
+                    f"to ({bounds_max[0]:.2f}, {bounds_max[1]:.2f}, {bounds_max[2]:.2f})"
                 )
             )
         except Exception as exc:

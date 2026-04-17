@@ -18,6 +18,7 @@ _DYNAMIC_AABB_GROW_PAD = 0.08
 _DYNAMIC_AABB_SHRINK_PAD = 0.03
 _DYNAMIC_AABB_SHRINK_INTERVAL = 0.75
 _DYNAMIC_AABB_SHRINK_THRESHOLD = 1.05
+_LIVE_GRAPH_CULLING_GRACE = 0.0
 
 
 def addon_dir() -> Path:
@@ -248,15 +249,37 @@ def resolve_scene_path(settings, strict=False, create=False) -> Path:
         return sdf_nodes.ensure_generated_scene(settings, create=create)
     except Exception as exc:
         message = str(exc)
-        if not strict and message in {
-            "Enable Use Nodes to create a scene SDF graph",
-            "Scene SDF graph is unavailable",
-        }:
+        if not strict and (
+            message
+            in {
+                "Enable Use Nodes to create a scene SDF graph",
+                "Scene SDF graph is unavailable",
+            }
+            or message.endswith("needs a connected Scene Output node")
+        ):
             return sdf_nodes.invalid_scene_path()
         set_last_error(message)
         if strict:
             raise
         return sdf_nodes.invalid_scene_path()
+
+
+def graph_scene_cache(settings, create=False):
+    if not getattr(settings, "use_sdf_nodes", False):
+        return None
+    try:
+        return sdf_nodes.ensure_compiled_scene_cache(settings, create=create)
+    except Exception:
+        return None
+
+
+def live_graph_culling_enabled(settings):
+    if not getattr(settings, "use_sdf_nodes", False):
+        return bool(settings.culling_enabled)
+    return bool(settings.culling_enabled) and (
+        (time.perf_counter() - runtime.graph_interaction_time)
+        > _LIVE_GRAPH_CULLING_GRACE
+    )
 
 
 def camera_target(camera):
@@ -312,20 +335,37 @@ def force_redraw_viewports(context=None):
         context = bpy.context
     try:
         for window in context.window_manager.windows:
+            scene = getattr(window, "scene", None)
+            settings = getattr(scene, "mathops_v2_settings", None)
+            if not getattr(settings, "viewport_preview", False):
+                continue
             for area in window.screen.areas:
-                if area.type == "VIEW_3D":
-                    area.tag_redraw()
+                if area.type != "VIEW_3D":
+                    continue
+                space = getattr(area.spaces, "active", None)
+                shading = getattr(space, "shading", None)
+                if getattr(shading, "type", None) != "RENDERED":
+                    continue
+                area.tag_redraw()
     except Exception:
         pass
 
 
-def scene_content_token(scene_path: Path):
+def scene_content_token(scene_path: Path, scene_cache=None):
+    if scene_cache is not None:
+        return ("hash", scene_cache["hash"])
     scene_path = scene_path.resolve()
     cache_key = str(scene_path)
     generated_hash = runtime.generated_scene_path_hashes.get(cache_key)
     if generated_hash is not None:
         return ("hash", generated_hash)
     return ("mtime", scene_path.stat().st_mtime_ns)
+
+
+def scene_static_token(scene_path: Path, scene_cache=None):
+    if scene_cache is not None:
+        return ("topology", scene_cache.get("topology_hash", scene_cache["hash"]))
+    return scene_content_token(scene_path)
 
 
 def world_background_color(scene):
@@ -746,7 +786,58 @@ def ensure_scene_camera(scene):
     return camera_object
 
 
-def effective_aabb(settings, scene_path: Path):
+def effective_aabb(settings, scene_path: Path, scene_cache=None):
+    if scene_cache is not None:
+        metadata = dict(scene_cache["metadata"])
+        tight_bounds = (
+            tuple(metadata["aabb_min"]),
+            tuple(metadata["aabb_max"]),
+        )
+        state_key = (
+            ("graph", scene_cache["path"]),
+            scene_cache.get("topology_hash", scene_cache["hash"]),
+        )
+        if settings.use_scene_bounds:
+            if getattr(settings, "dynamic_aabb", True):
+                now = time.perf_counter()
+                target_bounds = _expand_bounds(tight_bounds, _DYNAMIC_AABB_SHRINK_PAD)
+                state = runtime.dynamic_aabb_state.get("state")
+                if state is None or state.get("key") != state_key:
+                    state = {
+                        "key": state_key,
+                        "bounds": target_bounds,
+                        "last_shrink_time": now,
+                    }
+                    runtime.dynamic_aabb_state["state"] = state
+                    runtime.current_effective_aabb = target_bounds
+                    return target_bounds[0], target_bounds[1], metadata
+
+                current_bounds = state["bounds"]
+                if not _contains_bounds(current_bounds, target_bounds):
+                    grown = _expand_bounds(
+                        _union_bounds(current_bounds, target_bounds),
+                        _DYNAMIC_AABB_GROW_PAD,
+                    )
+                    state["bounds"] = grown
+                    state["last_shrink_time"] = now
+                    runtime.current_effective_aabb = grown
+                    return grown[0], grown[1], metadata
+
+                if (now - state["last_shrink_time"]) >= _DYNAMIC_AABB_SHRINK_INTERVAL:
+                    if _should_shrink_bounds(current_bounds, target_bounds):
+                        state["bounds"] = target_bounds
+                    state["last_shrink_time"] = now
+
+                runtime.current_effective_aabb = state["bounds"]
+                return state["bounds"][0], state["bounds"][1], metadata
+
+            runtime.current_effective_aabb = tight_bounds
+            return tight_bounds[0], tight_bounds[1], metadata
+
+        aabb = (tuple(settings.aabb_min), tuple(settings.aabb_max))
+        runtime.current_effective_aabb = aabb
+        return aabb[0], aabb[1], metadata
+
     metadata = load_scene_metadata(scene_path)
     if settings.use_scene_bounds:
         if getattr(settings, "dynamic_aabb", True):
@@ -810,8 +901,13 @@ def render_rgba(
     interactive=False,
 ):
     settings = scene.mathops_v2_settings
-    scene_path = resolve_scene_path(settings, strict=True, create=True)
-    if not scene_path.is_file():
+    scene_cache = graph_scene_cache(settings, create=True)
+    scene_path = (
+        Path(scene_cache["path"])
+        if scene_cache is not None
+        else resolve_scene_path(settings, strict=True, create=True)
+    )
+    if scene_cache is None and not scene_path.is_file():
         if runtime.last_error_message:
             raise RuntimeError(runtime.last_error_message)
         raise FileNotFoundError(f"Scene file not found: {scene_path}")
@@ -847,33 +943,44 @@ def render_rgba(
     )
     renderer = get_renderer(settings, width, height)
 
-    scene_key = (str(scene_path.resolve()), scene_content_token(scene_path))
+    scene_key = (
+        str(scene_path.resolve()),
+        scene_content_token(scene_path, scene_cache),
+    )
     if runtime.loaded_scene_key != scene_key:
         runtime.debug_log(f"Uploading scene data from {scene_path.name}")
-        renderer.load_scene_file(str(scene_path))
+        if scene_cache is not None:
+            renderer.load_scene_json(scene_cache["json"])
+        else:
+            renderer.load_scene_file(str(scene_path))
         runtime.loaded_scene_key = scene_key
         runtime.pruning_cache_key = None
 
-    aabb_min, aabb_max, metadata = effective_aabb(settings, scene_path)
+    aabb_min, aabb_max, metadata = effective_aabb(settings, scene_path, scene_cache)
     renderer.set_aabb(list(aabb_min), list(aabb_max))
 
+    use_culling = (
+        live_graph_culling_enabled(settings)
+        if interactive
+        else settings.culling_enabled
+    )
     pruning_cache_key = (
         runtime.renderer_key,
         runtime.loaded_scene_key,
         tuple(round(float(v), 6) for v in aabb_min),
         tuple(round(float(v), 6) for v in aabb_max),
-        bool(settings.culling_enabled),
+        bool(use_culling),
     )
-    should_recompute_pruning = settings.culling_enabled and (
+    should_recompute_pruning = use_culling and (
         runtime.pruning_cache_key != pruning_cache_key
     )
     if should_recompute_pruning:
         runtime.debug_log("Recomputing pruning hierarchy")
-    elif settings.culling_enabled:
+    elif use_culling:
         runtime.debug_log("Reusing cached pruning hierarchy")
 
     renderer.configure(
-        settings.culling_enabled,
+        use_culling,
         should_recompute_pruning,
         settings.num_samples,
         settings.gamma,
@@ -891,7 +998,7 @@ def render_rgba(
         interactive,
     )
     render_elapsed_ms = (time.perf_counter() - render_start) * 1000.0
-    if settings.culling_enabled:
+    if use_culling:
         runtime.pruning_cache_key = pruning_cache_key
     timings = dict(renderer.last_timings())
     if interactive:

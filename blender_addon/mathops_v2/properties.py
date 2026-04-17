@@ -1,6 +1,7 @@
 import bpy
 from bpy.props import (
     BoolProperty,
+    CollectionProperty,
     EnumProperty,
     FloatProperty,
     FloatVectorProperty,
@@ -11,6 +12,24 @@ from bpy.props import (
 
 from . import runtime, sdf_nodes
 from .render import bridge, matcap
+
+
+def _mark_record_dirty(record, context):
+    for scene in bpy.data.scenes:
+        records = getattr(scene, "mathops_v2_primitives", ())
+        for candidate in records:
+            if candidate.as_pointer() != record.as_pointer():
+                continue
+            settings = getattr(scene, "mathops_v2_settings", None)
+            if settings is None:
+                return
+            try:
+                tree = sdf_nodes.get_selected_tree(settings, create=False, ensure=False)
+            except Exception:
+                return
+            sdf_nodes.mark_tree_dirty(tree)
+            _redraw_viewports(context)
+            return
 
 
 def _redraw_viewports(context):
@@ -30,7 +49,10 @@ def _sync_auto_bounds(settings):
         tree = getattr(settings, "sdf_node_tree", None)
         if tree is None or getattr(tree, "bl_idname", "") != sdf_nodes.TREE_IDNAME:
             return
-    metadata = bridge.safe_scene_metadata(bridge.resolve_scene_path(settings))
+        scene_cache = bridge.graph_scene_cache(settings)
+        metadata = scene_cache["metadata"] if scene_cache is not None else None
+    else:
+        metadata = bridge.safe_scene_metadata(bridge.resolve_scene_path(settings))
     if metadata is None:
         return
     settings.aabb_min = metadata["aabb_min"]
@@ -91,6 +113,44 @@ def _update_viewport(self, context):
 def _update_matcap(self, context):
     matcap.sync_viewport_matcap(context, getattr(self, "custom_matcap", ""))
     _redraw_viewports(context)
+
+
+_PRIMITIVE_ITEMS = (
+    ("sphere", "Sphere", "SDF sphere"),
+    ("box", "Box", "SDF box"),
+    ("cylinder", "Cylinder", "SDF cylinder"),
+    ("cone", "Cone", "SDF cone"),
+)
+
+
+class MathOPSV2PrimitiveItem(bpy.types.PropertyGroup):
+    primitive_id: StringProperty(default="")
+    primitive_type: EnumProperty(
+        items=_PRIMITIVE_ITEMS, default="sphere", update=_mark_record_dirty
+    )
+    location: FloatVectorProperty(
+        size=3, default=(0.0, 0.0, 0.0), update=_mark_record_dirty
+    )
+    rotation: FloatVectorProperty(
+        size=3, default=(0.0, 0.0, 0.0), update=_mark_record_dirty
+    )
+    scale: FloatVectorProperty(
+        size=3, default=(1.0, 1.0, 1.0), update=_mark_record_dirty
+    )
+    color: FloatVectorProperty(
+        size=3,
+        subtype="COLOR",
+        min=0.0,
+        max=1.0,
+        default=(0.8, 0.8, 0.8),
+        update=_mark_record_dirty,
+    )
+    size: FloatVectorProperty(
+        size=3, min=0.001, default=(1.0, 1.0, 1.0), update=_mark_record_dirty
+    )
+    radius: FloatProperty(min=0.0, default=0.5, update=_mark_record_dirty)
+    height: FloatProperty(min=0.0, default=1.0, update=_mark_record_dirty)
+    bevel: FloatProperty(min=0.0, default=0.0, update=_mark_record_dirty)
 
 
 class MathOPSV2Settings(bpy.types.PropertyGroup):
@@ -185,7 +245,7 @@ class MathOPSV2Settings(bpy.types.PropertyGroup):
     )
     show_aabb_overlay: BoolProperty(
         name="Show Bounds Overlay",
-        default=True,
+        default=False,
         description="Draw the current effective bounds in the 3D viewport",
         update=_update_viewport,
     )
@@ -242,16 +302,51 @@ class MathOPSV2Settings(bpy.types.PropertyGroup):
     )
 
 
-classes = (MathOPSV2Settings,)
+classes = (
+    MathOPSV2PrimitiveItem,
+    MathOPSV2Settings,
+)
 
 
 def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.mathops_v2_settings = PointerProperty(type=MathOPSV2Settings)
+    bpy.types.Scene.mathops_v2_primitives = CollectionProperty(
+        type=MathOPSV2PrimitiveItem
+    )
+    bpy.types.Scene.mathops_v2_active_primitive_id = StringProperty(
+        default="", options={"HIDDEN"}
+    )
+    bpy.types.Scene.mathops_v2_handle_object_name = StringProperty(
+        default="", options={"HIDDEN"}
+    )
+    bpy.types.Object.mathops_v2_sdf_proxy = BoolProperty(
+        default=False, options={"HIDDEN"}
+    )
+    bpy.types.Object.mathops_v2_sdf_proxy_id = StringProperty(
+        default="", options={"HIDDEN"}
+    )
+    bpy.types.Object.mathops_v2_sdf_node_id = StringProperty(
+        default="", options={"HIDDEN"}
+    )
+    bpy.types.Object.mathops_v2_sdf_handle = BoolProperty(
+        default=False, options={"HIDDEN"}
+    )
+    bpy.types.Object.mathops_v2_sdf_handle_id = StringProperty(
+        default="", options={"HIDDEN"}
+    )
 
 
 def unregister():
+    del bpy.types.Object.mathops_v2_sdf_handle_id
+    del bpy.types.Object.mathops_v2_sdf_handle
+    del bpy.types.Object.mathops_v2_sdf_node_id
+    del bpy.types.Object.mathops_v2_sdf_proxy_id
+    del bpy.types.Object.mathops_v2_sdf_proxy
+    del bpy.types.Scene.mathops_v2_handle_object_name
+    del bpy.types.Scene.mathops_v2_active_primitive_id
+    del bpy.types.Scene.mathops_v2_primitives
     del bpy.types.Scene.mathops_v2_settings
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

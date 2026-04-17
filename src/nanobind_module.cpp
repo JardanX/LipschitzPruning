@@ -363,6 +363,79 @@ nb::dict pack_scene_packed_impl(
     return result;
 }
 
+struct PackedSceneCacheEntry {
+    std::vector<GPUNode> gpu_nodes;
+    std::vector<BinaryOp> binary_ops;
+    std::vector<uint16_t> parents;
+    std::vector<uint16_t> active_nodes;
+    std::vector<int> primitive_node_indices;
+};
+
+std::vector<int> primitive_node_indices_in_gpu_order(
+    int root_idx,
+    const std::vector<CSGNode>& csg_nodes)
+{
+    std::vector<int> stack = {root_idx};
+    std::vector<int> preorder;
+    preorder.reserve(csg_nodes.size());
+    while (!stack.empty()) {
+        int current_idx = stack.back();
+        stack.pop_back();
+
+        preorder.push_back(current_idx);
+        if (csg_nodes[current_idx].type == NODETYPE_BINARY) {
+            stack.push_back(csg_nodes[current_idx].left);
+            stack.push_back(csg_nodes[current_idx].right);
+        }
+    }
+
+    std::vector<int> primitive_indices;
+    primitive_indices.reserve(csg_nodes.size());
+    for (int i = int(preorder.size()) - 1; i >= 0; --i) {
+        int current_idx = preorder[i];
+        if (csg_nodes[current_idx].type == NODETYPE_PRIMITIVE) {
+            primitive_indices.push_back(current_idx);
+        }
+    }
+    return primitive_indices;
+}
+
+PackedSceneCacheEntry& get_packed_scene_cache_entry(
+    const std::string& topology_key,
+    const std::vector<CSGNode>& nodes)
+{
+    static std::unordered_map<std::string, PackedSceneCacheEntry> cache;
+    auto [it, inserted] = cache.try_emplace(topology_key);
+    if (!inserted) {
+        return it->second;
+    }
+
+    PackedSceneCacheEntry& entry = it->second;
+    std::vector<Primitive> primitives;
+    ConvertToGPUTree(0, nodes, entry.gpu_nodes, primitives, entry.binary_ops, entry.parents, entry.active_nodes);
+    entry.primitive_node_indices = primitive_node_indices_in_gpu_order(0, nodes);
+    return entry;
+}
+
+std::vector<Primitive> extract_cached_primitives(
+    const std::vector<CSGNode>& nodes,
+    const PackedSceneCacheEntry& entry)
+{
+    std::vector<Primitive> primitives;
+    primitives.reserve(entry.primitive_node_indices.size());
+    for (int node_idx : entry.primitive_node_indices) {
+        if (node_idx < 0 || node_idx >= int(nodes.size())) {
+            throw std::runtime_error("cached topology no longer matches scene nodes");
+        }
+        const CSGNode& node = nodes[node_idx];
+        if (node.type != NODETYPE_PRIMITIVE) {
+            throw std::runtime_error("cached primitive index does not point to a primitive node");
+        }
+        primitives.push_back(node.primitive);
+    }
+    return primitives;
+}
+
 nb::dict pack_scene_file_impl(const std::string& scene_path) {
     std::vector<CSGNode> nodes;
     glm::vec3 aabb_min;
@@ -377,6 +450,44 @@ nb::dict pack_scene_json_impl(const std::string& scene_json) {
     glm::vec3 aabb_max;
     load_json_string(scene_json.c_str(), nodes, aabb_min, aabb_max);
     return pack_scene_nodes_impl(nodes, 0, aabb_min, aabb_max);
+}
+
+nb::dict pack_scene_json_cached_impl(
+    const std::string& scene_json,
+    const std::string& topology_key,
+    bool include_static)
+{
+    if (topology_key.empty()) {
+        return pack_scene_json_impl(scene_json);
+    }
+
+    std::vector<CSGNode> nodes;
+    glm::vec3 aabb_min;
+    glm::vec3 aabb_max;
+    load_json_string(scene_json.c_str(), nodes, aabb_min, aabb_max);
+
+    PackedSceneCacheEntry& entry = get_packed_scene_cache_entry(topology_key, nodes);
+    std::vector<Primitive> primitives = extract_cached_primitives(nodes, entry);
+    if (include_static) {
+        return pack_scene_packed_impl(
+            entry.gpu_nodes,
+            primitives,
+            entry.binary_ops,
+            entry.parents,
+            entry.active_nodes,
+            aabb_min,
+            aabb_max);
+    }
+
+    nb::dict result;
+    result["node_count"] = int(entry.gpu_nodes.size());
+    result["primitive_count"] = int(primitives.size());
+    result["binary_op_count"] = int(entry.binary_ops.size());
+    result["aabb_min"] = std::vector<float>{ aabb_min.x, aabb_min.y, aabb_min.z };
+    result["aabb_max"] = std::vector<float>{ aabb_max.x, aabb_max.y, aabb_max.z };
+    const char* prim_ptr = primitives.empty() ? nullptr : reinterpret_cast<const char*>(primitives.data());
+    result["primitives"] = nb::bytes(prim_ptr, primitives.size() * sizeof(Primitive));
+    return result;
 }
 
 struct DemoAnimCacheEntry {
@@ -525,6 +636,12 @@ NB_MODULE(lipschitz_pruning_native, m) {
     m.attr("SHADING_MODE_AO") = SHADING_MODE_BEAUTY;
     m.def("pack_scene_file", &pack_scene_file_impl, nb::arg("scene_path"));
     m.def("pack_scene_json", &pack_scene_json_impl, nb::arg("scene_json"));
+    m.def(
+        "pack_scene_json_cached",
+        &pack_scene_json_cached_impl,
+        nb::arg("scene_json"),
+        nb::arg("topology_key"),
+        nb::arg("include_static") = true);
     m.def("pack_scene_demo_anim", &pack_scene_demo_anim_impl, nb::arg("scene_path"), nb::arg("anim_time"));
     m.def("extract_matcap_exr", &extract_matcap_exr_impl, nb::arg("path"));
 

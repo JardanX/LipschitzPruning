@@ -12,6 +12,7 @@ from . import (
     engine,
     operators,
     properties,
+    sdf_proxies,
     runtime,
     sdf_nodes,
     viewport_interaction,
@@ -23,6 +24,7 @@ from .render import bridge, matcap
 modules = (
     sdf_nodes,
     properties,
+    sdf_proxies,
     operators,
     viewport_interaction,
     engine,

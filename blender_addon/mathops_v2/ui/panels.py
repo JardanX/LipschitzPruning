@@ -1,7 +1,9 @@
+from pathlib import Path
+
 import bpy
 from bpy.types import Panel
 
-from .. import runtime, sdf_nodes, viewport_interaction
+from .. import runtime, sdf_nodes, sdf_proxies, viewport_interaction
 from .. import operators
 from ..render import bridge
 
@@ -45,8 +47,13 @@ class MATHOPS_V2_PT_scene(_MathOPSV2Panel, Panel):
                 tree is not None
                 and getattr(tree, "bl_idname", "") == sdf_nodes.TREE_IDNAME
             ):
-                scene_path = bridge.resolve_scene_path(settings)
-                metadata = bridge.safe_scene_metadata(scene_path)
+                scene_cache = bridge.graph_scene_cache(settings)
+                if scene_cache is not None:
+                    scene_path = Path(scene_cache["path"])
+                    metadata = scene_cache["metadata"]
+                else:
+                    scene_path = bridge.resolve_scene_path(settings)
+                    metadata = bridge.safe_scene_metadata(scene_path)
         else:
             scene_path = bridge.resolve_scene_path(settings)
             metadata = bridge.safe_scene_metadata(scene_path)
@@ -190,23 +197,48 @@ class MATHOPS_V2_PT_view3d_tools(Panel):
 
     def draw(self, context):
         layout = self.layout
-        settings = context.scene.mathops_v2_settings
-        node = viewport_interaction.active_primitive_node(context.scene)
+        scene = context.scene
+        settings = scene.mathops_v2_settings
+        node = viewport_interaction.active_primitive_node(scene)
+        record = sdf_proxies.active_record(scene)
 
         layout.operator(
             viewport_interaction.MATHOPS_V2_OT_pick_sdf.bl_idname, icon="EYEDROPPER"
         )
         layout.prop(settings, "viewport_transform_mode", expand=True)
-        if node is None:
+        layout.operator(
+            viewport_interaction.MATHOPS_V2_OT_duplicate_sdf.bl_idname,
+            icon="DUPLICATE",
+        )
+        layout.label(text="Shortcuts: G/R/S, X/Y/Z, Shift+D")
+        if record is None and node is None:
             layout.label(text="Active primitive: none", icon="INFO")
-            layout.label(text="Pick in viewport or select a primitive node")
+            layout.label(text="Pick in viewport to activate a primitive")
             return
 
-        layout.label(text=f"Active primitive: {node.name}", icon="NODE")
-        col = layout.column(align=True)
-        col.prop(node, "sdf_location")
-        col.prop(node, "sdf_rotation")
-        col.prop(node, "sdf_scale")
+        if record is not None:
+            layout.label(
+                text=f"Active primitive: {record.primitive_type}", icon="MESH_CUBE"
+            )
+            col = layout.column(align=True)
+            col.prop(record, "location")
+            col.prop(record, "rotation")
+            col.prop(record, "scale")
+            col.separator()
+            col.prop(record, "color")
+            if record.primitive_type == "box":
+                col.prop(record, "size")
+                col.prop(record, "bevel")
+            else:
+                col.prop(record, "radius")
+                if record.primitive_type in {"cylinder", "cone"}:
+                    col.prop(record, "height")
+        else:
+            layout.label(text=f"Active primitive: {node.name}", icon="NODE")
+            col = layout.column(align=True)
+            col.prop(node, "sdf_location")
+            col.prop(node, "sdf_rotation")
+            col.prop(node, "sdf_scale")
 
 
 def draw_shading_popover(self, context):

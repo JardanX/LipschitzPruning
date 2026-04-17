@@ -1,4 +1,5 @@
 import traceback
+from pathlib import Path
 
 import gpu
 import numpy as np
@@ -121,8 +122,13 @@ class MathOPSV2RenderEngine(RenderEngine):
 
         self._logged_ortho_warning = False
 
-        scene_path = bridge.resolve_scene_path(settings, create=True)
-        if not scene_path.is_file():
+        scene_cache = bridge.graph_scene_cache(settings, create=True)
+        scene_path = (
+            Path(scene_cache["path"])
+            if scene_cache is not None
+            else bridge.resolve_scene_path(settings, create=True)
+        )
+        if scene_cache is None and not scene_path.is_file():
             if not runtime.last_error_message:
                 bridge.set_last_error(f"Scene file not found: {scene_path}")
             return None

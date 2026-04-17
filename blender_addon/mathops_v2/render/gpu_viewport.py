@@ -36,6 +36,7 @@ _COUNTERS_ACTIVE_BASE = 0
 _COUNTERS_OLD_TO_NEW_BASE = 10
 _COUNTERS_STATUS = 20
 _COUNTERS_SIZE = 21
+_GRAPH_VIEWPORT_CULLING_MIN_NODES = 0
 
 _GL_SHADER_STORAGE_BARRIER_BIT = 0x2000
 _GL_BUFFER_UPDATE_BARRIER_BIT = 0x0200
@@ -1727,7 +1728,7 @@ class MathOPSV2GPUViewport:
         tmp_capacity = min(tmp_capacity, texture_cap)
         grid_size = 1 << grid_level
         num_cells = grid_size * grid_size * grid_size
-        key = (node_count, grid_level, active_capacity, tmp_capacity, "texture")
+        key = (grid_level, active_capacity, tmp_capacity, "texture")
         if key == self._buffer_config_key:
             return
 
@@ -1878,7 +1879,6 @@ class MathOPSV2GPUViewport:
         grid_size = 1 << grid_level
         num_cells = grid_size * grid_size * grid_size
         key = (
-            node_count,
             grid_level,
             active_capacity,
             tmp_capacity,
@@ -1939,30 +1939,37 @@ class MathOPSV2GPUViewport:
         self._ensure_work_buffers(node_count, grid_level, next_active, next_tmp)
         return True
 
-    def _sync_scene(self, scene_path: Path, settings):
+    def _sync_scene(self, scene_path: Path, settings, scene_cache=None):
         anim_frame_key = bridge.demo_anim_frame_key(settings)
         anim_active = anim_frame_key is not None
-        scene_token = bridge.scene_content_token(scene_path)
+        scene_token = bridge.scene_content_token(scene_path, scene_cache)
+        scene_static_token = bridge.scene_static_token(scene_path, scene_cache)
         scene_static_key = (
             str(scene_path.resolve()),
-            scene_token,
+            scene_static_token,
             anim_active,
         )
         scene_key = (
-            scene_static_key[0],
-            scene_static_key[1],
+            str(scene_path.resolve()),
+            scene_token,
             anim_frame_key,
         )
         if self.scene_key != scene_key:
             native_module = bridge.load_native_module()
             anim_time = bridge.demo_anim_time(settings)
-            if anim_time is None:
+            full_refresh = self.scene_static_key != scene_static_key
+            if scene_cache is not None and anim_time is None:
+                packed = native_module.pack_scene_json_cached(
+                    scene_cache["json"],
+                    scene_cache.get("topology_hash", scene_cache["hash"]),
+                    full_refresh,
+                )
+            elif anim_time is None:
                 packed = native_module.pack_scene_file(str(scene_path))
             else:
                 packed = native_module.pack_scene_demo_anim(
                     str(scene_path), float(anim_time)
                 )
-            full_refresh = self.scene_static_key != scene_static_key
             if full_refresh:
                 self._parents_init_raw = bytes(packed["parents"])
                 self._active_init_raw = bytes(packed["active_nodes"])
@@ -1979,10 +1986,14 @@ class MathOPSV2GPUViewport:
                     "node_count": int(packed["node_count"]),
                 }
                 self.scene_static_key = scene_static_key
-            elif anim_active and self.texture_scene_mode:
+            elif (anim_active or scene_cache is not None) and self.texture_scene_mode:
                 self._sync_primitive_texture(bytes(packed["primitives"]))
-            elif anim_active:
+                self.scene_info["aabb_min"] = tuple(packed["aabb_min"])
+                self.scene_info["aabb_max"] = tuple(packed["aabb_max"])
+            elif anim_active or scene_cache is not None:
                 self.prims_ssbo.upload(bytes(packed["primitives"]))
+                self.scene_info["aabb_min"] = tuple(packed["aabb_min"])
+                self.scene_info["aabb_max"] = tuple(packed["aabb_max"])
             self.scene_key = scene_key
             self.pruning_key = None
             self.culling_overflow = False
@@ -2139,7 +2150,7 @@ class MathOPSV2GPUViewport:
         self.offscreen_size = size
 
     def _update_pruning(self, scene_path: Path, settings, aabb_min, aabb_max):
-        if not settings.culling_enabled:
+        if not self._viewport_culling_enabled(settings):
             self.frame_culling_ms = 0.0
             self.max_active_count = 0
             self.max_tmp_count = 0
@@ -2319,6 +2330,15 @@ class MathOPSV2GPUViewport:
             )
         )
 
+    def _viewport_culling_enabled(self, settings) -> bool:
+        if not bridge.live_graph_culling_enabled(settings):
+            return False
+        if getattr(settings, "use_sdf_nodes", False):
+            node_count = int(self.scene_info.get("node_count", 0))
+            if node_count <= _GRAPH_VIEWPORT_CULLING_MIN_NODES:
+                return False
+        return True
+
     def _set_draw_uniforms(
         self,
         context,
@@ -2341,7 +2361,9 @@ class MathOPSV2GPUViewport:
         proj_inv = region3d.window_matrix.inverted()
         tan_half_fov = max(1e-4, float(np.tan(float(fov_y) * 0.5)))
         background = bridge.world_background_color(scene)
-        use_culling = settings.culling_enabled and not self.culling_overflow
+        use_culling = (
+            self._viewport_culling_enabled(settings) and not self.culling_overflow
+        )
         shading = getattr(context.space_data, "shading", None)
         show_specular = int(bool(getattr(shading, "show_specular_highlight", True)))
         params = self.fragment_params_data
@@ -2399,14 +2421,21 @@ class MathOPSV2GPUViewport:
             if not self._ensure_shaders(settings.shading_mode):
                 return False
 
-            scene_path = bridge.resolve_scene_path(settings, create=True)
-            if not scene_path.is_file():
+            scene_cache = bridge.graph_scene_cache(settings, create=True)
+            scene_path = (
+                Path(scene_cache["path"])
+                if scene_cache is not None
+                else bridge.resolve_scene_path(settings, create=True)
+            )
+            if scene_cache is None and not scene_path.is_file():
                 if not runtime.last_error_message:
                     bridge.set_last_error(f"Scene file not found: {scene_path}")
                 return False
 
-            self._sync_scene(scene_path, settings)
-            aabb_min, aabb_max, _metadata = bridge.effective_aabb(settings, scene_path)
+            self._sync_scene(scene_path, settings, scene_cache)
+            aabb_min, aabb_max, _metadata = bridge.effective_aabb(
+                settings, scene_path, scene_cache
+            )
             self._update_pruning(scene_path, settings, aabb_min, aabb_max)
 
             width, height = bridge.get_viewport_render_size(context, settings)
