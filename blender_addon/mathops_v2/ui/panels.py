@@ -168,13 +168,10 @@ class MATHOPS_V2_PT_scene(_MathOPSV2Panel, Panel):
             except Exception:
                 tree = None
             if tree is not None:
-                scene_cache = bridge.graph_scene_cache(settings)
+                scene_cache = runtime.generated_scene_cache.get(tree.name_full)
                 if scene_cache is not None:
                     scene_path = Path(scene_cache["path"])
                     metadata = scene_cache["metadata"]
-                else:
-                    scene_path = bridge.resolve_scene_path(settings)
-                    metadata = bridge.safe_scene_metadata(scene_path)
         else:
             scene_path = bridge.resolve_scene_path(settings)
             metadata = bridge.safe_scene_metadata(scene_path)

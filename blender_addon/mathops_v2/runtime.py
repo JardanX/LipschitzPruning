@@ -23,6 +23,7 @@ COMPAT_PANEL_NAMES = (
 )
 
 native_module = None
+native_module_dll_dirs = []
 renderer = None
 renderer_key = None
 loaded_scene_key = None
@@ -35,6 +36,7 @@ generated_scene_cache = {}
 generated_scene_path_hashes = {}
 generated_scene_last_compile = {}
 generated_scene_dirty = set()
+scene_transform_dirty = set()
 dynamic_aabb_state = {}
 compat_panels = []
 debug_log_buffer = []
@@ -89,6 +91,7 @@ def clear_debug_log():
 def reset_runtime():
     global \
         native_module, \
+        native_module_dll_dirs, \
         renderer, \
         renderer_key, \
         loaded_scene_key, \
@@ -103,7 +106,13 @@ def reset_runtime():
         graph_interaction_time, \
         graph_sync_suppressed_until, \
         proxy_sync_suppressed_until
+    for handle in native_module_dll_dirs:
+        try:
+            handle.close()
+        except Exception:
+            pass
     native_module = None
+    native_module_dll_dirs = []
     renderer = None
     renderer_key = None
     loaded_scene_key = None
@@ -117,6 +126,7 @@ def reset_runtime():
     generated_scene_path_hashes.clear()
     generated_scene_last_compile.clear()
     generated_scene_dirty.clear()
+    scene_transform_dirty.clear()
     dynamic_aabb_state.clear()
     last_error_message = ""
     demo_anim_running = False

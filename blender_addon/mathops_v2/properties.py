@@ -32,10 +32,11 @@ def suppress_record_updates():
 def _mark_record_dirty(record, context):
     if _record_updates_suppressed > 0:
         return
+    record_ptr = record.as_pointer()
     for scene in bpy.data.scenes:
         records = getattr(scene, "mathops_v2_primitives", ())
         for candidate in records:
-            if candidate.as_pointer() != record.as_pointer():
+            if candidate.as_pointer() != record_ptr:
                 continue
             settings = getattr(scene, "mathops_v2_settings", None)
             if settings is None:
@@ -44,13 +45,28 @@ def _mark_record_dirty(record, context):
                 tree = sdf_nodes.get_selected_tree(settings, create=False, ensure=False)
             except Exception:
                 return
-            sdf_nodes.mark_tree_dirty(tree)
-            try:
-                from . import sdf_proxies
+            from . import sdf_proxies
 
-                sdf_proxies.sync_from_graph(context)
-            except Exception:
-                pass
+            record_id = str(getattr(record, "primitive_id", "") or "")
+            node = None
+            if tree is not None and record_id:
+                node = sdf_nodes.find_primitive_node(tree, record_id)
+            if node is not None:
+                sdf_nodes.mark_tree_transform_dirty(tree)
+                try:
+                    sdf_proxies.sync_primitive_node_update(scene, node, context)
+                except Exception:
+                    sdf_nodes.mark_tree_dirty(tree)
+                    try:
+                        sdf_proxies.sync_from_graph(context)
+                    except Exception:
+                        pass
+            else:
+                sdf_nodes.mark_tree_dirty(tree)
+                try:
+                    sdf_proxies.sync_from_graph(context)
+                except Exception:
+                    pass
             _redraw_viewports(context)
             return
 

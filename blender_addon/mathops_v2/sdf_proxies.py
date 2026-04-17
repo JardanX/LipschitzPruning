@@ -397,13 +397,7 @@ def _mark_selection_dirty(scene):
     except Exception:
         tree = None
     if tree is not None:
-        sdf_nodes.mark_tree_dirty(tree)
-    try:
-        from .render import bridge
-
-        bridge.force_redraw_viewports(bpy.context)
-    except Exception:
-        pass
+        sdf_nodes.mark_tree_transform_dirty(tree)
 
 
 def _sync_selected_targets_from_handle(scene, handle):
@@ -1100,7 +1094,8 @@ def sync_tree_to_scene_records(scene, tree, context=None):
 
 
 def _ensure_proxy_identity(obj):
-    obj.mathops_v2_sdf_proxy = True
+    if not obj.mathops_v2_sdf_proxy:
+        obj.mathops_v2_sdf_proxy = True
     if not obj.mathops_v2_sdf_proxy_id:
         obj.mathops_v2_sdf_proxy_id = uuid.uuid4().hex
 
@@ -1740,6 +1735,7 @@ def _sync_proxy_object_from_object(scene, tree, obj, node_lookup):
             _sync_record_from_proxy(scene, obj, None)
             _queue_pending_record_node_sync(scene, _proxy_record_id(obj))
             _mark_selection_dirty(scene)
+            sdf_nodes.mark_tree_transform_dirty(tree)
             node_state = (
                 previous.get("node_snapshot")
                 if previous is not None
@@ -1836,27 +1832,13 @@ def sync_proxy_nodes_to_tree(scene, tree):
 
 def _sync_proxy_scene(scene, candidate_objects=None):
     scene_name = _scene_key(scene)
-    all_proxies = [obj for obj in scene.objects if _is_proxy_object(obj)]
-    has_state = any(key[0] == scene_name for key in _sync_state)
-    if not all_proxies and not has_state:
-        return
 
     try:
         tree = _ensure_scene_tree(scene, ensure=False)
     except Exception:
         return
 
-    duplicates_resolved = False
-    if all_proxies:
-        if candidate_objects is None or len(all_proxies) != _tracked_proxy_count(scene):
-            duplicates_resolved = _resolve_duplicate_proxies(scene, tree)
-        all_proxies = [obj for obj in scene.objects if _is_proxy_object(obj)]
-
-    node_lookup = _primitive_node_lookup(tree)
-
-    if candidate_objects is None:
-        sync_objects = all_proxies
-    else:
+    if candidate_objects is not None:
         sync_objects = []
         seen_names = set()
         for candidate in candidate_objects:
@@ -1867,14 +1849,26 @@ def _sync_proxy_scene(scene, candidate_objects=None):
                 continue
             seen_names.add(obj.name)
             sync_objects.append(obj)
+        node_lookup = _primitive_node_lookup(tree)
+        for obj in sync_objects:
+            _sync_proxy_object_from_object(scene, tree, obj, node_lookup)
+        return
 
-    sync_function = (
-        _sync_proxy_object_full
-        if candidate_objects is None
-        else _sync_proxy_object_from_object
-    )
+    all_proxies = [obj for obj in scene.objects if _is_proxy_object(obj)]
+    has_state = any(key[0] == scene_name for key in _sync_state)
+    if not all_proxies and not has_state:
+        return
+
+    duplicates_resolved = False
+    if all_proxies:
+        if len(all_proxies) != _tracked_proxy_count(scene):
+            duplicates_resolved = _resolve_duplicate_proxies(scene, tree)
+        all_proxies = [obj for obj in scene.objects if _is_proxy_object(obj)]
+
+    node_lookup = _primitive_node_lookup(tree)
+    sync_objects = all_proxies
     for obj in sync_objects:
-        sync_function(scene, tree, obj, node_lookup)
+        _sync_proxy_object_full(scene, tree, obj, node_lookup)
 
     current_keys = {_sync_key(scene, obj) for obj in all_proxies}
     _remove_deleted_proxies(scene, tree, current_keys)
@@ -1986,6 +1980,24 @@ def _proxy_sync_depsgraph_post(scene, depsgraph):
         getattr(runtime, "proxy_sync_suppressed_until", 0.0)
     ):
         return
+
+    if _proxy_transform_active(scene):
+        active = getattr(bpy.context, "active_object", None)
+        if active is not None and _is_proxy_object(active) and _has_scene_store(scene):
+            record_id = str(
+                active.mathops_v2_sdf_node_id or active.mathops_v2_sdf_proxy_id or ""
+            )
+            if record_id:
+                record, _idx = _find_record(scene, record_id)
+                if record is not None:
+                    before = _record_state(record)
+                    _record_from_object(record, active)
+                    if _record_state(record) != before:
+                        sdf_nodes.mark_tree_transform_dirty(
+                            _ensure_scene_tree(scene, ensure=False)
+                        )
+        return
+
     if _native_proxy_duplicate_transform_active(scene):
         _schedule_proxy_sync(0.05)
         return

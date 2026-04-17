@@ -1963,8 +1963,8 @@ class MathOPSV2GPUViewport:
             anim_time = bridge.demo_anim_time(settings)
             full_refresh = self.scene_static_key != scene_static_key
             if scene_cache is not None and anim_time is None:
-                packed = native_module.pack_scene_json_cached(
-                    scene_cache["json"],
+                packed = native_module.pack_scene_payload_cached(
+                    scene_cache["payload"],
                     scene_cache.get("topology_hash", scene_cache["hash"]),
                     full_refresh,
                 )

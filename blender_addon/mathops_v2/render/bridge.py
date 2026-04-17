@@ -2,6 +2,7 @@ from pathlib import Path
 import importlib.util
 import json
 import math
+import os
 import shutil
 import sys
 import time
@@ -18,7 +19,7 @@ _DYNAMIC_AABB_GROW_PAD = 0.08
 _DYNAMIC_AABB_SHRINK_PAD = 0.03
 _DYNAMIC_AABB_SHRINK_INTERVAL = 0.75
 _DYNAMIC_AABB_SHRINK_THRESHOLD = 1.05
-_LIVE_GRAPH_CULLING_GRACE = 1.5
+_LIVE_GRAPH_CULLING_GRACE = 0.3
 
 
 def addon_dir() -> Path:
@@ -47,6 +48,7 @@ def load_native_module():
         required_attrs = (
             "pack_scene_file",
             "pack_scene_json",
+            "pack_scene_payload_cached",
             "pack_scene_demo_anim",
             "Renderer",
         )
@@ -84,6 +86,24 @@ def load_native_module():
         cache_dir.mkdir(exist_ok=True)
         module_name = f"{addon_dir().name}.lipschitz_pruning_native"
         last_exc = None
+
+        if hasattr(os, "add_dll_directory") and not runtime.native_module_dll_dirs:
+            seen_dll_dirs = set()
+            for dll_dir in (addon_dir(), addon_dir() / "Release"):
+                if not dll_dir.is_dir():
+                    continue
+                resolved = str(dll_dir.resolve())
+                if resolved in seen_dll_dirs:
+                    continue
+                seen_dll_dirs.add(resolved)
+                try:
+                    runtime.native_module_dll_dirs.append(
+                        os.add_dll_directory(resolved)
+                    )
+                except OSError as exc:
+                    runtime.debug_log(
+                        f"Native module DLL path failed for {dll_dir.name}: {exc}"
+                    )
 
         for module_path in candidates:
             module_mtime = module_path.stat().st_mtime_ns
@@ -272,6 +292,10 @@ def graph_scene_cache(settings, create=False):
         return sdf_nodes.ensure_compiled_scene_cache(settings, create=create)
     except Exception:
         return None
+
+
+def scene_cache_json(scene_cache):
+    return sdf_nodes.ensure_scene_cache_json(scene_cache)
 
 
 def live_graph_culling_enabled(settings):
@@ -951,7 +975,7 @@ def render_rgba(
     if runtime.loaded_scene_key != scene_key:
         runtime.debug_log(f"Uploading scene data from {scene_path.name}")
         if scene_cache is not None:
-            renderer.load_scene_json(scene_cache["json"])
+            renderer.load_scene_json(scene_cache_json(scene_cache))
         else:
             renderer.load_scene_file(str(scene_path))
         runtime.loaded_scene_key = scene_key

@@ -228,7 +228,10 @@ def _mark_scene_dirty(scene, targets=None):
                 break
 
     if tree is not None:
-        sdf_nodes.mark_tree_dirty(tree)
+        if needs_full_sync or not node_targets:
+            sdf_nodes.mark_tree_dirty(tree)
+        else:
+            sdf_nodes.mark_tree_transform_dirty(tree)
     if needs_full_sync or not node_targets:
         try:
             sdf_proxies.sync_from_graph(bpy.context)

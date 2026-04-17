@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+import struct
 import time
 import uuid
 from contextlib import contextmanager
@@ -91,7 +92,9 @@ def _graph_updated(_owner=None, context=None):
         else getattr(_owner, "id_data", None)
     )
     _activate_tree_for_context(tree, context)
-    mark_tree_dirty(tree)
+
+    runtime.last_error_message = ""
+    runtime.graph_interaction_time = time.perf_counter()
 
     try:
         from .render import bridge
@@ -104,6 +107,8 @@ def _graph_updated(_owner=None, context=None):
         runtime, "graph_sync_suppressed_until", 0.0
     ):
         _bootstrap_proxy_union_tree(tree)
+        if getattr(tree, "bl_idname", "") == TREE_IDNAME:
+            runtime.generated_scene_dirty.add(tree.name_full)
         runtime.debug_slow(
             f"Graph update suppressed tree={getattr(tree, 'name', 'Unknown')}",
             (time.perf_counter() - start) * 1000.0,
@@ -114,6 +119,7 @@ def _graph_updated(_owner=None, context=None):
 
         if owner_scene is not None and is_primitive_node(_owner):
             if sdf_proxies.sync_primitive_node_update(owner_scene, _owner, context):
+                mark_tree_transform_dirty(tree)
                 runtime.debug_slow(
                     f"Graph update primitive-fast tree={getattr(tree, 'name', 'Unknown')}",
                     (time.perf_counter() - start) * 1000.0,
@@ -122,6 +128,8 @@ def _graph_updated(_owner=None, context=None):
         sdf_proxies.sync_from_graph(context)
     except Exception:
         pass
+    if getattr(tree, "bl_idname", "") == TREE_IDNAME:
+        runtime.generated_scene_dirty.add(tree.name_full)
     runtime.debug_slow(
         f"Graph update full-sync tree={getattr(tree, 'name', 'Unknown')}",
         (time.perf_counter() - start) * 1000.0,
@@ -133,6 +141,13 @@ def mark_tree_dirty(tree):
         runtime.generated_scene_dirty.add(tree.name_full)
 
     runtime.last_error_message = ""
+    runtime.graph_interaction_time = time.perf_counter()
+
+
+def mark_tree_transform_dirty(tree):
+    if getattr(tree, "bl_idname", "") == TREE_IDNAME:
+        runtime.scene_transform_dirty.add(tree.name_full)
+
     runtime.graph_interaction_time = time.perf_counter()
 
 
@@ -2239,6 +2254,78 @@ def _strip_runtime_payload_metadata(node_payload):
     return cleaned
 
 
+def _update_payload_content_hash(digest, value):
+    if isinstance(value, dict):
+        digest.update(b"{")
+        for key in sorted(value):
+            if key == "nodeId":
+                continue
+            digest.update(key.encode("utf-8"))
+            digest.update(b"=")
+            _update_payload_content_hash(digest, value[key])
+            digest.update(b";")
+        digest.update(b"}")
+        return
+    if isinstance(value, (list, tuple)):
+        digest.update(b"[")
+        for item in value:
+            _update_payload_content_hash(digest, item)
+            digest.update(b",")
+        digest.update(b"]")
+        return
+    if isinstance(value, bool):
+        digest.update(b"T" if value else b"F")
+        return
+    if isinstance(value, int):
+        digest.update(b"i")
+        digest.update(str(int(value)).encode("ascii"))
+        return
+    if isinstance(value, float):
+        digest.update(b"f")
+        digest.update(struct.pack("<d", float(value)))
+        return
+    if value is None:
+        digest.update(b"N")
+        return
+    digest.update(b"s")
+    digest.update(str(value).encode("utf-8"))
+
+
+def _payload_content_hash(node_payload) -> str:
+    digest = hashlib.sha1()
+    _update_payload_content_hash(digest, node_payload)
+    return digest.hexdigest()
+
+
+def _update_payload_topology_hash(digest, node_payload):
+    if not isinstance(node_payload, dict):
+        digest.update(b"?")
+        return
+
+    node_type = str(node_payload.get("nodeType", ""))
+    if node_type == "primitive":
+        digest.update(b"P")
+        return
+
+    if node_type == "binaryOperator":
+        digest.update(b"B")
+        digest.update(str(node_payload.get("blendMode", "")).encode("utf-8"))
+        digest.update(
+            struct.pack("<d", round(float(node_payload.get("blendRadius", 0.0)), 6))
+        )
+        _update_payload_topology_hash(digest, node_payload.get("leftChild"))
+        _update_payload_topology_hash(digest, node_payload.get("rightChild"))
+        return
+
+    digest.update(node_type.encode("utf-8"))
+
+
+def _payload_topology_hash(node_payload) -> str:
+    digest = hashlib.sha1()
+    _update_payload_topology_hash(digest, node_payload)
+    return digest.hexdigest()
+
+
 def compile_tree_json(tree):
     return json.dumps(
         _strip_runtime_payload_metadata(compile_tree_payload(tree)),
@@ -2251,6 +2338,22 @@ def generated_scene_dir() -> Path:
     path = Path(__file__).resolve().parent / ".generated_scenes"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def ensure_scene_cache_json(scene_cache) -> str:
+    scene_hash = scene_cache.get("hash")
+    scene_json = scene_cache.get("json")
+    if scene_json is not None and scene_cache.get("json_hash") == scene_hash:
+        return scene_json
+
+    scene_json = json.dumps(
+        _strip_runtime_payload_metadata(scene_cache["payload"]),
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    scene_cache["json"] = scene_json
+    scene_cache["json_hash"] = scene_hash
+    return scene_json
 
 
 def invalid_scene_path() -> Path:
@@ -2590,6 +2693,61 @@ def ensure_compiled_scene_cache(settings, create=False):
     scene_path_key = str(scene_path.resolve())
     cache_key = tree.name_full
     cached = runtime.generated_scene_cache.get(cache_key)
+
+    if cache_key in runtime.scene_transform_dirty:
+        runtime.scene_transform_dirty.discard(cache_key)
+        runtime.generated_scene_dirty.discard(cache_key)
+        if cached is not None:
+            scene = _owner_scene(settings)
+            proxy_compiled = None
+            if scene is not None:
+                proxy_compiled = _compile_proxy_scene_payload(scene, tree, cached)
+                if proxy_compiled is None:
+                    proxy_compiled = _compile_proxy_csg_union_payload(
+                        scene, tree, cached
+                    )
+            if proxy_compiled is not None:
+                payload = proxy_compiled["payload"]
+                topology_hash = proxy_compiled["topology_hash"]
+                proxy_order = proxy_compiled["proxy_order"]
+                static_hash = topology_hash or _payload_topology_hash(payload)
+                metadata = {
+                    "aabb_min": tuple(
+                        float(v) for v in payload.get("aabb_min", (-1.0, -1.0, -1.0))
+                    ),
+                    "aabb_max": tuple(
+                        float(v) for v in payload.get("aabb_max", (1.0, 1.0, 1.0))
+                    ),
+                    "node_count": (
+                        proxy_compiled.get("node_count")
+                        if proxy_compiled.get("node_count") is not None
+                        else _count_payload_nodes(payload)
+                    ),
+                }
+                scene_hash = cached.get("hash", "") + f"t{time.perf_counter()}"
+                cached = {
+                    "hash": scene_hash,
+                    "path": str(scene_path),
+                    "json": None,
+                    "json_hash": None,
+                    "payload": payload,
+                    "metadata": metadata,
+                    "tree_name": tree.name_full,
+                    "topology_hash": static_hash,
+                    "proxy_order": proxy_order,
+                    "item_cache": proxy_compiled.get("item_cache"),
+                }
+                runtime.generated_scene_cache[cache_key] = cached
+                runtime.generated_scene_last_compile[cache_key] = time.perf_counter()
+                runtime.generated_scene_path_hashes[scene_path_key] = scene_hash
+                runtime.debug_slow(
+                    f"Transform-fast tree={tree.name_full}",
+                    (time.perf_counter() - start) * 1000.0,
+                )
+                return cached
+        else:
+            runtime.generated_scene_dirty.add(cache_key)
+
     if cached and cache_key not in runtime.generated_scene_dirty:
         runtime.generated_scene_path_hashes[scene_path_key] = cached["hash"]
         return cached
@@ -2631,14 +2789,10 @@ def ensure_compiled_scene_cache(settings, create=False):
         payload = compile_tree_payload(tree)
         topology_hash = None
         proxy_order = None
-    encode_start = time.perf_counter()
-    scene_json = json.dumps(
-        _strip_runtime_payload_metadata(payload),
-        ensure_ascii=True,
-        separators=(",", ":"),
-    )
-    encode_ms = (time.perf_counter() - encode_start) * 1000.0
-    scene_hash = hashlib.sha1(scene_json.encode("utf-8")).hexdigest()
+    hash_start = time.perf_counter()
+    scene_hash = _payload_content_hash(payload)
+    hash_ms = (time.perf_counter() - hash_start) * 1000.0
+    static_hash = topology_hash or _payload_topology_hash(payload)
     metadata = {
         "aabb_min": tuple(
             float(v) for v in payload.get("aabb_min", (-1.0, -1.0, -1.0))
@@ -2651,19 +2805,29 @@ def ensure_compiled_scene_cache(settings, create=False):
             else _count_payload_nodes(payload)
         ),
     }
+    scene_json = None
+    json_hash = None
+    file_hash = None
+    if cached is not None and cached.get("hash") == scene_hash:
+        scene_json = cached.get("json")
+        json_hash = cached.get("json_hash")
+        file_hash = cached.get("file_hash")
     cached = {
         "hash": scene_hash,
         "path": str(scene_path),
         "json": scene_json,
+        "json_hash": json_hash,
         "payload": payload,
         "metadata": metadata,
         "tree_name": tree.name_full,
-        "topology_hash": topology_hash or scene_hash,
+        "topology_hash": static_hash,
         "proxy_order": proxy_order,
         "item_cache": None
         if proxy_compiled is None
         else proxy_compiled.get("item_cache"),
     }
+    if file_hash == scene_hash:
+        cached["file_hash"] = file_hash
     runtime.generated_scene_cache[cache_key] = cached
     runtime.generated_scene_last_compile[cache_key] = time.perf_counter()
     runtime.generated_scene_path_hashes[scene_path_key] = scene_hash
@@ -2671,7 +2835,7 @@ def ensure_compiled_scene_cache(settings, create=False):
     runtime.debug_slow(
         (
             f"Scene cache compile tree={tree.name_full} mode={compile_mode} "
-            f"nodes={metadata['node_count']} json={encode_ms:.2f}"
+            f"nodes={metadata['node_count']} hash={hash_ms:.2f}"
         ),
         (time.perf_counter() - start) * 1000.0,
     )
@@ -2682,7 +2846,7 @@ def ensure_generated_scene(settings, create=False):
     cached = ensure_compiled_scene_cache(settings, create=create)
     scene_path = Path(cached["path"])
     if cached.get("file_hash") != cached["hash"] or not scene_path.is_file():
-        scene_path.write_text(cached["json"], encoding="utf-8")
+        scene_path.write_text(ensure_scene_cache_json(cached), encoding="utf-8")
         cached["file_hash"] = cached["hash"]
         runtime.debug_log(
             f"Compiled SDF node tree '{cached['tree_name']}' to {scene_path.name}"

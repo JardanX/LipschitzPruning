@@ -139,6 +139,15 @@ nb::dict extract_matcap_exr_impl(const std::string& /*path*/) {
 }
 #endif
 
+float primitive_distance_scale(const glm::mat4& world_to_prim)
+{
+    glm::vec3 row0(world_to_prim[0][0], world_to_prim[1][0], world_to_prim[2][0]);
+    glm::vec3 row1(world_to_prim[0][1], world_to_prim[1][1], world_to_prim[2][1]);
+    glm::vec3 row2(world_to_prim[0][2], world_to_prim[1][2], world_to_prim[2][2]);
+    float max_inv_scale = std::max(std::max(glm::length(row0), glm::length(row1)), glm::length(row2));
+    return max_inv_scale > 0.0f ? 1.0f / max_inv_scale : 1.0f;
+}
+
 glm::vec3 to_vec3(const std::vector<float>& value) {
     if (value.size() != 3) {
         throw std::runtime_error("camera vectors must contain exactly 3 floats");
@@ -332,6 +341,179 @@ nb::dict pack_scene_nodes_impl(
     return result;
 }
 
+glm::mat4 payload_matrix_to_glm(const nb::list& values)
+{
+    return glm::mat4(
+        nb::cast<float>(values[0]), nb::cast<float>(values[4]), nb::cast<float>(values[8]), 0.0f,
+        nb::cast<float>(values[1]), nb::cast<float>(values[5]), nb::cast<float>(values[9]), 0.0f,
+        nb::cast<float>(values[2]), nb::cast<float>(values[6]), nb::cast<float>(values[10]), 0.0f,
+        nb::cast<float>(values[3]), nb::cast<float>(values[7]), nb::cast<float>(values[11]), 1.0f);
+}
+
+void load_payload_dict(
+    const nb::dict& payload,
+    std::vector<CSGNode>& nodes,
+    glm::vec3& aabb_min,
+    glm::vec3& aabb_max)
+{
+    nb::list aabb_min_arr = nb::cast<nb::list>(payload["aabb_min"]);
+    nb::list aabb_max_arr = nb::cast<nb::list>(payload["aabb_max"]);
+    aabb_min = {
+        nb::cast<float>(aabb_min_arr[0]),
+        nb::cast<float>(aabb_min_arr[1]),
+        nb::cast<float>(aabb_min_arr[2]),
+    };
+    aabb_max = {
+        nb::cast<float>(aabb_max_arr[0]),
+        nb::cast<float>(aabb_max_arr[1]),
+        nb::cast<float>(aabb_max_arr[2]),
+    };
+
+    struct StackEntry {
+        nb::dict payload;
+        glm::mat4 mat;
+        int idx;
+        bool sign;
+    };
+
+    nodes.clear();
+    nodes.push_back({});
+    std::vector<StackEntry> stack = {{payload, glm::mat4(1.0f), 0, true}};
+
+    while (!stack.empty()) {
+        StackEntry entry = stack.back();
+        stack.pop_back();
+
+        const nb::dict& node_payload = entry.payload;
+        glm::mat4 node_mat = payload_matrix_to_glm(nb::cast<nb::list>(node_payload["matrix"]));
+        glm::mat4 mat = entry.mat;
+        std::string type = nb::cast<std::string>(node_payload["nodeType"]);
+        int node_idx = entry.idx;
+
+        if (type == "primitive") {
+            CSGNode& node = nodes[node_idx];
+            node.type = NODETYPE_PRIMITIVE;
+            node.left = -1;
+            node.right = -1;
+            node.sign = entry.sign;
+
+            glm::mat4 world_to_prim = mat * node_mat;
+            node.primitive.m_row0 = glm::vec4(world_to_prim[0][0], world_to_prim[1][0], world_to_prim[2][0], world_to_prim[3][0]);
+            node.primitive.m_row1 = glm::vec4(world_to_prim[0][1], world_to_prim[1][1], world_to_prim[2][1], world_to_prim[3][1]);
+            node.primitive.m_row2 = glm::vec4(world_to_prim[0][2], world_to_prim[1][2], world_to_prim[2][2], world_to_prim[3][2]);
+            node.primitive.pad0 = primitive_distance_scale(world_to_prim);
+            node.primitive.pad1 = 0.0f;
+            node.primitive.pad2 = 0.0f;
+            node.primitive.extrude_rounding.x = nb::cast<float>(node_payload["round_x"]);
+            node.primitive.extrude_rounding.y = nb::cast<float>(node_payload["round_y"]);
+
+            {
+                nb::list color = nb::cast<nb::list>(node_payload["color"]);
+                node.primitive.color = 0;
+                node.primitive.color |= std::min((uint32_t)(nb::cast<float>(color[0]) * 255.99f), 255u) << 0;
+                node.primitive.color |= std::min((uint32_t)(nb::cast<float>(color[1]) * 255.99f), 255u) << 8;
+                node.primitive.color |= std::min((uint32_t)(nb::cast<float>(color[2]) * 255.99f), 255u) << 16;
+            }
+
+            std::string primitive_type = nb::cast<std::string>(node_payload["primitiveType"]);
+            if (primitive_type == "sphere") {
+                node.primitive.type = PRIMITIVE_SPHERE;
+            } else if (primitive_type == "box") {
+                node.primitive.type = PRIMITIVE_BOX;
+            } else if (primitive_type == "cylinder") {
+                node.primitive.type = PRIMITIVE_CYLINDER;
+            } else if (primitive_type == "cone") {
+                node.primitive.type = PRIMITIVE_CONE;
+            } else {
+                throw std::runtime_error("Unknown primitive: " + primitive_type);
+            }
+
+            switch (node.primitive.type) {
+                case PRIMITIVE_SPHERE: {
+                    float radius = nb::cast<float>(node_payload["radius"]);
+                    node.primitive.sphere.radius = glm::vec4(radius, 0.0f, 0.0f, 0.0f);
+                    break;
+                }
+                case PRIMITIVE_BOX: {
+                    nb::list sides = nb::cast<nb::list>(node_payload["sides"]);
+                    node.primitive.box.sizes = glm::vec4(
+                        nb::cast<float>(sides[0]),
+                        nb::cast<float>(sides[1]),
+                        nb::cast<float>(sides[2]),
+                        0.0f);
+
+                    float scale = fmaxf(node.primitive.box.sizes.x, node.primitive.box.sizes.z) * 2.0f;
+                    nb::list bevel = nb::cast<nb::list>(node_payload["bevel"]);
+                    glm::vec4 corner_rounding(
+                        nb::cast<float>(bevel[0]),
+                        nb::cast<float>(bevel[1]),
+                        nb::cast<float>(bevel[2]),
+                        nb::cast<float>(bevel[3]));
+
+                    uint32_t corner_data = 0;
+                    corner_data |= (uint32_t)(corner_rounding.x * 255.0f * 2.0f / scale) << 0;
+                    corner_data |= (uint32_t)(corner_rounding.y * 255.0f * 2.0f / scale) << 8;
+                    corner_data |= (uint32_t)(corner_rounding.z * 255.0f * 2.0f / scale) << 16;
+                    corner_data |= (uint32_t)(corner_rounding.w * 255.0f * 2.0f / scale) << 24;
+                    memcpy(&node.primitive.box.sizes.w, &corner_data, sizeof(uint32_t));
+                    break;
+                }
+                case PRIMITIVE_CYLINDER: {
+                    node.primitive.cylinder.height = nb::cast<float>(node_payload["height"]);
+                    node.primitive.cylinder.radius = nb::cast<float>(node_payload["radius"]);
+                    break;
+                }
+                case PRIMITIVE_CONE: {
+                    node.primitive.cone.height = nb::cast<float>(node_payload["height"]);
+                    node.primitive.cone.radius = nb::cast<float>(node_payload["radius"]);
+                    break;
+                }
+                default:
+                    throw std::runtime_error("Unsupported primitive type");
+            }
+            continue;
+        }
+
+        if (type != "binaryOperator") {
+            throw std::runtime_error("Invalid scene payload node type: " + type);
+        }
+
+        std::string blend_mode = nb::cast<std::string>(node_payload["blendMode"]);
+        uint32_t op = 0;
+        if (blend_mode == "union") {
+            op = OP_UNION;
+        } else if (blend_mode == "sub") {
+            op = OP_SUB;
+        } else if (blend_mode == "inter") {
+            op = OP_INTER;
+        } else {
+            throw std::runtime_error("Unknown blend mode: " + blend_mode);
+        }
+
+        int left_idx = int(nodes.size());
+        nodes.push_back({});
+        int right_idx = int(nodes.size());
+        nodes.push_back({});
+
+        stack.push_back({nb::cast<nb::dict>(node_payload["leftChild"]), mat * node_mat, left_idx, true});
+        stack.push_back({nb::cast<nb::dict>(node_payload["rightChild"]), mat * node_mat, right_idx, op != OP_SUB});
+
+        CSGNode& node = nodes[node_idx];
+        node.left = left_idx;
+        node.right = right_idx;
+        node.sign = entry.sign;
+        node.binary_op = BinaryOp(nb::cast<float>(node_payload["blendRadius"]), op == OP_UNION, op);
+    }
+}
+
+nb::dict pack_scene_payload_impl(const nb::dict& scene_payload) {
+    std::vector<CSGNode> nodes;
+    glm::vec3 aabb_min;
+    glm::vec3 aabb_max;
+    load_payload_dict(scene_payload, nodes, aabb_min, aabb_max);
+    return pack_scene_nodes_impl(nodes, 0, aabb_min, aabb_max);
+}
+
 nb::dict pack_scene_packed_impl(
     const std::vector<GPUNode>& gpu_nodes,
     const std::vector<Primitive>& primitives,
@@ -465,6 +647,44 @@ nb::dict pack_scene_json_cached_impl(
     glm::vec3 aabb_min;
     glm::vec3 aabb_max;
     load_json_string(scene_json.c_str(), nodes, aabb_min, aabb_max);
+
+    PackedSceneCacheEntry& entry = get_packed_scene_cache_entry(topology_key, nodes);
+    std::vector<Primitive> primitives = extract_cached_primitives(nodes, entry);
+    if (include_static) {
+        return pack_scene_packed_impl(
+            entry.gpu_nodes,
+            primitives,
+            entry.binary_ops,
+            entry.parents,
+            entry.active_nodes,
+            aabb_min,
+            aabb_max);
+    }
+
+    nb::dict result;
+    result["node_count"] = int(entry.gpu_nodes.size());
+    result["primitive_count"] = int(primitives.size());
+    result["binary_op_count"] = int(entry.binary_ops.size());
+    result["aabb_min"] = std::vector<float>{ aabb_min.x, aabb_min.y, aabb_min.z };
+    result["aabb_max"] = std::vector<float>{ aabb_max.x, aabb_max.y, aabb_max.z };
+    const char* prim_ptr = primitives.empty() ? nullptr : reinterpret_cast<const char*>(primitives.data());
+    result["primitives"] = nb::bytes(prim_ptr, primitives.size() * sizeof(Primitive));
+    return result;
+}
+
+nb::dict pack_scene_payload_cached_impl(
+    const nb::dict& scene_payload,
+    const std::string& topology_key,
+    bool include_static)
+{
+    if (topology_key.empty()) {
+        return pack_scene_payload_impl(scene_payload);
+    }
+
+    std::vector<CSGNode> nodes;
+    glm::vec3 aabb_min;
+    glm::vec3 aabb_max;
+    load_payload_dict(scene_payload, nodes, aabb_min, aabb_max);
 
     PackedSceneCacheEntry& entry = get_packed_scene_cache_entry(topology_key, nodes);
     std::vector<Primitive> primitives = extract_cached_primitives(nodes, entry);
@@ -635,11 +855,18 @@ NB_MODULE(lipschitz_pruning_native, m) {
     m.attr("SHADING_MODE_NORMALS") = SHADING_MODE_NORMALS;
     m.attr("SHADING_MODE_AO") = SHADING_MODE_BEAUTY;
     m.def("pack_scene_file", &pack_scene_file_impl, nb::arg("scene_path"));
+    m.def("pack_scene_payload", &pack_scene_payload_impl, nb::arg("scene_payload"));
     m.def("pack_scene_json", &pack_scene_json_impl, nb::arg("scene_json"));
     m.def(
         "pack_scene_json_cached",
         &pack_scene_json_cached_impl,
         nb::arg("scene_json"),
+        nb::arg("topology_key"),
+        nb::arg("include_static") = true);
+    m.def(
+        "pack_scene_payload_cached",
+        &pack_scene_payload_cached_impl,
+        nb::arg("scene_payload"),
         nb::arg("topology_key"),
         nb::arg("include_static") = true);
     m.def("pack_scene_demo_anim", &pack_scene_demo_anim_impl, nb::arg("scene_path"), nb::arg("anim_time"));
