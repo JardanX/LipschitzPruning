@@ -42,6 +42,42 @@ def _proxy_by_id(scene):
     return mapping
 
 
+def _sync_proxy_transform_updates(scene, depsgraph):
+    tree = sdf_tree.get_scene_tree(scene, create=False)
+    if tree is None:
+        return False
+
+    proxy_updates = []
+    for update in getattr(depsgraph, "updates", ()):
+        id_data = getattr(update, "id", None)
+        if isinstance(id_data, bpy.types.Object):
+            if not runtime.is_sdf_proxy(id_data):
+                return False
+            proxy_updates.append(id_data)
+            continue
+        if id_data is scene:
+            continue
+        return False
+
+    if not proxy_updates:
+        return False
+
+    changed = False
+    for obj in proxy_updates:
+        settings = _proxy_settings(obj)
+        proxy_id = "" if settings is None else str(settings.proxy_id or "")
+        node = sdf_tree.find_initializer_node(tree, obj=obj, proxy_id=proxy_id)
+        if node is None:
+            return False
+        changed = sdf_tree.sync_proxy_to_node(node) or changed
+        sdf_tree.sync_node_to_proxy(node, include_transform=False)
+
+    if changed:
+        runtime.note_interaction()
+        runtime.tag_redraw()
+    return True
+
+
 def ensure_scene_graph(scene):
     if scene is None:
         return
@@ -120,12 +156,13 @@ def _on_load_post(_dummy):
 
 @persistent
 def _on_depsgraph_update_post(scene, depsgraph):
-    del depsgraph
     global _sync_running
     if _sync_running:
         return
     _sync_running = True
     try:
+        if _sync_proxy_transform_updates(scene, depsgraph):
+            return
         ensure_scene_graph(scene)
     finally:
         _sync_running = False

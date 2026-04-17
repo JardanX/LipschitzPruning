@@ -382,6 +382,48 @@ float evalActiveScene(vec3 worldPoint, out bool nearField, out int activeCount, 
   return stack[stackPointer - 1];
 }
 
+float evalActiveSceneForCell(vec3 worldPoint, int cellIndex, out bool nearField)
+{
+  int activeCount = int(loadScalar(pruneCellCounts, cellIndex) + 0.5);
+  if (activeCount <= 0) {
+    nearField = false;
+    return loadScalar(pruneCellErrors, cellIndex);
+  }
+
+  nearField = true;
+  float stack[MAX_STACK];
+  int stackPointer = 0;
+  int cellOffset = int(loadScalar(pruneCellOffsets, cellIndex) + 0.5);
+  int instructionBase = primitiveCountValue() * PRIMITIVE_STRIDE;
+  for (int index = 0; index < activeCount; index++) {
+    float activeNode = loadScalar(pruneActiveNodes, cellOffset + index);
+    int instructionIndex = activeNodeIndex(activeNode);
+    vec4 instruction = loadRow(instructionBase + instructionIndex);
+    int kind = int(instruction.x + 0.5);
+    float distanceValue;
+    if (kind == 0) {
+      distanceValue = evalPrimitive(int(instruction.y + 0.5), worldPoint);
+    }
+    else {
+      if (stackPointer < 2) {
+        return 1e20;
+      }
+      float rhs = stack[stackPointer - 1];
+      float lhs = stack[stackPointer - 2];
+      stackPointer -= 2;
+      distanceValue = applySignedOp(kind, lhs, rhs, max(instruction.w, 0.0));
+    }
+    distanceValue *= activeNodeSign(activeNode) ? 1.0 : -1.0;
+    if (stackPointer >= MAX_STACK) {
+      return 1e20;
+    }
+    stack[stackPointer] = distanceValue;
+    stackPointer++;
+  }
+
+  return (stackPointer == 0) ? 1e20 : stack[stackPointer - 1];
+}
+
 float evalScene(vec3 worldPoint)
 {
   bool nearField;
@@ -409,6 +451,17 @@ vec3 estimateNormal(vec3 worldPoint)
     evalScene(worldPoint + vec3(eps, 0.0, 0.0)) - evalScene(worldPoint - vec3(eps, 0.0, 0.0)),
     evalScene(worldPoint + vec3(0.0, eps, 0.0)) - evalScene(worldPoint - vec3(0.0, eps, 0.0)),
     evalScene(worldPoint + vec3(0.0, 0.0, eps)) - evalScene(worldPoint - vec3(0.0, 0.0, eps))
+  ));
+}
+
+vec3 estimateNormalActive(vec3 worldPoint, int cellIndex)
+{
+  float eps = 5e-4;
+  bool nearField;
+  return normalize(vec3(
+    evalActiveSceneForCell(worldPoint + vec3(eps, 0.0, 0.0), cellIndex, nearField) - evalActiveSceneForCell(worldPoint - vec3(eps, 0.0, 0.0), cellIndex, nearField),
+    evalActiveSceneForCell(worldPoint + vec3(0.0, eps, 0.0), cellIndex, nearField) - evalActiveSceneForCell(worldPoint - vec3(0.0, eps, 0.0), cellIndex, nearField),
+    evalActiveSceneForCell(worldPoint + vec3(0.0, 0.0, eps), cellIndex, nearField) - evalActiveSceneForCell(worldPoint - vec3(0.0, 0.0, eps), cellIndex, nearField)
   ));
 }
 
@@ -469,6 +522,7 @@ void main()
   travel += 1e-4;
   bool hit = false;
   vec3 worldPoint = rayOrigin;
+  int hitCellIndex = -1;
   int maxSteps = maxStepsValue();
   for (int step = 0; step < maxSteps; step++) {
     if (step >= 4096) {
@@ -482,6 +536,9 @@ void main()
     float dist = evalScene(worldPoint);
     if (dist < surfaceEpsilonValue()) {
       hit = true;
+      if (pruningEnabledValue()) {
+        hitCellIndex = pruningCellIndex(worldPoint);
+      }
       break;
     }
     travel += abs(dist);
@@ -495,7 +552,7 @@ void main()
     return;
   }
 
-  vec3 normal = estimateNormal(worldPoint);
+  vec3 normal = (pruningEnabledValue() && hitCellIndex >= 0) ? estimateNormalActive(worldPoint, hitCellIndex) : estimateNormal(worldPoint);
   vec3 light = normalize(mathops.lightDirectionSurfaceEpsilon.xyz);
   float diffuse = max(dot(normal, light), 0.0);
   float rim = pow(max(1.0 - max(dot(normal, -rayDirection), 0.0), 0.0), 2.0);

@@ -334,6 +334,9 @@ def get_scene_tree(scene, create=False):
     tree = getattr(settings, "node_tree", None)
     if tree is not None and getattr(tree, "bl_idname", "") == runtime.TREE_IDNAME:
         return tree
+    tree = _recover_scene_tree(scene, settings)
+    if tree is not None:
+        return tree
     if not create:
         return None
     return new_scene_tree(scene)
@@ -353,6 +356,62 @@ def ensure_scene_tree(scene):
     tree = get_scene_tree(scene, create=True)
     ensure_graph_output(tree)
     return tree
+
+
+def _scene_proxy_tree_names(scene):
+    tree_names = set()
+    for obj in scene.objects:
+        settings = runtime.object_settings(obj)
+        if settings is None or not bool(getattr(settings, "enabled", False)):
+            continue
+        tree_name = str(getattr(settings, "source_tree_name", "") or "")
+        if tree_name:
+            tree_names.add(tree_name)
+    return tree_names
+
+
+def _available_scene_trees():
+    node_groups = getattr(bpy.data, "node_groups", None)
+    if node_groups is None:
+        return []
+    return [tree for tree in node_groups if getattr(tree, "bl_idname", "") == runtime.TREE_IDNAME]
+
+
+def _recover_scene_tree(scene, settings):
+    trees = _available_scene_trees()
+    if not trees:
+        return None
+    if len(trees) == 1:
+        settings.node_tree = trees[0]
+        return trees[0]
+
+    preferred_names = _scene_proxy_tree_names(scene)
+    scene_tree_name = f"{scene.name} SDF"
+    scene_object_pointers = {runtime.safe_pointer(obj) for obj in scene.objects}
+    best_tree = None
+    best_score = None
+
+    for tree in trees:
+        linked_targets = 0
+        for node in initializer_nodes(tree):
+            target_pointer = runtime.safe_pointer(getattr(node, "target", None))
+            if target_pointer and target_pointer in scene_object_pointers:
+                linked_targets += 1
+
+        score = (
+            1 if tree.name == scene_tree_name else 0,
+            1 if tree.name in preferred_names else 0,
+            linked_targets,
+            len(initializer_nodes(tree)),
+        )
+        if best_score is None or score > best_score:
+            best_tree = tree
+            best_score = score
+
+    if best_tree is None or best_score == (0, 0, 0, 0):
+        return None
+    settings.node_tree = best_tree
+    return best_tree
 
 
 def focus_scene_tree(context, create=True):
@@ -437,6 +496,21 @@ def _set_float_attr(owner, attribute, value, epsilon=1.0e-6):
     target = float(value)
     if abs(current - target) > epsilon:
         setattr(owner, attribute, target)
+
+
+def _node_transform_values(node):
+    target = getattr(node, "target", None)
+    if runtime.is_sdf_proxy(target):
+        return (
+            tuple(float(component) for component in target.location),
+            tuple(float(component) for component in target.rotation_euler),
+            tuple(abs(float(component)) for component in target.scale),
+        )
+    return (
+        tuple(float(component) for component in node.sdf_location),
+        tuple(float(component) for component in node.sdf_rotation),
+        tuple(abs(float(component)) for component in node.sdf_scale),
+    )
 
 
 def _configure_proxy_display(obj):
@@ -590,8 +664,9 @@ def add_proxy_to_tree(scene, obj):
 
 
 def _node_transform_matrix(node):
-    location = Vector((float(node.sdf_location[0]), float(node.sdf_location[1]), float(node.sdf_location[2])))
-    rotation = Euler((float(node.sdf_rotation[0]), float(node.sdf_rotation[1]), float(node.sdf_rotation[2])), "XYZ")
+    location_values, rotation_values, _scale_values = _node_transform_values(node)
+    location = Vector(location_values)
+    rotation = Euler(rotation_values, "XYZ")
     return Matrix.LocRotScale(location, rotation, None)
 
 
@@ -613,11 +688,7 @@ def _primitive_parameters_from_node(node):
         meta[2] = float(node.minor_radius)
     else:
         raise RuntimeError(f"Unsupported primitive type '{primitive_type}'")
-    scale = (
-        abs(float(node.sdf_scale[0])),
-        abs(float(node.sdf_scale[1])),
-        abs(float(node.sdf_scale[2])),
-    )
+    _location, _rotation, scale = _node_transform_values(node)
     return primitive_type, tuple(meta), scale
 
 
@@ -646,11 +717,12 @@ def _primitive_lipschitz(primitive_type, scale):
 
 
 def _primitive_spec_from_node(node, primitive_index):
+    location, _rotation, _scale = _node_transform_values(node)
     primitive_type, meta, scale = _primitive_parameters_from_node(node)
     transform = _node_transform_matrix(node)
     world_to_local = transform.inverted_safe()
     rows = [tuple(float(value) for value in world_to_local[index]) for index in range(3)]
-    center = tuple(float(component) for component in node.sdf_location)
+    center = location
     rotation = transform.to_3x3()
     local_extents = _primitive_local_extents(primitive_type, meta, scale)
     world_extents = Vector((

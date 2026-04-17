@@ -295,15 +295,7 @@ class MathOPSV2GPUViewport:
         return True
 
     def _reset_pruning_state(self):
-        for idx in range(2):
-            self._clear_texture(self._parents_tex[idx], "FLOAT", (0.0,))
-            self._clear_texture(self._active_nodes_tex[idx], "FLOAT", (0.0,))
-            self._clear_texture(self._cell_offsets_tex[idx], "FLOAT", (0.0,))
-            self._clear_texture(self._cell_counts_tex[idx], "FLOAT", (0.0,))
-            self._clear_texture(self._cell_errors_tex[idx], "FLOAT", (0.0,))
         self._clear_texture(self._counters_tex, "UINT", (0,))
-        self._clear_texture(self._old_to_new_tex, "UINT", (0,))
-        self._clear_texture(self._tmp_tex, "UINT", (0,))
         self._max_active_count = 0
 
     def _clear_dispatch_state(self, output_idx: int):
