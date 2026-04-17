@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 import bpy
 from bpy.props import (
     BoolProperty,
@@ -14,7 +16,22 @@ from . import runtime, sdf_nodes
 from .render import bridge, matcap
 
 
+_record_updates_suppressed = 0
+
+
+@contextmanager
+def suppress_record_updates():
+    global _record_updates_suppressed
+    _record_updates_suppressed += 1
+    try:
+        yield
+    finally:
+        _record_updates_suppressed -= 1
+
+
 def _mark_record_dirty(record, context):
+    if _record_updates_suppressed > 0:
+        return
     for scene in bpy.data.scenes:
         records = getattr(scene, "mathops_v2_primitives", ())
         for candidate in records:
@@ -28,6 +45,12 @@ def _mark_record_dirty(record, context):
             except Exception:
                 return
             sdf_nodes.mark_tree_dirty(tree)
+            try:
+                from . import sdf_proxies
+
+                sdf_proxies.sync_from_graph(context)
+            except Exception:
+                pass
             _redraw_viewports(context)
             return
 
@@ -46,8 +69,9 @@ def _sync_auto_bounds(settings):
     if not getattr(settings, "use_scene_bounds", False):
         return
     if getattr(settings, "use_sdf_nodes", False):
-        tree = getattr(settings, "sdf_node_tree", None)
-        if tree is None or getattr(tree, "bl_idname", "") != sdf_nodes.TREE_IDNAME:
+        try:
+            tree = sdf_nodes.get_selected_tree(settings, create=False, ensure=False)
+        except Exception:
             return
         scene_cache = bridge.graph_scene_cache(settings)
         metadata = scene_cache["metadata"] if scene_cache is not None else None
@@ -107,6 +131,12 @@ def _update_manual_bounds(self, context):
 
 
 def _update_viewport(self, context):
+    try:
+        from . import sdf_proxies
+
+        sdf_proxies.sync_native_transform_gizmo(context)
+    except Exception:
+        pass
     _redraw_viewports(context)
 
 
@@ -312,6 +342,7 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
     bpy.types.Scene.mathops_v2_settings = PointerProperty(type=MathOPSV2Settings)
+    bpy.types.Scene.mathops_v2_scene_id = StringProperty(default="", options={"HIDDEN"})
     bpy.types.Scene.mathops_v2_primitives = CollectionProperty(
         type=MathOPSV2PrimitiveItem
     )
@@ -347,6 +378,7 @@ def unregister():
     del bpy.types.Scene.mathops_v2_handle_object_name
     del bpy.types.Scene.mathops_v2_active_primitive_id
     del bpy.types.Scene.mathops_v2_primitives
+    del bpy.types.Scene.mathops_v2_scene_id
     del bpy.types.Scene.mathops_v2_settings
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

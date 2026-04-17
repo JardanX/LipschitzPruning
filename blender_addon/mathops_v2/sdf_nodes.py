@@ -8,6 +8,7 @@ from pathlib import Path
 
 import bpy
 import nodeitems_utils
+from bpy.app.handlers import persistent
 from bpy.props import (
     BoolProperty,
     EnumProperty,
@@ -24,6 +25,10 @@ from . import runtime
 
 TREE_IDNAME = "MATHOPS_V2_SDF_TREE"
 SOCKET_IDNAME = "MATHOPS_V2_SDF_SOCKET"
+FLOAT_SOCKET_IDNAME = "MATHOPS_V2_FLOAT_SOCKET"
+VECTOR_SOCKET_IDNAME = "MATHOPS_V2_VECTOR_SOCKET"
+COLOR_SOCKET_IDNAME = "MATHOPS_V2_COLOR_SOCKET"
+TRANSFORM_SOCKET_IDNAME = "MATHOPS_V2_TRANSFORM_SOCKET"
 OUTPUT_NODE_IDNAME = "MATHOPS_V2_SCENE_OUTPUT"
 SPHERE_NODE_IDNAME = "MATHOPS_V2_SDF_SPHERE"
 BOX_NODE_IDNAME = "MATHOPS_V2_SDF_BOX"
@@ -33,6 +38,11 @@ CSG_NODE_IDNAME = "MATHOPS_V2_CSG"
 UNION_NODE_IDNAME = "MATHOPS_V2_CSG_UNION"
 SUBTRACT_NODE_IDNAME = "MATHOPS_V2_CSG_SUBTRACT"
 INTERSECT_NODE_IDNAME = "MATHOPS_V2_CSG_INTERSECT"
+VALUE_NODE_IDNAME = "MATHOPS_V2_VALUE"
+VECTOR_NODE_IDNAME = "MATHOPS_V2_VECTOR"
+COLOR_NODE_IDNAME = "MATHOPS_V2_COLOR"
+TRANSFORM_NODE_IDNAME = "MATHOPS_V2_TRANSFORM"
+BREAK_TRANSFORM_NODE_IDNAME = "MATHOPS_V2_BREAK_TRANSFORM"
 PRIMITIVE_NODE_IDNAMES = {
     SPHERE_NODE_IDNAME,
     BOX_NODE_IDNAME,
@@ -44,6 +54,10 @@ _INVALID_SCENE_NAME = "_invalid_.json"
 _OUTPUT_ENFORCE_LOCKS = set()
 _GRAPH_UPDATE_SUPPRESS = 0
 _GRAPH_UPDATE_PENDING = False
+_AUTO_INSERT_SUPPRESS = 0
+_EDITOR_WINDOW_SCENES = {}
+_EDITOR_SPACE_STATE = {}
+_SYNC_MSGBUS_OWNER = object()
 _PROXY_TREE_MATERIALIZED_KEY = "mathops_v2_proxy_tree_materialized"
 _IDENTITY_MATRIX_3X4 = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
 _BLENDER_TO_RENDERER_BASIS = Matrix(
@@ -68,11 +82,13 @@ def _graph_updated(_owner=None, context=None):
         _GRAPH_UPDATE_PENDING = True
         return
 
+    start = time.perf_counter()
     tree = (
         _owner
         if getattr(_owner, "bl_idname", "") == TREE_IDNAME
         else getattr(_owner, "id_data", None)
     )
+    _activate_tree_for_context(tree, context)
     mark_tree_dirty(tree)
 
     try:
@@ -84,17 +100,27 @@ def _graph_updated(_owner=None, context=None):
     try:
         from . import sdf_proxies
 
+        owner_scene = _tree_owner_scene(tree)
+        if owner_scene is not None and is_primitive_node(_owner):
+            if sdf_proxies.sync_primitive_node_update(owner_scene, _owner, context):
+                runtime.debug_slow(
+                    f"Graph update primitive-fast tree={getattr(tree, 'name', 'Unknown')}",
+                    (time.perf_counter() - start) * 1000.0,
+                )
+                return
         sdf_proxies.sync_from_graph(context)
     except Exception:
         pass
+    runtime.debug_slow(
+        f"Graph update full-sync tree={getattr(tree, 'name', 'Unknown')}",
+        (time.perf_counter() - start) * 1000.0,
+    )
 
 
 def mark_tree_dirty(tree):
     if getattr(tree, "bl_idname", "") == TREE_IDNAME:
         runtime.generated_scene_dirty.add(tree.name_full)
 
-    runtime.dynamic_aabb_state.clear()
-    runtime.current_effective_aabb = None
     runtime.last_error_message = ""
     runtime.graph_interaction_time = time.perf_counter()
 
@@ -115,6 +141,16 @@ def resume_graph_updates(context=None):
 
 
 @contextmanager
+def suppress_auto_insert():
+    global _AUTO_INSERT_SUPPRESS
+    _AUTO_INSERT_SUPPRESS += 1
+    try:
+        yield
+    finally:
+        _AUTO_INSERT_SUPPRESS -= 1
+
+
+@contextmanager
 def deferred_graph_updates(context=None):
     suspend_graph_updates()
     try:
@@ -130,6 +166,117 @@ def _owner_scene(settings):
 
 def _default_tree_name(scene) -> str:
     return f"{scene.name} MathOPS SDF"
+
+
+def _scene_identifier(scene) -> str:
+    scene_id = str(getattr(scene, "mathops_v2_scene_id", "") or "")
+    if not scene_id:
+        scene_id = uuid.uuid4().hex
+        try:
+            scene.mathops_v2_scene_id = scene_id
+        except Exception:
+            pass
+    return scene_id
+
+
+def _tree_owner_scene_id(tree) -> str:
+    return str(getattr(tree, "owner_scene_id", "") or "")
+
+
+def _claim_tree_for_scene(tree, scene, force=False) -> bool:
+    if getattr(tree, "bl_idname", "") != TREE_IDNAME or scene is None:
+        return False
+
+    scene_id = _scene_identifier(scene)
+    owner_scene_id = _tree_owner_scene_id(tree)
+    if owner_scene_id == scene_id:
+        return True
+    if owner_scene_id and not force:
+        return False
+    try:
+        tree.owner_scene_id = scene_id
+    except Exception:
+        return False
+    return True
+
+
+def _tree_belongs_to_scene(tree, scene, claim_unowned=False) -> bool:
+    if getattr(tree, "bl_idname", "") != TREE_IDNAME or scene is None:
+        return False
+
+    owner_scene_id = _tree_owner_scene_id(tree)
+    if owner_scene_id == _scene_identifier(scene):
+        return True
+    if owner_scene_id:
+        return False
+    return _claim_tree_for_scene(tree, scene) if claim_unowned else False
+
+
+def _tree_owner_scene(tree):
+    owner_scene_id = _tree_owner_scene_id(tree)
+    if not owner_scene_id:
+        return None
+    for scene in bpy.data.scenes:
+        if _scene_identifier(scene) == owner_scene_id:
+            return scene
+    return None
+
+
+def _set_selected_tree(settings, tree, scene=None, force=False):
+    if getattr(tree, "bl_idname", "") != TREE_IDNAME:
+        return False
+
+    if scene is None:
+        scene = _owner_scene(settings)
+    if scene is not None and not _claim_tree_for_scene(tree, scene, force=force):
+        return False
+    if settings is not None and getattr(settings, "sdf_node_tree", None) != tree:
+        settings.sdf_node_tree = tree
+    return True
+
+
+def _preferred_scene_tree(scene):
+    preferred = bpy.data.node_groups.get(_default_tree_name(scene))
+    if preferred is not None and _tree_belongs_to_scene(
+        preferred, scene, claim_unowned=True
+    ):
+        return preferred
+
+    owned_trees = sorted(
+        (
+            tree
+            for tree in bpy.data.node_groups
+            if getattr(tree, "bl_idname", "") == TREE_IDNAME
+            and _tree_belongs_to_scene(tree, scene, claim_unowned=False)
+        ),
+        key=lambda tree: tree.name_full,
+    )
+    if owned_trees:
+        return owned_trees[0]
+
+    if preferred is not None and getattr(preferred, "bl_idname", "") == TREE_IDNAME:
+        return preferred if _claim_tree_for_scene(preferred, scene) else None
+    return None
+
+
+def _activate_tree_for_context(tree, context=None):
+    if getattr(tree, "bl_idname", "") != TREE_IDNAME:
+        return
+
+    scene = None if context is None else getattr(context, "scene", None)
+    if scene is not None:
+        settings = getattr(scene, "mathops_v2_settings", None)
+        if settings is not None and getattr(settings, "use_sdf_nodes", False):
+            _set_selected_tree(settings, tree, scene, force=True)
+        return
+
+    owner_scene = _tree_owner_scene(tree)
+    if owner_scene is None:
+        return
+    settings = getattr(owner_scene, "mathops_v2_settings", None)
+    if settings is None or not getattr(settings, "use_sdf_nodes", False):
+        return
+    _set_selected_tree(settings, tree, owner_scene)
 
 
 def _surface_output_socket(node):
@@ -189,6 +336,56 @@ def active_primitive_node(scene, create=False):
     active_object = getattr(bpy.context, "active_object", None)
     if getattr(active_object, "mathops_v2_sdf_proxy", False):
         return find_primitive_node(tree, active_object.mathops_v2_sdf_node_id)
+
+    active_id = str(getattr(scene, "mathops_v2_active_primitive_id", "") or "")
+    if active_id:
+        return find_primitive_node(tree, active_id)
+    return None
+
+
+def _auto_insert_primitive_node(node):
+    if _AUTO_INSERT_SUPPRESS > 0:
+        return
+    if getattr(node, "bl_idname", "") not in PRIMITIVE_NODE_IDNAMES:
+        return
+
+    tree = getattr(node, "id_data", None)
+    if getattr(tree, "bl_idname", "") != TREE_IDNAME:
+        return
+    try:
+        if getattr(node, "outputs", None) and any(node.outputs[0].links):
+            return
+    except Exception:
+        pass
+    try:
+        insert_primitive_above_output(tree, node)
+    except Exception:
+        tree_name = getattr(tree, "name_full", "")
+        node_name = getattr(node, "name", "")
+        if tree_name and node_name:
+            bpy.app.timers.register(
+                lambda tree_name=tree_name,
+                node_name=node_name: _retry_auto_insert_primitive_node(
+                    tree_name, node_name
+                ),
+                first_interval=0.0,
+            )
+        return
+
+    try:
+        tree.nodes.active = node
+        node.select = True
+    except Exception:
+        pass
+
+
+def _retry_auto_insert_primitive_node(tree_name, node_name):
+    tree = bpy.data.node_groups.get(tree_name)
+    if getattr(tree, "bl_idname", "") != TREE_IDNAME:
+        return None
+    node = getattr(getattr(tree, "nodes", None), "get", lambda _name: None)(node_name)
+    if node is not None:
+        _auto_insert_primitive_node(node)
     return None
 
 
@@ -306,7 +503,6 @@ def dematerialize_proxy_tree(tree):
             tree.nodes.remove(node)
     for link in list(output.inputs[0].links):
         tree.links.remove(link)
-    _position_output_node(tree, output)
     set_proxy_tree_materialized(tree, False)
     return True
 
@@ -345,16 +541,13 @@ def _ensure_output_node(tree):
             if source_socket is not None:
                 tree.links.new(source_socket, output_node.inputs[0])
 
-        output_node.select = False
         return output_node
     finally:
         _OUTPUT_ENFORCE_LOCKS.discard(tree_key)
 
 
 def _build_default_tree(tree):
-    output = _ensure_output_node(tree)
-    if output is not None:
-        _position_output_node(tree, output)
+    _ensure_output_node(tree)
     return tree
 
 
@@ -363,20 +556,22 @@ def ensure_scene_tree(scene, settings=None):
         settings = scene.mathops_v2_settings
 
     tree = getattr(settings, "sdf_node_tree", None)
-    if tree is not None and tree.bl_idname == TREE_IDNAME:
-        dematerialize_proxy_tree(tree)
+    if tree is not None and _tree_belongs_to_scene(tree, scene, claim_unowned=True):
         _build_default_tree(tree)
+        _set_selected_tree(settings, tree, scene)
         return tree
 
-    tree_name = _default_tree_name(scene)
-    existing = bpy.data.node_groups.get(tree_name)
-    if existing is not None and existing.bl_idname == TREE_IDNAME:
-        tree = existing
-    else:
-        tree = bpy.data.node_groups.new(tree_name, TREE_IDNAME)
-    dematerialize_proxy_tree(tree)
+    tree = _preferred_scene_tree(scene)
+    if tree is None:
+        tree_name = _default_tree_name(scene)
+        existing = bpy.data.node_groups.get(tree_name)
+        if existing is not None and existing.bl_idname == TREE_IDNAME:
+            tree = existing
+        else:
+            tree = bpy.data.node_groups.new(tree_name, TREE_IDNAME)
+        _claim_tree_for_scene(tree, scene, force=True)
     _build_default_tree(tree)
-    settings.sdf_node_tree = tree
+    _set_selected_tree(settings, tree, scene)
     runtime.debug_log(f"Using scene SDF tree '{tree.name}'")
     return tree
 
@@ -386,35 +581,38 @@ def new_scene_tree(scene, settings=None):
         settings = scene.mathops_v2_settings
 
     tree = bpy.data.node_groups.new(_default_tree_name(scene), TREE_IDNAME)
+    _claim_tree_for_scene(tree, scene, force=True)
     _build_default_tree(tree)
-    settings.sdf_node_tree = tree
+    _set_selected_tree(settings, tree, scene)
     runtime.debug_log(f"Created scene SDF tree '{tree.name}'")
     return tree
 
 
 def get_selected_tree(settings, create=False, ensure=False):
+    scene = _owner_scene(settings)
     tree = getattr(settings, "sdf_node_tree", None)
-    if tree is not None and tree.bl_idname == TREE_IDNAME:
-        dematerialize_proxy_tree(tree)
-        if ensure:
-            _build_default_tree(tree)
-        return tree
+    if tree is not None and getattr(tree, "bl_idname", "") == TREE_IDNAME:
+        if scene is None or _tree_belongs_to_scene(tree, scene, claim_unowned=True):
+            if ensure:
+                _build_default_tree(tree)
+            if scene is not None:
+                _set_selected_tree(settings, tree, scene)
+            return tree
+
+    if scene is not None:
+        tree = _preferred_scene_tree(scene)
+        if tree is not None:
+            _set_selected_tree(settings, tree, scene)
+            if ensure:
+                _build_default_tree(tree)
+            return tree
 
     if not create:
         raise RuntimeError("Enable Use Nodes to create a scene SDF graph")
 
-    scene = _owner_scene(settings)
     if scene is None:
         raise RuntimeError("Scene-owned SDF tree is unavailable")
-    if ensure:
-        return ensure_scene_tree(scene, settings)
-
-    tree_name = _default_tree_name(scene)
-    tree = bpy.data.node_groups.get(tree_name)
-    if tree is not None and tree.bl_idname == TREE_IDNAME:
-        dematerialize_proxy_tree(tree)
-        return tree
-    raise RuntimeError("Scene SDF graph is unavailable")
+    return ensure_scene_tree(scene, settings)
 
 
 def _focus_tree_in_editor(context, tree):
@@ -432,24 +630,88 @@ def _focus_tree_in_editor(context, tree):
     return focused
 
 
+def _frame_active_tree_node_in_editor(context, tree):
+    framed = False
+    for window in context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type != "NODE_EDITOR":
+                continue
+            space = area.spaces.active
+            if getattr(space, "tree_type", None) != TREE_IDNAME:
+                continue
+            if getattr(space, "node_tree", None) != tree:
+                continue
+            region = next(
+                (item for item in area.regions if item.type == "WINDOW"), None
+            )
+            if region is None:
+                continue
+            try:
+                with context.temp_override(
+                    window=window,
+                    area=area,
+                    region=region,
+                    space_data=space,
+                ):
+                    bpy.ops.node.view_selected()
+                area.tag_redraw()
+                framed = True
+            except Exception:
+                pass
+    return framed
+
+
+def _select_tree_node(tree, node, extend=False):
+    if tree is None or node is None:
+        return False
+    if not extend:
+        for tree_node in tree.nodes:
+            tree_node.select = False
+    node.select = True
+    tree.nodes.active = node
+    return True
+
+
 def focus_scene_tree(context, create=False):
     settings = context.scene.mathops_v2_settings
     tree = get_selected_tree(settings, create=create, ensure=create)
-    materialize_proxy_tree(context.scene, tree)
     _focus_tree_in_editor(context, tree)
     return tree
+
+
+def focus_scene_node(context, primitive_id, create=False, extend=False, frame=False):
+    settings = context.scene.mathops_v2_settings
+    tree = get_selected_tree(settings, create=create, ensure=create)
+    node = find_primitive_node(tree, primitive_id)
+    if node is None:
+        _focus_tree_in_editor(context, tree)
+        return tree, None, False
+
+    _select_tree_node(tree, node, extend=extend)
+    focused = _focus_tree_in_editor(context, tree)
+    if frame:
+        focused = _frame_active_tree_node_in_editor(context, tree) or focused
+    return tree, node, focused
 
 
 def _sync_node_editors():
     try:
         initialize_scene_trees()
+        live_window_keys = set()
+        live_space_keys = set()
         for window in bpy.context.window_manager.windows:
             scene = getattr(window, "scene", None)
             if scene is None:
                 continue
+            window_key = window.as_pointer()
+            live_window_keys.add(window_key)
             settings = scene.mathops_v2_settings
             if not getattr(settings, "use_sdf_nodes", False):
+                _EDITOR_WINDOW_SCENES[window_key] = _scene_identifier(scene)
                 continue
+            scene_key = _scene_identifier(scene)
+            window_scene_changed = _EDITOR_WINDOW_SCENES.get(window_key) != scene_key
+            _EDITOR_WINDOW_SCENES[window_key] = scene_key
             tree = ensure_scene_tree(scene, settings)
             for area in window.screen.areas:
                 if area.type != "NODE_EDITOR":
@@ -457,13 +719,39 @@ def _sync_node_editors():
                 space = area.spaces.active
                 if getattr(space, "tree_type", None) != TREE_IDNAME:
                     continue
-                if getattr(space, "node_tree", None) == tree:
-                    continue
-                try:
-                    space.node_tree = tree
-                    area.tag_redraw()
-                except Exception:
-                    pass
+                space_key = space.as_pointer()
+                live_space_keys.add(space_key)
+                editor_tree = getattr(space, "node_tree", None)
+                if getattr(editor_tree, "bl_idname", "") != TREE_IDNAME:
+                    editor_tree = None
+                previous_scene_key, previous_tree_key = _EDITOR_SPACE_STATE.get(
+                    space_key, (None, None)
+                )
+                current_tree_key = (
+                    0 if editor_tree is None else editor_tree.as_pointer()
+                )
+                editor_changed = current_tree_key != previous_tree_key
+
+                if editor_tree is not None and editor_changed:
+                    if editor_tree != tree:
+                        _set_selected_tree(settings, editor_tree, scene, force=True)
+                        tree = editor_tree
+                elif editor_tree != tree:
+                    try:
+                        space.node_tree = tree
+                        area.tag_redraw()
+                    except Exception:
+                        pass
+                    editor_tree = tree
+                    current_tree_key = tree.as_pointer()
+
+                _EDITOR_SPACE_STATE[space_key] = (scene_key, current_tree_key)
+        stale_window_keys = set(_EDITOR_WINDOW_SCENES) - live_window_keys
+        for window_key in stale_window_keys:
+            _EDITOR_WINDOW_SCENES.pop(window_key, None)
+        stale_space_keys = set(_EDITOR_SPACE_STATE) - live_space_keys
+        for space_key in stale_space_keys:
+            _EDITOR_SPACE_STATE.pop(space_key, None)
     except Exception:
         pass
     return 0.1
@@ -477,6 +765,53 @@ def start_editor_sync():
 def stop_editor_sync():
     if bpy.app.timers.is_registered(_sync_node_editors):
         bpy.app.timers.unregister(_sync_node_editors)
+    _EDITOR_WINDOW_SCENES.clear()
+    _EDITOR_SPACE_STATE.clear()
+
+
+def _ensure_handler(handler_list, callback):
+    if callback not in handler_list:
+        handler_list.append(callback)
+
+
+def _remove_handler(handler_list, callback):
+    if callback in handler_list:
+        handler_list.remove(callback)
+
+
+def _notify_editor_sync():
+    _sync_node_editors()
+
+
+def _subscribe_editor_sync_bus():
+    try:
+        bpy.msgbus.subscribe_rna(
+            key=(bpy.types.Window, "scene"),
+            owner=_SYNC_MSGBUS_OWNER,
+            args=(),
+            notify=_notify_editor_sync,
+        )
+        bpy.msgbus.subscribe_rna(
+            key=(bpy.types.SpaceNodeEditor, "node_tree"),
+            owner=_SYNC_MSGBUS_OWNER,
+            args=(),
+            notify=_notify_editor_sync,
+        )
+        bpy.msgbus.subscribe_rna(
+            key=(bpy.types.SpaceNodeEditor, "tree_type"),
+            owner=_SYNC_MSGBUS_OWNER,
+            args=(),
+            notify=_notify_editor_sync,
+        )
+    except Exception:
+        pass
+
+
+def _unsubscribe_editor_sync_bus():
+    try:
+        bpy.msgbus.clear_by_owner(_SYNC_MSGBUS_OWNER)
+    except Exception:
+        pass
 
 
 def initialize_scene_trees():
@@ -497,14 +832,25 @@ def _deferred_post_register():
     return None
 
 
+@persistent
+def _scene_tree_load_post(_dummy):
+    initialize_scene_trees()
+    start_editor_sync()
+
+
 def post_register():
+    _ensure_handler(bpy.app.handlers.load_post, _scene_tree_load_post)
     if not bpy.app.timers.is_registered(_deferred_post_register):
         bpy.app.timers.register(_deferred_post_register, first_interval=0.0)
+    _subscribe_editor_sync_bus()
+    start_editor_sync()
 
 
 def pre_unregister():
+    _remove_handler(bpy.app.handlers.load_post, _scene_tree_load_post)
     if bpy.app.timers.is_registered(_deferred_post_register):
         bpy.app.timers.unregister(_deferred_post_register)
+    _unsubscribe_editor_sync_bus()
     stop_editor_sync()
 
 
@@ -519,8 +865,14 @@ def _active_editor_tree(context, create=False):
     if not getattr(settings, "use_sdf_nodes", False):
         return None
 
+    scene = context.scene
+    editor_tree = getattr(space, "node_tree", None)
+    if getattr(editor_tree, "bl_idname", "") == TREE_IDNAME:
+        _set_selected_tree(settings, editor_tree, scene, force=True)
+        return editor_tree
+
     try:
-        tree = get_selected_tree(settings, create=create, ensure=False)
+        tree = get_selected_tree(settings, create=create, ensure=create)
     except Exception:
         return None
     if getattr(space, "node_tree", None) != tree:
@@ -683,21 +1035,207 @@ class _MathOPSV2NodeBase:
     def poll(cls, node_tree):
         return node_tree.bl_idname == TREE_IDNAME
 
+    def _socket_linked(self, socket_name: str) -> bool:
+        socket = getattr(getattr(self, "inputs", None), "get", lambda _name: None)(
+            socket_name
+        )
+        return bool(socket is not None and socket.is_linked)
+
+    def _draw_fallback_prop(
+        self, layout, prop_name: str, socket_name: str | None = None
+    ):
+        row = layout.row()
+        if socket_name is not None:
+            row.enabled = not self._socket_linked(socket_name)
+        row.prop(self, prop_name)
+
     def _draw_transform(self, layout):
         box = layout.box()
         box.label(text="Transform")
         col = box.column(align=True)
+        col.enabled = not self._socket_linked("Transform")
         col.prop(self, "sdf_location")
         col.prop(self, "sdf_rotation")
         col.prop(self, "sdf_scale")
 
     def _world_to_local_matrix(self):
-        local_to_world = Matrix.LocRotScale(
-            Vector(self.sdf_location),
-            Euler(self.sdf_rotation, "XYZ"),
-            Vector(self.sdf_scale),
+        return node_effective_world_to_local_matrix(self)
+
+
+def _get_node_input(node, socket_name: str):
+    return getattr(getattr(node, "inputs", None), "get", lambda _name: None)(
+        socket_name
+    )
+
+
+def node_input_source_socket(node, socket_name: str):
+    socket = _get_node_input(node, socket_name)
+    if socket is None or not socket.is_linked or not socket.links:
+        return None
+    return socket.links[0].from_socket
+
+
+def node_input_source_node(node, socket_name: str):
+    socket = node_input_source_socket(node, socket_name)
+    return None if socket is None else getattr(socket, "node", None)
+
+
+def _transform_value(location, rotation, scale):
+    return {
+        "location": tuple(float(v) for v in location),
+        "rotation": tuple(float(v) for v in rotation),
+        "scale": tuple(float(v) for v in scale),
+    }
+
+
+def _evaluate_output_socket(socket, active_stack):
+    node = getattr(socket, "node", None)
+    if node is None:
+        raise RuntimeError("Linked data socket has no source node")
+
+    node_key = ("data", node.as_pointer(), str(getattr(socket, "name", "")))
+    if node_key in active_stack:
+        raise RuntimeError(f"Cycle detected at node '{node.name}'")
+
+    active_stack.add(node_key)
+    try:
+        node_idname = getattr(node, "bl_idname", "")
+        if node_idname == VALUE_NODE_IDNAME:
+            return "float", float(getattr(node, "value", 0.0))
+        if node_idname == VECTOR_NODE_IDNAME:
+            return "vector", tuple(
+                float(v) for v in getattr(node, "value", (0.0, 0.0, 0.0))
+            )
+        if node_idname == COLOR_NODE_IDNAME:
+            return "color", tuple(
+                float(v) for v in getattr(node, "value", (0.8, 0.8, 0.8))
+            )
+        if node_idname == TRANSFORM_NODE_IDNAME:
+            location = _socket_data_value(
+                _get_node_input(node, "Location"),
+                "vector",
+                active_stack,
+                tuple(
+                    float(v) for v in getattr(node, "location_value", (0.0, 0.0, 0.0))
+                ),
+            )
+            rotation = _socket_data_value(
+                _get_node_input(node, "Rotation"),
+                "vector",
+                active_stack,
+                tuple(
+                    float(v) for v in getattr(node, "rotation_value", (0.0, 0.0, 0.0))
+                ),
+            )
+            scale = _socket_data_value(
+                _get_node_input(node, "Scale"),
+                "vector",
+                active_stack,
+                tuple(float(v) for v in getattr(node, "scale_value", (1.0, 1.0, 1.0))),
+            )
+            return (
+                "transform",
+                _transform_value(location, rotation, scale),
+            )
+        if node_idname == BREAK_TRANSFORM_NODE_IDNAME:
+            transform = _socket_data_value(
+                _get_node_input(node, "Transform"), "transform", active_stack, None
+            )
+            if transform is None:
+                raise RuntimeError(f"Node '{node.name}' is missing its Transform input")
+            output_name = str(getattr(socket, "name", ""))
+            if output_name == "Location":
+                return "vector", tuple(transform["location"])
+            if output_name == "Rotation":
+                return "vector", tuple(transform["rotation"])
+            if output_name == "Scale":
+                return "vector", tuple(transform["scale"])
+        if is_primitive_node(node) and str(getattr(socket, "name", "")) == "Transform":
+            return "transform", node_effective_transform(node, active_stack)
+
+        raise RuntimeError(
+            f"Node '{node.name}' does not provide compatible data for '{socket.name}'"
         )
-        return local_to_world.inverted_safe()
+    finally:
+        active_stack.remove(node_key)
+
+
+def _socket_data_value(socket, expected_kind: str, active_stack, fallback):
+    if socket is None or not socket.is_linked or not socket.links:
+        return fallback
+
+    linked_kind, linked_value = _evaluate_output_socket(
+        socket.links[0].from_socket, active_stack
+    )
+    if linked_kind == expected_kind:
+        return linked_value
+    if expected_kind == "vector" and linked_kind == "color":
+        return tuple(float(v) for v in linked_value)
+    if expected_kind == "color" and linked_kind == "vector":
+        return tuple(float(v) for v in linked_value)
+    raise RuntimeError(
+        f"Socket '{socket.name}' expects {expected_kind} input, got {linked_kind}"
+    )
+
+
+def node_effective_transform(node, active_stack=None):
+    stack = set() if active_stack is None else active_stack
+    fallback = _transform_value(
+        getattr(node, "sdf_location", (0.0, 0.0, 0.0)),
+        getattr(node, "sdf_rotation", (0.0, 0.0, 0.0)),
+        getattr(node, "sdf_scale", (1.0, 1.0, 1.0)),
+    )
+    return _socket_data_value(
+        _get_node_input(node, "Transform"), "transform", stack, fallback
+    )
+
+
+def node_effective_color(node, active_stack=None):
+    stack = set() if active_stack is None else active_stack
+    fallback = tuple(float(v) for v in getattr(node, "color", (0.8, 0.8, 0.8)))
+    return _socket_data_value(_get_node_input(node, "Color"), "color", stack, fallback)
+
+
+def node_effective_size(node, active_stack=None):
+    stack = set() if active_stack is None else active_stack
+    fallback = tuple(float(v) for v in getattr(node, "size", (1.0, 1.0, 1.0)))
+    return _socket_data_value(_get_node_input(node, "Size"), "vector", stack, fallback)
+
+
+def node_effective_radius(node, active_stack=None):
+    stack = set() if active_stack is None else active_stack
+    fallback = float(getattr(node, "radius", 0.0))
+    return _socket_data_value(_get_node_input(node, "Radius"), "float", stack, fallback)
+
+
+def node_effective_height(node, active_stack=None):
+    stack = set() if active_stack is None else active_stack
+    fallback = float(getattr(node, "height", 0.0))
+    return _socket_data_value(_get_node_input(node, "Height"), "float", stack, fallback)
+
+
+def node_effective_bevel(node, active_stack=None):
+    stack = set() if active_stack is None else active_stack
+    fallback = float(getattr(node, "bevel", 0.0))
+    return _socket_data_value(_get_node_input(node, "Bevel"), "float", stack, fallback)
+
+
+def node_effective_blend_radius(node, active_stack=None):
+    stack = set() if active_stack is None else active_stack
+    fallback = float(getattr(node, "blend_radius", 0.0))
+    return _socket_data_value(
+        _get_node_input(node, "Blend Radius"), "float", stack, fallback
+    )
+
+
+def node_effective_world_to_local_matrix(node, active_stack=None):
+    transform = node_effective_transform(node, active_stack)
+    local_to_world = Matrix.LocRotScale(
+        Vector(transform["location"]),
+        Euler(transform["rotation"], "XYZ"),
+        Vector(transform["scale"]),
+    )
+    return local_to_world.inverted_safe()
 
 
 class _MathOPSV2PrimitiveNodeBase(_MathOPSV2NodeBase):
@@ -720,11 +1258,14 @@ class _MathOPSV2PrimitiveNodeBase(_MathOPSV2NodeBase):
 
     def init(self, context):
         del context
+        self.inputs.new(TRANSFORM_SOCKET_IDNAME, "Transform")
+        _set_socket_value_prop(self.inputs.new(COLOR_SOCKET_IDNAME, "Color"), "color")
         self.outputs.new(SOCKET_IDNAME, "SDF")
+        self.outputs.new(TRANSFORM_SOCKET_IDNAME, "Transform")
+        _auto_insert_primitive_node(self)
 
     def _draw_primitive_footer(self, layout):
-        layout.prop(self, "color")
-        self._draw_transform(layout)
+        del layout
 
     def draw_buttons_ext(self, context, layout):
         self.draw_buttons(context, layout)
@@ -745,10 +1286,13 @@ class _MathOPSV2CSGNodeBase(_MathOPSV2NodeBase):
         del context
         self.inputs.new(SOCKET_IDNAME, "A")
         self.inputs.new(SOCKET_IDNAME, "B")
+        _set_socket_value_prop(
+            self.inputs.new(FLOAT_SOCKET_IDNAME, "Blend Radius"), "blend_radius"
+        )
         self.outputs.new(SOCKET_IDNAME, "SDF")
 
     def _draw_csg_buttons(self, layout):
-        layout.prop(self, "blend_radius")
+        del layout
 
     def draw_buttons_ext(self, context, layout):
         self.draw_buttons(context, layout)
@@ -759,21 +1303,67 @@ class MathOPSV2SDFTree(NodeTree):
     bl_label = "MathOPS-v2 SDF"
     bl_icon = "NODETREE"
 
+    owner_scene_id: StringProperty(default="", options={"HIDDEN"})
+
     def update(self):
         _graph_updated(self, bpy.context)
 
 
-class MathOPSV2SDFSocket(NodeSocket):
-    bl_idname = SOCKET_IDNAME
-    bl_label = "SDF"
+class _MathOPSV2SocketBase(NodeSocket):
+    socket_color = (0.8, 0.8, 0.8, 1.0)
+    value_prop: StringProperty(default="", options={"HIDDEN"})
 
     def draw(self, context, layout, node, text):
-        del context, node
+        del context
+        value_prop = str(getattr(self, "value_prop", "") or "")
+        if (
+            not self.is_output
+            and not self.is_linked
+            and value_prop
+            and hasattr(node, value_prop)
+        ):
+            layout.prop(node, value_prop, text=text or self.bl_label)
+            return
         layout.label(text=text or self.bl_label)
 
     def draw_color(self, context, node):
         del context, node
-        return 1.0, 0.45, 0.1, 1.0
+        return self.socket_color
+
+
+class MathOPSV2SDFSocket(_MathOPSV2SocketBase):
+    bl_idname = SOCKET_IDNAME
+    bl_label = "SDF"
+    socket_color = (1.0, 0.45, 0.1, 1.0)
+
+
+class MathOPSV2FloatSocket(_MathOPSV2SocketBase):
+    bl_idname = FLOAT_SOCKET_IDNAME
+    bl_label = "Float"
+    socket_color = (0.55, 0.75, 1.0, 1.0)
+
+
+class MathOPSV2VectorSocket(_MathOPSV2SocketBase):
+    bl_idname = VECTOR_SOCKET_IDNAME
+    bl_label = "Vector"
+    socket_color = (0.45, 0.85, 0.95, 1.0)
+
+
+class MathOPSV2ColorSocket(_MathOPSV2SocketBase):
+    bl_idname = COLOR_SOCKET_IDNAME
+    bl_label = "Color"
+    socket_color = (0.95, 0.55, 0.75, 1.0)
+
+
+class MathOPSV2TransformSocket(_MathOPSV2SocketBase):
+    bl_idname = TRANSFORM_SOCKET_IDNAME
+    bl_label = "Transform"
+    socket_color = (0.75, 0.65, 1.0, 1.0)
+
+
+def _set_socket_value_prop(socket, prop_name: str):
+    if socket is not None:
+        socket.value_prop = prop_name
 
 
 class MathOPSV2SceneOutputNode(_MathOPSV2NodeBase, Node):
@@ -797,9 +1387,134 @@ class MathOPSV2SceneOutputNode(_MathOPSV2NodeBase, Node):
             )
 
 
+class MathOPSV2ValueNode(_MathOPSV2NodeBase, Node):
+    bl_idname = VALUE_NODE_IDNAME
+    bl_label = "Value"
+
+    value: FloatProperty(name="Value", default=0.0, update=_graph_updated)
+
+    def init(self, context):
+        del context
+        self.outputs.new(FLOAT_SOCKET_IDNAME, "Value")
+
+    def draw_buttons(self, context, layout):
+        del context
+        layout.prop(self, "value")
+
+
+class MathOPSV2VectorNode(_MathOPSV2NodeBase, Node):
+    bl_idname = VECTOR_NODE_IDNAME
+    bl_label = "Vector"
+
+    value: FloatVectorProperty(
+        name="Value",
+        size=3,
+        subtype="XYZ",
+        default=(0.0, 0.0, 0.0),
+        update=_graph_updated,
+    )
+
+    def init(self, context):
+        del context
+        self.outputs.new(VECTOR_SOCKET_IDNAME, "Vector")
+
+    def draw_buttons(self, context, layout):
+        del context
+        layout.prop(self, "value")
+
+
+class MathOPSV2ColorNode(_MathOPSV2NodeBase, Node):
+    bl_idname = COLOR_NODE_IDNAME
+    bl_label = "Color"
+
+    value: FloatVectorProperty(
+        name="Value",
+        size=3,
+        subtype="COLOR",
+        min=0.0,
+        max=1.0,
+        default=(0.8, 0.8, 0.8),
+        update=_graph_updated,
+    )
+
+    def init(self, context):
+        del context
+        self.outputs.new(COLOR_SOCKET_IDNAME, "Color")
+
+    def draw_buttons(self, context, layout):
+        del context
+        layout.prop(self, "value")
+
+
+class MathOPSV2TransformNode(_MathOPSV2NodeBase, Node):
+    bl_idname = TRANSFORM_NODE_IDNAME
+    bl_label = "Make Transform"
+
+    location_value: FloatVectorProperty(
+        name="Location",
+        size=3,
+        subtype="TRANSLATION",
+        default=(0.0, 0.0, 0.0),
+        update=_graph_updated,
+    )
+    rotation_value: FloatVectorProperty(
+        name="Rotation",
+        size=3,
+        subtype="EULER",
+        default=(0.0, 0.0, 0.0),
+        update=_graph_updated,
+    )
+    scale_value: FloatVectorProperty(
+        name="Scale",
+        size=3,
+        subtype="XYZ",
+        default=(1.0, 1.0, 1.0),
+        min=0.001,
+        soft_min=0.001,
+        update=_graph_updated,
+    )
+
+    def init(self, context):
+        del context
+        _set_socket_value_prop(
+            self.inputs.new(VECTOR_SOCKET_IDNAME, "Location"), "location_value"
+        )
+        _set_socket_value_prop(
+            self.inputs.new(VECTOR_SOCKET_IDNAME, "Rotation"), "rotation_value"
+        )
+        _set_socket_value_prop(
+            self.inputs.new(VECTOR_SOCKET_IDNAME, "Scale"), "scale_value"
+        )
+        self.outputs.new(TRANSFORM_SOCKET_IDNAME, "Transform")
+
+    def draw_buttons(self, context, layout):
+        del context, layout
+        pass
+
+
+class MathOPSV2BreakTransformNode(_MathOPSV2NodeBase, Node):
+    bl_idname = BREAK_TRANSFORM_NODE_IDNAME
+    bl_label = "Break Transform"
+
+    def init(self, context):
+        del context
+        self.inputs.new(TRANSFORM_SOCKET_IDNAME, "Transform")
+        self.outputs.new(VECTOR_SOCKET_IDNAME, "Location")
+        self.outputs.new(VECTOR_SOCKET_IDNAME, "Rotation")
+        self.outputs.new(VECTOR_SOCKET_IDNAME, "Scale")
+
+    def draw_buttons(self, context, layout):
+        del context, layout
+        pass
+
+
 class MathOPSV2SDFSphereNode(_MathOPSV2PrimitiveNodeBase, Node):
     bl_idname = SPHERE_NODE_IDNAME
     bl_label = "SDF Sphere"
+
+    def init(self, context):
+        _MathOPSV2PrimitiveNodeBase.init(self, context)
+        _set_socket_value_prop(self.inputs.new(FLOAT_SOCKET_IDNAME, "Radius"), "radius")
 
     radius: FloatProperty(
         name="Radius",
@@ -811,13 +1526,17 @@ class MathOPSV2SDFSphereNode(_MathOPSV2PrimitiveNodeBase, Node):
 
     def draw_buttons(self, context, layout):
         del context
-        layout.prop(self, "radius")
         self._draw_primitive_footer(layout)
 
 
 class MathOPSV2SDFBoxNode(_MathOPSV2PrimitiveNodeBase, Node):
     bl_idname = BOX_NODE_IDNAME
     bl_label = "SDF Box"
+
+    def init(self, context):
+        _MathOPSV2PrimitiveNodeBase.init(self, context)
+        _set_socket_value_prop(self.inputs.new(VECTOR_SOCKET_IDNAME, "Size"), "size")
+        _set_socket_value_prop(self.inputs.new(FLOAT_SOCKET_IDNAME, "Bevel"), "bevel")
 
     size: FloatVectorProperty(
         name="Size",
@@ -838,8 +1557,6 @@ class MathOPSV2SDFBoxNode(_MathOPSV2PrimitiveNodeBase, Node):
 
     def draw_buttons(self, context, layout):
         del context
-        layout.prop(self, "size")
-        layout.prop(self, "bevel")
         self._draw_primitive_footer(layout)
 
 
@@ -847,6 +1564,11 @@ class MathOPSV2SDFCylinderNode(_MathOPSV2PrimitiveNodeBase, Node):
     bl_idname = CYLINDER_NODE_IDNAME
     bl_label = "SDF Cylinder"
 
+    def init(self, context):
+        _MathOPSV2PrimitiveNodeBase.init(self, context)
+        _set_socket_value_prop(self.inputs.new(FLOAT_SOCKET_IDNAME, "Radius"), "radius")
+        _set_socket_value_prop(self.inputs.new(FLOAT_SOCKET_IDNAME, "Height"), "height")
+
     radius: FloatProperty(
         name="Radius",
         default=0.35,
@@ -864,8 +1586,6 @@ class MathOPSV2SDFCylinderNode(_MathOPSV2PrimitiveNodeBase, Node):
 
     def draw_buttons(self, context, layout):
         del context
-        layout.prop(self, "radius")
-        layout.prop(self, "height")
         self._draw_primitive_footer(layout)
 
 
@@ -873,6 +1593,11 @@ class MathOPSV2SDFConeNode(_MathOPSV2PrimitiveNodeBase, Node):
     bl_idname = CONE_NODE_IDNAME
     bl_label = "SDF Cone"
 
+    def init(self, context):
+        _MathOPSV2PrimitiveNodeBase.init(self, context)
+        _set_socket_value_prop(self.inputs.new(FLOAT_SOCKET_IDNAME, "Radius"), "radius")
+        _set_socket_value_prop(self.inputs.new(FLOAT_SOCKET_IDNAME, "Height"), "height")
+
     radius: FloatProperty(
         name="Radius",
         default=0.35,
@@ -890,8 +1615,6 @@ class MathOPSV2SDFConeNode(_MathOPSV2PrimitiveNodeBase, Node):
 
     def draw_buttons(self, context, layout):
         del context
-        layout.prop(self, "radius")
-        layout.prop(self, "height")
         self._draw_primitive_footer(layout)
 
 
@@ -1227,24 +1950,28 @@ def _socket_source_node(socket, label, node):
 
 
 def _serialize_primitive(node, primitive_type):
+    active_stack = set()
+    color = node_effective_color(node, active_stack)
     payload = {
         "nodeType": "primitive",
         "nodeId": primitive_node_token(node),
         "primitiveType": primitive_type,
-        "color": [float(v) for v in node.color],
+        "color": [float(v) for v in color],
         "round_x": 0.0,
         "round_y": 0.0,
-        "matrix": _matrix_to_json_values(node._world_to_local_matrix()),
+        "matrix": _matrix_to_json_values(
+            node_effective_world_to_local_matrix(node, active_stack)
+        ),
     }
     if primitive_type == "sphere":
-        payload["radius"] = float(node.radius)
+        payload["radius"] = float(node_effective_radius(node, active_stack))
     elif primitive_type == "box":
-        bevel = max(0.0, float(node.bevel))
-        payload["sides"] = [float(v) for v in node.size]
+        bevel = max(0.0, float(node_effective_bevel(node, active_stack)))
+        payload["sides"] = [float(v) for v in node_effective_size(node, active_stack)]
         payload["bevel"] = [bevel, bevel, bevel, bevel]
     else:
-        payload["radius"] = float(node.radius)
-        payload["height"] = float(node.height)
+        payload["radius"] = float(node_effective_radius(node, active_stack))
+        payload["height"] = float(node_effective_height(node, active_stack))
     return payload
 
 
@@ -1280,7 +2007,7 @@ def _serialize_node(node, active_stack):
                 "leftChild": left_child,
                 "rightChild": right_child,
                 "blendMode": node.blend_mode,
-                "blendRadius": float(node.blend_radius),
+                "blendRadius": float(node_effective_blend_radius(node, active_stack)),
                 "matrix": list(_IDENTITY_MATRIX_3X4),
             }
 
@@ -1318,7 +2045,8 @@ def create_primitive_node(tree, primitive_type):
     }.get(primitive_type)
     if node_idname is None:
         raise RuntimeError(f"Unsupported primitive type '{primitive_type}'")
-    node = tree.nodes.new(node_idname)
+    with suppress_auto_insert():
+        node = tree.nodes.new(node_idname)
     primitive_node_token(node)
     return node
 
@@ -1530,10 +2258,42 @@ def _scene_store_items(scene):
     return items
 
 
+def _proxy_scene_fast_path_supported(scene, tree):
+    records = getattr(scene, "mathops_v2_primitives", ())
+    if len(records) == 0:
+        return False
+    if not proxy_tree_materialized(tree) and not _is_pure_proxy_union_tree(tree):
+        return False
+
+    record_ids = {str(getattr(record, "primitive_id", "") or "") for record in records}
+    primitive_count = 0
+    for node in tree.nodes:
+        node_idname = getattr(node, "bl_idname", "")
+        if node_idname == OUTPUT_NODE_IDNAME:
+            continue
+        if is_primitive_node(node):
+            primitive_count += 1
+            if not getattr(node, "proxy_managed", False):
+                return False
+            if primitive_node_token(node) not in record_ids:
+                return False
+            continue
+        if node_idname == CSG_NODE_IDNAME:
+            if getattr(node, "blend_mode", "") != "union":
+                return False
+            if abs(float(getattr(node, "blend_radius", 0.0))) > 1.0e-9:
+                return False
+            continue
+        return False
+
+    return primitive_count == len(record_ids)
+
+
 def _proxy_scene_items(scene, tree):
-    store_items = _scene_store_items(scene)
-    if store_items is not None:
-        return store_items
+    if _proxy_scene_fast_path_supported(scene, tree):
+        store_items = _scene_store_items(scene)
+        if store_items is not None:
+            return store_items
 
     proxies = [
         obj for obj in scene.objects if getattr(obj, "mathops_v2_sdf_proxy", False)
@@ -1658,6 +2418,7 @@ def _compile_proxy_scene_payload(scene, tree, cached=None):
 
 
 def ensure_compiled_scene_cache(settings, create=False):
+    start = time.perf_counter()
     tree = get_selected_tree(settings, create=create, ensure=False)
     scene_path = generated_scene_dir() / _scene_file_name(tree.name)
     scene_path_key = str(scene_path.resolve())
@@ -1675,29 +2436,26 @@ def ensure_compiled_scene_cache(settings, create=False):
             sdf_proxies._migrate_legacy_proxies(scene)
         except Exception:
             pass
-    proxy_compiled = (
-        _compile_proxy_scene_payload(scene, tree, cached) if scene is not None else None
-    )
-    if proxy_compiled is None:
-        if scene is not None:
-            try:
-                from . import sdf_proxies
-
-                sdf_proxies.sync_proxy_nodes_to_tree(scene, tree)
-            except Exception:
-                pass
-        payload = compile_tree_payload(tree)
-        topology_hash = None
-        proxy_order = None
-    else:
+    proxy_compiled = None
+    compile_mode = "tree"
+    if scene is not None:
+        proxy_compiled = _compile_proxy_scene_payload(scene, tree, cached)
+    if proxy_compiled is not None:
         payload = proxy_compiled["payload"]
         topology_hash = proxy_compiled["topology_hash"]
         proxy_order = proxy_compiled["proxy_order"]
+        compile_mode = "proxy-fast"
+    else:
+        payload = compile_tree_payload(tree)
+        topology_hash = None
+        proxy_order = None
+    encode_start = time.perf_counter()
     scene_json = json.dumps(
         _strip_runtime_payload_metadata(payload),
         ensure_ascii=True,
         separators=(",", ":"),
     )
+    encode_ms = (time.perf_counter() - encode_start) * 1000.0
     scene_hash = hashlib.sha1(scene_json.encode("utf-8")).hexdigest()
     metadata = {
         "aabb_min": tuple(
@@ -1719,6 +2477,13 @@ def ensure_compiled_scene_cache(settings, create=False):
     runtime.generated_scene_cache[cache_key] = cached
     runtime.generated_scene_path_hashes[scene_path_key] = scene_hash
     runtime.generated_scene_dirty.discard(cache_key)
+    runtime.debug_slow(
+        (
+            f"Scene cache compile tree={tree.name_full} mode={compile_mode} "
+            f"nodes={metadata['node_count']} json={encode_ms:.2f}"
+        ),
+        (time.perf_counter() - start) * 1000.0,
+    )
     return cached
 
 
@@ -1748,6 +2513,35 @@ class MATHOPS_V2_OT_edit_scene_sdf_tree(Operator):
     def execute(self, context):
         tree = focus_scene_tree(context, create=True)
         if not _focus_tree_in_editor(context, tree):
+            self.report({"INFO"}, "Open a Node Editor and switch it to MathOPS-v2 SDF")
+        return {"FINISHED"}
+
+
+class MATHOPS_V2_OT_view_sdf_node(Operator):
+    bl_idname = "mathops_v2.view_sdf_node"
+    bl_label = "View Linked Node"
+    bl_description = "Focus and frame the linked SDF node in the graph"
+    bl_options = {"REGISTER"}
+
+    primitive_id: StringProperty(name="Primitive ID", default="", options={"HIDDEN"})
+
+    @classmethod
+    def poll(cls, context):
+        settings = getattr(getattr(context, "scene", None), "mathops_v2_settings", None)
+        return settings is not None and getattr(settings, "use_sdf_nodes", False)
+
+    def execute(self, context):
+        tree, node, focused = focus_scene_node(
+            context,
+            str(self.primitive_id or ""),
+            create=True,
+            frame=True,
+        )
+        del tree
+        if node is None:
+            self.report({"WARNING"}, "Linked SDF node not found")
+            return {"CANCELLED"}
+        if not focused:
             self.report({"INFO"}, "Open a Node Editor and switch it to MathOPS-v2 SDF")
         return {"FINISHED"}
 
@@ -1795,15 +2589,13 @@ class MATHOPS_V2_PT_sdf_graph(Panel):
             layout.label(text="Enable Use Nodes in Render settings", icon="INFO")
             return
 
-        tree = _active_editor_tree(context, create=False)
+        tree = _active_editor_tree(context, create=True)
         if tree is None:
             layout.label(text="Scene SDF tree unavailable", icon="ERROR")
             return
 
         row = layout.row(align=True)
-        row.prop_search(
-            settings, "sdf_node_tree", bpy.data, "node_groups", text="Graph"
-        )
+        row.label(text=tree.name, icon="NODETREE")
         row.operator(MATHOPS_V2_OT_new_scene_sdf_tree.bl_idname, text="", icon="ADD")
         layout.operator(MATHOPS_V2_OT_edit_scene_sdf_tree.bl_idname, icon="NODETREE")
         layout.separator()
@@ -1854,13 +2646,33 @@ node_categories = [
             NodeItem(CSG_NODE_IDNAME),
         ],
     ),
+    _MathOPSV2NodeCategory(
+        "MATHOPS_V2_SDF_DATA",
+        "Data",
+        items=[
+            NodeItem(VALUE_NODE_IDNAME),
+            NodeItem(VECTOR_NODE_IDNAME),
+            NodeItem(COLOR_NODE_IDNAME),
+            NodeItem(TRANSFORM_NODE_IDNAME),
+            NodeItem(BREAK_TRANSFORM_NODE_IDNAME),
+        ],
+    ),
 ]
 
 
 classes = (
     MathOPSV2SDFTree,
     MathOPSV2SDFSocket,
+    MathOPSV2FloatSocket,
+    MathOPSV2VectorSocket,
+    MathOPSV2ColorSocket,
+    MathOPSV2TransformSocket,
     MathOPSV2SceneOutputNode,
+    MathOPSV2ValueNode,
+    MathOPSV2VectorNode,
+    MathOPSV2ColorNode,
+    MathOPSV2TransformNode,
+    MathOPSV2BreakTransformNode,
     MathOPSV2SDFSphereNode,
     MathOPSV2SDFBoxNode,
     MathOPSV2SDFCylinderNode,
@@ -1870,6 +2682,7 @@ classes = (
     MathOPSV2CSGSubtractNode,
     MathOPSV2CSGIntersectNode,
     MATHOPS_V2_OT_edit_scene_sdf_tree,
+    MATHOPS_V2_OT_view_sdf_node,
     MATHOPS_V2_OT_new_scene_sdf_tree,
     MATHOPS_V2_PT_sdf_graph,
 )

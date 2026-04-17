@@ -8,6 +8,125 @@ from .. import operators
 from ..render import bridge
 
 
+def _proxy_object(context):
+    obj = getattr(context, "object", None)
+    if (
+        obj is None
+        or obj.type != "EMPTY"
+        or not getattr(obj, "mathops_v2_sdf_proxy", False)
+    ):
+        return None
+    return obj
+
+
+def _proxy_primitive_id(obj):
+    return str(
+        getattr(obj, "mathops_v2_sdf_node_id", "")
+        or getattr(obj, "mathops_v2_sdf_proxy_id", "")
+        or ""
+    )
+
+
+def _linked_proxy_node(context):
+    obj = _proxy_object(context)
+    scene = getattr(context, "scene", None)
+    settings = getattr(scene, "mathops_v2_settings", None)
+    primitive_id = "" if obj is None else _proxy_primitive_id(obj)
+    if (
+        scene is None
+        or settings is None
+        or not getattr(settings, "use_sdf_nodes", False)
+    ):
+        return primitive_id, None, None
+    try:
+        tree = sdf_nodes.get_selected_tree(settings, create=True, ensure=True)
+    except Exception:
+        return primitive_id, None, None
+    return primitive_id, tree, sdf_nodes.find_primitive_node(tree, primitive_id)
+
+
+def _format_scalar(value):
+    return f"{float(value):.3f}"
+
+
+def _format_vector(values):
+    return ", ".join(f"{float(component):.3f}" for component in values)
+
+
+def _surface_output_socket(node):
+    for socket in getattr(node, "outputs", ()):
+        if getattr(socket, "bl_idname", "") == sdf_nodes.SOCKET_IDNAME:
+            return socket
+    return None
+
+
+def _driver_node_prop(node, socket_name, fallback_prop):
+    source_node = sdf_nodes.node_input_source_node(node, socket_name)
+    if source_node is None:
+        return node, fallback_prop, node.name
+
+    prop_name = {
+        sdf_nodes.VALUE_NODE_IDNAME: "value",
+        sdf_nodes.VECTOR_NODE_IDNAME: "value",
+        sdf_nodes.COLOR_NODE_IDNAME: "value",
+    }.get(getattr(source_node, "bl_idname", ""))
+    return source_node, prop_name, source_node.name
+
+
+def _draw_driver_prop(layout, label, node, socket_name, fallback_prop):
+    target_node, prop_name, source_name = _driver_node_prop(
+        node, socket_name, fallback_prop
+    )
+    box = layout.box()
+    box.label(text=f"{label} <- {source_name}", icon="NODE")
+    if prop_name and hasattr(target_node, prop_name):
+        box.prop(target_node, prop_name, text=label)
+    else:
+        box.label(text="Driven through graph", icon="INFO")
+
+
+def _affecting_csg_nodes(node):
+    affecting = []
+    seen = set()
+    current = node
+    csg_idnames = {
+        sdf_nodes.CSG_NODE_IDNAME,
+        sdf_nodes.UNION_NODE_IDNAME,
+        sdf_nodes.SUBTRACT_NODE_IDNAME,
+        sdf_nodes.INTERSECT_NODE_IDNAME,
+    }
+    while current is not None:
+        current_key = current.as_pointer()
+        if current_key in seen:
+            break
+        seen.add(current_key)
+
+        output_socket = _surface_output_socket(current)
+        if output_socket is None:
+            break
+        parent = None
+        for link in output_socket.links:
+            to_node = getattr(link, "to_node", None)
+            if getattr(to_node, "bl_idname", "") in csg_idnames:
+                parent = to_node
+                break
+        if parent is None:
+            break
+        affecting.append(parent)
+        current = parent
+    return affecting
+
+
+def _node_source_label(node, socket_name, fallback):
+    source = sdf_nodes.node_input_source_node(node, socket_name)
+    return fallback if source is None else source.name
+
+
+def _draw_effective_line(layout, label, value_text, source_text):
+    layout.label(text=f"{label}: {value_text}")
+    layout.label(text=f"From: {source_text}", icon="NODETREE")
+
+
 class _MathOPSV2Panel:
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
@@ -42,11 +161,11 @@ class MATHOPS_V2_PT_scene(_MathOPSV2Panel, Panel):
         scene_path = None
         metadata = None
         if settings.use_sdf_nodes:
-            tree = getattr(settings, "sdf_node_tree", None)
-            if (
-                tree is not None
-                and getattr(tree, "bl_idname", "") == sdf_nodes.TREE_IDNAME
-            ):
+            try:
+                tree = sdf_nodes.get_selected_tree(settings, create=True, ensure=True)
+            except Exception:
+                tree = None
+            if tree is not None:
                 scene_cache = bridge.graph_scene_cache(settings)
                 if scene_cache is not None:
                     scene_path = Path(scene_cache["path"])
@@ -63,8 +182,8 @@ class MATHOPS_V2_PT_scene(_MathOPSV2Panel, Panel):
             layout.prop(settings, "template_scene", text="Template")
         else:
             row = layout.row(align=True)
-            row.prop_search(
-                settings, "sdf_node_tree", bpy.data, "node_groups", text="Graph"
+            row.label(
+                text=tree.name if tree is not None else "Pending", icon="NODETREE"
             )
             row.operator(
                 sdf_nodes.MATHOPS_V2_OT_new_scene_sdf_tree.bl_idname,
@@ -216,15 +335,25 @@ class MATHOPS_V2_PT_view3d_tools(Panel):
             layout.label(text="Pick in viewport to activate a primitive")
             return
 
-        if record is not None:
+        if node is not None:
+            primitive_type = sdf_nodes.primitive_type_from_node(node) or "primitive"
+            layout.label(text=f"Active primitive: {primitive_type}", icon="NODE")
+            col = layout.column(align=True)
+            col.label(text="Transform in viewport", icon="ORIENTATION_GIMBAL")
+            col.prop(node, "color")
+            if primitive_type == "box":
+                col.prop(node, "size")
+                col.prop(node, "bevel")
+            else:
+                col.prop(node, "radius")
+                if primitive_type in {"cylinder", "cone"}:
+                    col.prop(node, "height")
+        elif record is not None:
             layout.label(
                 text=f"Active primitive: {record.primitive_type}", icon="MESH_CUBE"
             )
             col = layout.column(align=True)
-            col.prop(record, "location")
-            col.prop(record, "rotation")
-            col.prop(record, "scale")
-            col.separator()
+            col.label(text="Transform in viewport", icon="ORIENTATION_GIMBAL")
             col.prop(record, "color")
             if record.primitive_type == "box":
                 col.prop(record, "size")
@@ -233,12 +362,89 @@ class MATHOPS_V2_PT_view3d_tools(Panel):
                 col.prop(record, "radius")
                 if record.primitive_type in {"cylinder", "cone"}:
                     col.prop(record, "height")
+
+
+class MATHOPS_V2_PT_proxy_data(Panel):
+    bl_label = "MathOPS-v2 SDF"
+    bl_idname = "MATHOPS_V2_PT_proxy_data"
+    bl_space_type = "PROPERTIES"
+    bl_region_type = "WINDOW"
+    bl_context = "data"
+
+    @classmethod
+    def poll(cls, context):
+        del cls
+        return _proxy_object(context) is not None
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = False
+        layout.use_property_decorate = False
+
+        obj = _proxy_object(context)
+        primitive_id, tree, node = _linked_proxy_node(context)
+        settings = getattr(getattr(context, "scene", None), "mathops_v2_settings", None)
+
+        if settings is None or not getattr(settings, "use_sdf_nodes", False):
+            layout.label(
+                text="Enable Use Nodes to inspect the linked SDF node", icon="INFO"
+            )
+            return
+
+        row = layout.row(align=True)
+        row.label(
+            text=f"Affecting Node: {node.name if node is not None else 'Missing'}",
+            icon="NODE",
+        )
+        op = row.operator(
+            sdf_nodes.MATHOPS_V2_OT_view_sdf_node.bl_idname,
+            text="View Linked Node",
+            icon="ZOOM_SELECTED",
+        )
+        op.primitive_id = primitive_id
+
+        if tree is None:
+            layout.label(text="Scene graph unavailable", icon="ERROR")
+            return
+        if node is None:
+            layout.label(text="No linked graph node found for this empty", icon="ERROR")
+            return
+
+        primitive_type = sdf_nodes.primitive_type_from_node(node) or str(
+            obj.get("sdf_type", "primitive")
+        )
+        layout.label(text=f"Primitive Type: {primitive_type}")
+
+        box = layout.box()
+        box.label(text=f"Quick Edit: {node.name}")
+        box.label(text="Transform in viewport", icon="ORIENTATION_GIMBAL")
+        _draw_driver_prop(box, "Color", node, "Color", "color")
+        if primitive_type == "box":
+            _draw_driver_prop(box, "Size", node, "Size", "size")
+            _draw_driver_prop(box, "Bevel", node, "Bevel", "bevel")
         else:
-            layout.label(text=f"Active primitive: {node.name}", icon="NODE")
-            col = layout.column(align=True)
-            col.prop(node, "sdf_location")
-            col.prop(node, "sdf_rotation")
-            col.prop(node, "sdf_scale")
+            _draw_driver_prop(box, "Radius", node, "Radius", "radius")
+            if primitive_type in {"cylinder", "cone"}:
+                _draw_driver_prop(box, "Height", node, "Height", "height")
+
+        csg_nodes = _affecting_csg_nodes(node)
+        if csg_nodes:
+            ops_box = layout.box()
+            ops_box.label(text="Affecting Operation Nodes")
+            for csg_node in csg_nodes:
+                csg_box = ops_box.box()
+                csg_box.label(text=csg_node.name, icon="NODE")
+                if getattr(csg_node, "bl_idname", "") == sdf_nodes.CSG_NODE_IDNAME:
+                    csg_box.prop(csg_node, "blend_mode", text="Operation")
+                else:
+                    csg_box.label(text=f"Operation: {csg_node.bl_label}")
+                _draw_driver_prop(
+                    csg_box,
+                    "Blend Radius",
+                    csg_node,
+                    "Blend Radius",
+                    "blend_radius",
+                )
 
 
 def draw_shading_popover(self, context):
@@ -268,6 +474,7 @@ classes = (
     MATHOPS_V2_PT_bounds,
     MATHOPS_V2_PT_debug,
     MATHOPS_V2_PT_view3d_tools,
+    MATHOPS_V2_PT_proxy_data,
 )
 
 

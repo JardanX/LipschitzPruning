@@ -61,6 +61,7 @@ last_render_stats = {
     "background_color": (0.05, 0.05, 0.05),
     "background_alpha": 1.0,
 }
+SLOW_DEBUG_MS = 2.0
 
 
 def debug_log(message: str):
@@ -70,6 +71,12 @@ def debug_log(message: str):
     debug_log_buffer.append(line)
     if len(debug_log_buffer) > 80:
         del debug_log_buffer[:-80]
+
+
+def debug_slow(message: str, duration_ms: float, threshold_ms: float = SLOW_DEBUG_MS):
+    if float(duration_ms) < float(threshold_ms):
+        return
+    debug_log(f"{message}: {duration_ms:.2f}ms")
 
 
 def clear_debug_log():

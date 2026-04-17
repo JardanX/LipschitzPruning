@@ -2418,10 +2418,13 @@ class MathOPSV2GPUViewport:
     def draw(self, context, depsgraph):
         settings = depsgraph.scene.mathops_v2_settings
         try:
+            start = time.perf_counter()
             if not self._ensure_shaders(settings.shading_mode):
                 return False
 
+            cache_start = time.perf_counter()
             scene_cache = bridge.graph_scene_cache(settings, create=True)
+            cache_ms = (time.perf_counter() - cache_start) * 1000.0
             scene_path = (
                 Path(scene_cache["path"])
                 if scene_cache is not None
@@ -2432,11 +2435,22 @@ class MathOPSV2GPUViewport:
                     bridge.set_last_error(f"Scene file not found: {scene_path}")
                 return False
 
+            sync_start = time.perf_counter()
             self._sync_scene(scene_path, settings, scene_cache)
+            sync_ms = (time.perf_counter() - sync_start) * 1000.0
             aabb_min, aabb_max, _metadata = bridge.effective_aabb(
                 settings, scene_path, scene_cache
             )
+            prune_start = time.perf_counter()
             self._update_pruning(scene_path, settings, aabb_min, aabb_max)
+            prune_ms = (time.perf_counter() - prune_start) * 1000.0
+            runtime.debug_slow(
+                (
+                    f"Viewport prep cache={cache_ms:.2f} sync={sync_ms:.2f} "
+                    f"prune={prune_ms:.2f} nodes={self.scene_info['node_count']}"
+                ),
+                (time.perf_counter() - start) * 1000.0,
+            )
 
             width, height = bridge.get_viewport_render_size(context, settings)
             region_width = max(1, int(context.region.width))

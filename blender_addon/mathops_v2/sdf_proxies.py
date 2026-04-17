@@ -1,12 +1,13 @@
 import uuid
 from contextlib import contextmanager
+import time
 
 import bpy
 from bpy.app.handlers import persistent
 from bpy.types import Menu, Operator
 from mathutils import Euler, Matrix, Vector
 
-from . import sdf_nodes
+from . import runtime, sdf_nodes
 
 
 _PROP_TYPE_KEY = "sdf_type"
@@ -29,6 +30,7 @@ _PRIMITIVE_ICONS = {
     "cylinder": "MESH_CYLINDER",
     "cone": "MESH_CONE",
 }
+_ID_LIST_SEPARATOR = ","
 _DEFAULT_COLOR = (0.8, 0.8, 0.8)
 _DEFAULT_SIZE = (1.0, 1.0, 1.0)
 _DEFAULTS = {
@@ -130,13 +132,37 @@ def _copy_props_to_record(record, props):
     record.bevel = props[_PROP_BEVEL_KEY]
 
 
+def _record_update_guard():
+    from . import properties
+
+    return properties.suppress_record_updates()
+
+
+def _ensure_record(scene, primitive_id, primitive_type=None):
+    record, _index = _find_record(scene, primitive_id)
+    if record is not None:
+        return record
+    with _record_update_guard():
+        record = scene.mathops_v2_primitives.add()
+        record.primitive_id = primitive_id
+        if primitive_type is not None:
+            _copy_props_to_record(
+                record, _proxy_defaults(_sanitize_primitive_type(primitive_type))
+            )
+            record.location = (0.0, 0.0, 0.0)
+            record.rotation = (0.0, 0.0, 0.0)
+            record.scale = (1.0, 1.0, 1.0)
+    return record
+
+
 def _record_from_object(record, obj):
-    props = _read_proxy_properties(obj)
-    _copy_props_to_record(record, props)
-    loc, rot, scale = obj.matrix_world.decompose()
-    record.location = tuple(float(v) for v in loc)
-    record.rotation = tuple(float(v) for v in rot.to_euler("XYZ"))
-    record.scale = tuple(float(v) for v in scale)
+    with _record_update_guard():
+        props = _read_proxy_properties(obj)
+        _copy_props_to_record(record, props)
+        loc, rot, scale = obj.matrix_world.decompose()
+        record.location = tuple(float(v) for v in loc)
+        record.rotation = tuple(float(v) for v in rot.to_euler("XYZ"))
+        record.scale = tuple(float(v) for v in scale)
 
 
 def _record_to_handle(record, obj):
@@ -148,19 +174,20 @@ def _record_to_handle(record, obj):
 
 
 def _new_record(scene, primitive_type, source=None):
-    record = scene.mathops_v2_primitives.add()
-    record.primitive_id = uuid.uuid4().hex
-    if source is None:
-        props = _proxy_defaults(primitive_type)
-        _copy_props_to_record(record, props)
-        record.location = (0.0, 0.0, 0.0)
-        record.rotation = (0.0, 0.0, 0.0)
-        record.scale = (1.0, 1.0, 1.0)
-    else:
-        _copy_props_to_record(record, _record_props(source))
-        record.location = tuple(float(v) for v in source.location)
-        record.rotation = tuple(float(v) for v in source.rotation)
-        record.scale = tuple(float(v) for v in source.scale)
+    with _record_update_guard():
+        record = scene.mathops_v2_primitives.add()
+        record.primitive_id = uuid.uuid4().hex
+        if source is None:
+            props = _proxy_defaults(primitive_type)
+            _copy_props_to_record(record, props)
+            record.location = (0.0, 0.0, 0.0)
+            record.rotation = (0.0, 0.0, 0.0)
+            record.scale = (1.0, 1.0, 1.0)
+        else:
+            _copy_props_to_record(record, _record_props(source))
+            record.location = tuple(float(v) for v in source.location)
+            record.rotation = tuple(float(v) for v in source.rotation)
+            record.scale = tuple(float(v) for v in source.scale)
     return record
 
 
@@ -176,6 +203,21 @@ def _active_record(scene):
 
 
 def active_record(scene):
+    active_obj = getattr(bpy.context, "active_object", None)
+    if _is_proxy_object(active_obj):
+        active_name = getattr(active_obj, "name", "")
+        scene_object = None if scene is None else scene.objects.get(active_name)
+        if _is_proxy_object(scene_object):
+            record_id = str(
+                getattr(scene_object, "mathops_v2_sdf_node_id", "")
+                or getattr(scene_object, "mathops_v2_sdf_proxy_id", "")
+                or ""
+            )
+            record, _index = _find_record(scene, record_id)
+            if record is not None:
+                if getattr(scene, "mathops_v2_active_primitive_id", "") != record_id:
+                    scene.mathops_v2_active_primitive_id = record_id
+                return record
     return _active_record(scene)
 
 
@@ -236,16 +278,173 @@ def _create_handle(scene, context=None):
     return obj
 
 
+def _enable_native_transform_gizmo(context, mode):
+    space = getattr(context, "space_data", None)
+    if space is None or getattr(space, "type", "") != "VIEW_3D":
+        return
+    try:
+        space.show_gizmo = True
+    except Exception:
+        pass
+    try:
+        enabled = str(mode or "TRANSLATE").upper()
+        if hasattr(space, "show_gizmo_object_translate"):
+            space.show_gizmo_object_translate = enabled == "TRANSLATE"
+        if hasattr(space, "show_gizmo_object_rotate"):
+            space.show_gizmo_object_rotate = enabled == "ROTATE"
+        if hasattr(space, "show_gizmo_object_scale"):
+            space.show_gizmo_object_scale = enabled == "SCALE"
+    except Exception:
+        pass
+
+
+def sync_native_transform_gizmo(context):
+    scene = None if context is None else getattr(context, "scene", None)
+    if scene is None:
+        return
+    try:
+        from . import viewport_interaction
+
+        mode = viewport_interaction._transform_mode(scene)
+    except Exception:
+        mode = "TRANSLATE"
+    _enable_native_transform_gizmo(context, mode)
+
+
+def _handle_targets(scene):
+    try:
+        from . import viewport_interaction
+    except Exception:
+        return None, None, None, None
+    settings = getattr(scene, "mathops_v2_settings", None)
+    if settings is None:
+        return None, None, None, None
+    transform_mode = viewport_interaction._transform_mode(scene)
+    if transform_mode not in {"TRANSLATE", "ROTATE", "SCALE"}:
+        return None, None, None, None
+    targets = viewport_interaction._selected_targets(scene)
+    if not targets:
+        return None, None, None, None
+    rotation_matrix, _origin, _axes, _up_hints = viewport_interaction._target_axes(
+        scene
+    )
+    center = viewport_interaction._selection_center(scene, targets)
+    return viewport_interaction, targets, center, rotation_matrix
+
+
+def _handle_matrix(center, rotation_matrix):
+    matrix = rotation_matrix.to_4x4()
+    matrix.translation = Vector((float(center.x), float(center.y), float(center.z)))
+    return matrix
+
+
+def _set_handle_transform(handle, center, rotation_matrix):
+    matrix = _handle_matrix(center, rotation_matrix)
+    if _matrix_signature(handle.matrix_world) == _matrix_signature(matrix):
+        return False
+    handle.rotation_mode = "XYZ"
+    handle.matrix_world = matrix
+    return True
+
+
+def _record_from_matrix(record, matrix):
+    with _record_update_guard():
+        loc, rot, scale = matrix.decompose()
+        record.location = tuple(float(v) for v in loc)
+        record.rotation = tuple(float(v) for v in rot.to_euler("XYZ"))
+        record.scale = tuple(max(abs(float(v)), 0.001) for v in scale)
+
+
+def _node_from_blender_matrix(node, matrix):
+    renderer_matrix = _blender_to_renderer_matrix(matrix)
+    loc, rot, scale = renderer_matrix.decompose()
+    node.sdf_location = tuple(float(component) for component in loc)
+    node.sdf_rotation = tuple(float(component) for component in rot.to_euler("XYZ"))
+    node.sdf_scale = tuple(max(abs(float(component)), 0.001) for component in scale)
+
+
+def _record_from_node(record, node):
+    with _record_update_guard():
+        _copy_props_to_record(record, _node_properties(node))
+        loc, rot, scale = _node_to_blender_matrix(node).decompose()
+        record.location = tuple(float(v) for v in loc)
+        record.rotation = tuple(float(v) for v in rot.to_euler("XYZ"))
+        record.scale = tuple(max(abs(float(v)), 0.001) for v in scale)
+
+
+def _target_matrix(kind, target):
+    if kind == "record":
+        return _record_matrix(target)
+    if kind == "node":
+        return _node_to_blender_matrix(target)
+    return Matrix.Identity(4)
+
+
+def _set_target_matrix(kind, target, matrix):
+    if kind == "record":
+        _record_from_matrix(target, matrix)
+    elif kind == "node":
+        _node_from_blender_matrix(target, matrix)
+
+
+def _mark_selection_dirty(scene):
+    settings = getattr(scene, "mathops_v2_settings", None)
+    if settings is None:
+        return
+    try:
+        tree = sdf_nodes.get_selected_tree(settings, create=False, ensure=False)
+    except Exception:
+        tree = None
+    if tree is not None:
+        sdf_nodes.mark_tree_dirty(tree)
+    try:
+        from .render import bridge
+
+        bridge.force_redraw_viewports(bpy.context)
+    except Exception:
+        pass
+
+
+def _sync_selected_targets_from_handle(scene, handle):
+    viewport_interaction, targets, center, rotation_matrix = _handle_targets(scene)
+    if viewport_interaction is None or handle is None or center is None or not targets:
+        return False
+    base_matrix = _handle_matrix(center, rotation_matrix)
+    handle_matrix = handle.matrix_world.copy()
+    if _matrix_signature(base_matrix) == _matrix_signature(handle_matrix):
+        return False
+    delta_matrix = handle_matrix @ base_matrix.inverted_safe()
+    for kind, target in targets:
+        _set_target_matrix(kind, target, delta_matrix @ _target_matrix(kind, target))
+    _mark_selection_dirty(scene)
+    return True
+
+
 def ensure_active_handle(scene, context=None):
     del context
     _remove_handle(scene)
     return None
 
 
-def set_active_primitive(scene, primitive_id, context=None):
+def set_active_primitive(scene, primitive_id, context=None, extend=False):
     _set_active_record(scene, primitive_id)
-    del context
-    return None
+    _remove_handle(scene)
+    if context is None or getattr(context, "scene", None) != scene:
+        return None
+    obj = find_proxy_object(scene, primitive_id)
+    if obj is None:
+        _sync_store_scene(scene)
+        obj = find_proxy_object(scene, primitive_id)
+    if obj is None:
+        sync_native_transform_gizmo(context)
+        return None
+    if not extend:
+        _select_only(context, obj)
+    else:
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+    sync_native_transform_gizmo(context)
+    return obj
 
 
 def _migrate_legacy_proxies(scene, context=None):
@@ -270,26 +469,38 @@ def _migrate_legacy_proxies(scene, context=None):
 
 
 def duplicate_active_primitive(scene, source_object=None, context=None):
-    source_record = _active_record(scene)
-    source_handle = None
-    if source_object is not None and _is_handle_object(source_object):
-        source_handle = source_object
-        source_record, _index = _find_record(
-            scene, source_object.mathops_v2_sdf_handle_id
-        )
-    if source_record is None:
+    del source_object
+    duplicated_ids = duplicate_primitives(
+        scene, selected_primitive_ids(scene, context), context
+    )
+    if not duplicated_ids:
         return None
-    record = _new_record(scene, source_record.primitive_type, source=source_record)
-    if source_handle is not None:
-        _record_from_object(record, source_handle)
-    _set_active_record(scene, record.primitive_id)
-    del context
-    _remove_handle(scene)
-    return record, None
+    record, _index = _find_record(scene, duplicated_ids[-1])
+    return record
 
 
 def _scene_key(scene):
     return getattr(scene, "name_full", scene.name)
+
+
+def encode_primitive_ids(primitive_ids):
+    return _ID_LIST_SEPARATOR.join(
+        str(primitive_id) for primitive_id in primitive_ids if str(primitive_id or "")
+    )
+
+
+def decode_primitive_ids(encoded_ids):
+    if not encoded_ids:
+        return []
+    seen = set()
+    decoded = []
+    for primitive_id in str(encoded_ids).split(_ID_LIST_SEPARATOR):
+        primitive_id = str(primitive_id or "").strip()
+        if not primitive_id or primitive_id in seen:
+            continue
+        seen.add(primitive_id)
+        decoded.append(primitive_id)
+    return decoded
 
 
 def _sync_key(scene, obj):
@@ -309,8 +520,259 @@ def find_proxy_object(scene, node_id):
     return None
 
 
+def active_primitive_id(scene, context=None):
+    ctx = context if context is not None else bpy.context
+    if getattr(ctx, "scene", None) == scene:
+        active_object = getattr(ctx, "active_object", None)
+        if _is_proxy_object(active_object):
+            proxy_id = _proxy_record_id(active_object)
+            if proxy_id:
+                return proxy_id
+    node = sdf_nodes.active_primitive_node(scene, create=False)
+    if node is not None:
+        return sdf_nodes.primitive_node_token(node)
+    return str(getattr(scene, "mathops_v2_active_primitive_id", "") or "")
+
+
+def selected_primitive_ids(scene, context=None):
+    ctx = context if context is not None else bpy.context
+    selected_ids = []
+    seen = set()
+    if getattr(ctx, "scene", None) == scene:
+        selected_objects = list(getattr(ctx, "selected_objects", ()) or ())
+        for obj in selected_objects:
+            if not _is_proxy_object(obj):
+                continue
+            proxy_id = _proxy_record_id(obj)
+            if not proxy_id or proxy_id in seen:
+                continue
+            seen.add(proxy_id)
+            selected_ids.append(proxy_id)
+        if selected_ids:
+            active_id = active_primitive_id(scene, ctx)
+            if active_id in selected_ids:
+                selected_ids = [
+                    primitive_id
+                    for primitive_id in selected_ids
+                    if primitive_id != active_id
+                ] + [active_id]
+            return selected_ids
+
+    try:
+        tree = _ensure_scene_tree(scene, ensure=False)
+    except Exception:
+        tree = None
+    if tree is not None:
+        for node in tree.nodes:
+            if not getattr(node, "select", False) or not sdf_nodes.is_primitive_node(
+                node
+            ):
+                continue
+            node_id = sdf_nodes.primitive_node_token(node)
+            if node_id in seen:
+                continue
+            seen.add(node_id)
+            selected_ids.append(node_id)
+        if selected_ids:
+            active_id = active_primitive_id(scene, ctx)
+            if active_id in selected_ids:
+                selected_ids = [
+                    primitive_id
+                    for primitive_id in selected_ids
+                    if primitive_id != active_id
+                ] + [active_id]
+            return selected_ids
+
+    active_id = active_primitive_id(scene, ctx)
+    return [active_id] if active_id else []
+
+
+def select_primitives(scene, primitive_ids, context=None, active_id=None):
+    ids = decode_primitive_ids(encode_primitive_ids(primitive_ids))
+    if not ids:
+        return False
+
+    active_id = str(active_id or ids[-1] or "")
+    try:
+        tree = _ensure_scene_tree(scene, ensure=False)
+    except Exception:
+        tree = None
+
+    if tree is not None:
+        for tree_node in tree.nodes:
+            tree_node.select = False
+        active_node = None
+        for primitive_id in ids:
+            node = sdf_nodes.find_primitive_node(tree, primitive_id)
+            if node is None:
+                continue
+            node.select = True
+            if primitive_id == active_id or active_node is None:
+                active_node = node
+        if active_node is not None:
+            tree.nodes.active = active_node
+
+    ctx = context if context is not None else bpy.context
+    if getattr(ctx, "scene", None) == scene:
+        active_object = None
+        proxy_objects = {}
+        for primitive_id in ids:
+            obj = find_proxy_object(scene, primitive_id)
+            if obj is not None:
+                proxy_objects[primitive_id] = obj
+        if proxy_objects:
+            view_layer = getattr(ctx, "view_layer", None)
+            objects = (
+                None if view_layer is None else getattr(view_layer, "objects", None)
+            )
+            if objects is not None:
+                for other in objects:
+                    if other is None:
+                        continue
+                    try:
+                        other.select_set(False)
+                    except Exception:
+                        continue
+                for primitive_id in ids:
+                    obj = proxy_objects.get(primitive_id)
+                    if obj is None:
+                        continue
+                    obj.select_set(True)
+                    if primitive_id == active_id or active_object is None:
+                        active_object = obj
+                if active_object is not None:
+                    objects.active = active_object
+        sync_native_transform_gizmo(ctx)
+
+    scene.mathops_v2_active_primitive_id = active_id
+    return True
+
+
+def _duplicate_source_node(tree, source_node):
+    primitive_type = sdf_nodes.primitive_type_from_node(source_node) or "sphere"
+    node = sdf_nodes.create_primitive_node(tree, primitive_type)
+    node.proxy_managed = True
+    node.sdf_location = tuple(float(v) for v in source_node.sdf_location)
+    node.sdf_rotation = tuple(float(v) for v in source_node.sdf_rotation)
+    node.sdf_scale = tuple(float(v) for v in source_node.sdf_scale)
+    node.color = tuple(float(v) for v in source_node.color)
+    if primitive_type == "box":
+        node.size = tuple(float(v) for v in source_node.size)
+        node.bevel = float(source_node.bevel)
+    else:
+        node.radius = float(source_node.radius)
+        if primitive_type in {"cylinder", "cone"}:
+            node.height = float(source_node.height)
+    sdf_nodes.insert_primitive_above_output(tree, node)
+    return node
+
+
+def duplicate_primitives(scene, primitive_ids, context=None):
+    source_ids = decode_primitive_ids(encode_primitive_ids(primitive_ids))
+    if not source_ids:
+        return []
+
+    try:
+        tree = _ensure_scene_tree(scene, ensure=True)
+    except Exception:
+        return []
+
+    source_nodes = []
+    for primitive_id in source_ids:
+        node = sdf_nodes.find_primitive_node(tree, primitive_id)
+        if node is not None:
+            source_nodes.append(node)
+    if not source_nodes:
+        return []
+
+    active_source_id = active_primitive_id(scene, context)
+    new_ids = []
+    active_new_id = ""
+    with suppress_graph_to_proxy_sync(), sdf_nodes.deferred_graph_updates(bpy.context):
+        for tree_node in tree.nodes:
+            tree_node.select = False
+        for source_node in source_nodes:
+            node = _duplicate_source_node(tree, source_node)
+            new_id = sdf_nodes.primitive_node_token(node)
+            new_ids.append(new_id)
+            node.select = True
+            if (
+                not active_new_id
+                or sdf_nodes.primitive_node_token(source_node) == active_source_id
+            ):
+                active_new_id = new_id
+                tree.nodes.active = node
+
+    sync_tree_to_scene_records(scene, tree, context)
+    sync_from_graph(context)
+    select_primitives(scene, new_ids, context, active_new_id)
+    return new_ids
+
+
+def remove_primitives(scene, primitive_ids, context=None):
+    target_ids = decode_primitive_ids(encode_primitive_ids(primitive_ids))
+    if not target_ids:
+        return False
+
+    try:
+        tree = _ensure_scene_tree(scene, ensure=False)
+    except Exception:
+        tree = None
+    if tree is None:
+        removed = False
+        for primitive_id in target_ids:
+            removed = _remove_record(scene, primitive_id) or removed
+        if removed:
+            _sync_store_scene(scene)
+        return removed
+
+    removed = False
+    with suppress_graph_to_proxy_sync(), sdf_nodes.deferred_graph_updates(bpy.context):
+        for primitive_id in target_ids:
+            node = sdf_nodes.find_primitive_node(tree, primitive_id)
+            if node is None:
+                continue
+            removed = sdf_nodes.remove_primitive_node(tree, node) or removed
+    if not removed:
+        return False
+
+    sync_tree_to_scene_records(scene, tree, context)
+    sync_from_graph(context)
+    return True
+
+
 def graph_to_proxy_sync_enabled():
     return _graph_to_proxy_sync_suppressed <= 0
+
+
+def sync_primitive_node_update(scene, node, context=None):
+    start = time.perf_counter()
+    if scene is None or node is None or not sdf_nodes.is_primitive_node(node):
+        return False
+    node_id = sdf_nodes.primitive_node_token(node)
+    record, _index = _find_record(scene, node_id)
+    obj = find_proxy_object(scene, node_id)
+    if record is None or obj is None:
+        return False
+    _record_from_node(record, node)
+
+    with suppress_proxy_sync_handlers():
+        _apply_node_to_proxy(node, obj)
+    _store_dual_sync_state(scene, obj, node, _proxy_state(obj), _node_state(node))
+    _sync_active_node(scene, getattr(node, "id_data", None), obj, node)
+
+    tree = getattr(node, "id_data", None)
+    if (
+        context is not None
+        and getattr(context, "scene", None) == scene
+        and getattr(getattr(tree, "nodes", None), "active", None) == node
+    ):
+        _set_active_record(scene, node_id)
+    runtime.debug_slow(
+        f"Primitive node sync {node_id[:8]}",
+        (time.perf_counter() - start) * 1000.0,
+    )
+    return True
 
 
 @contextmanager
@@ -459,19 +921,23 @@ def _node_properties(node):
     primitive_type = sdf_nodes.primitive_type_from_node(node) or "sphere"
     values = {
         _PROP_TYPE_KEY: primitive_type,
-        _PROP_COLOR_KEY: tuple(float(component) for component in node.color),
+        _PROP_COLOR_KEY: tuple(
+            float(component) for component in sdf_nodes.node_effective_color(node)
+        ),
         _PROP_SIZE_KEY: _DEFAULT_SIZE,
         _PROP_RADIUS_KEY: _DEFAULTS[primitive_type][_PROP_RADIUS_KEY],
         _PROP_HEIGHT_KEY: _DEFAULTS[primitive_type][_PROP_HEIGHT_KEY],
         _PROP_BEVEL_KEY: _DEFAULTS[primitive_type][_PROP_BEVEL_KEY],
     }
     if primitive_type == "box":
-        values[_PROP_SIZE_KEY] = tuple(float(component) for component in node.size)
-        values[_PROP_BEVEL_KEY] = float(node.bevel)
+        values[_PROP_SIZE_KEY] = tuple(
+            float(component) for component in sdf_nodes.node_effective_size(node)
+        )
+        values[_PROP_BEVEL_KEY] = float(sdf_nodes.node_effective_bevel(node))
     else:
-        values[_PROP_RADIUS_KEY] = float(node.radius)
+        values[_PROP_RADIUS_KEY] = float(sdf_nodes.node_effective_radius(node))
         if primitive_type in {"cylinder", "cone"}:
-            values[_PROP_HEIGHT_KEY] = float(node.height)
+            values[_PROP_HEIGHT_KEY] = float(sdf_nodes.node_effective_height(node))
     return values
 
 
@@ -498,11 +964,21 @@ def _matrix_signature(matrix):
     )
 
 
+def _state_matches_except_matrix(current, baseline):
+    if current is None or baseline is None:
+        return False
+    return all(
+        current.get(key) == baseline.get(key)
+        for key in ("type", "color", "size", "radius", "height", "bevel")
+    )
+
+
 def _node_matrix(node):
+    transform = sdf_nodes.node_effective_transform(node)
     return Matrix.LocRotScale(
-        Vector(node.sdf_location),
-        Euler(node.sdf_rotation, "XYZ"),
-        Vector(node.sdf_scale),
+        Vector(transform["location"]),
+        Euler(transform["rotation"], "XYZ"),
+        Vector(transform["scale"]),
     )
 
 
@@ -535,12 +1011,73 @@ def _apply_proxy_to_node(obj, node):
             node.height = props[_PROP_HEIGHT_KEY]
 
 
+def _apply_proxy_transform_to_node(obj, node):
+    renderer_matrix = _blender_to_renderer_matrix(obj.matrix_world)
+    loc, rot, scale = renderer_matrix.decompose()
+    node.sdf_location = tuple(float(component) for component in loc)
+    node.sdf_rotation = tuple(float(component) for component in rot.to_euler("XYZ"))
+    node.sdf_scale = tuple(max(abs(float(component)), 0.001) for component in scale)
+
+
 def _apply_node_to_proxy(node, obj):
     obj.rotation_mode = "XYZ"
     obj.matrix_world = _node_to_blender_matrix(node)
     _write_proxy_properties(obj, _node_properties(node))
     obj.empty_display_type = "PLAIN_AXES"
     obj.empty_display_size = 0.01
+
+
+def sync_tree_to_scene_records(scene, tree, context=None):
+    if getattr(tree, "bl_idname", "") != sdf_nodes.TREE_IDNAME:
+        return False
+
+    primitive_nodes = list(sdf_nodes.iter_primitive_nodes(tree))
+    node_ids = []
+    changed = False
+    existing = {
+        str(getattr(record, "primitive_id", "") or ""): record
+        for record in _scene_records(scene)
+    }
+
+    for node in primitive_nodes:
+        node_id = sdf_nodes.primitive_node_token(node)
+        node_ids.append(node_id)
+        record = existing.get(node_id)
+        if record is None:
+            record = scene.mathops_v2_primitives.add()
+            record.primitive_id = node_id
+            changed = True
+        before = _record_state(record)
+        _record_from_node(record, node)
+        if _record_state(record) != before:
+            changed = True
+
+    node_id_set = set(node_ids)
+    for index in range(len(scene.mathops_v2_primitives) - 1, -1, -1):
+        record = scene.mathops_v2_primitives[index]
+        if str(getattr(record, "primitive_id", "") or "") in node_id_set:
+            continue
+        scene.mathops_v2_primitives.remove(index)
+        changed = True
+
+    active_node = getattr(getattr(tree, "nodes", None), "active", None)
+    if sdf_nodes.is_primitive_node(active_node):
+        active_id = sdf_nodes.primitive_node_token(active_node)
+    else:
+        current_id = str(getattr(scene, "mathops_v2_active_primitive_id", "") or "")
+        active_id = (
+            current_id
+            if current_id in node_id_set
+            else (node_ids[0] if node_ids else "")
+        )
+    if getattr(scene, "mathops_v2_active_primitive_id", "") != active_id:
+        scene.mathops_v2_active_primitive_id = active_id
+        changed = True
+
+    _remove_handle(scene)
+    if context is not None and getattr(context, "scene", None) == scene:
+        sync_native_transform_gizmo(context)
+    return changed
 
 
 def _ensure_proxy_identity(obj):
@@ -557,10 +1094,19 @@ def _active_collection(context):
 
 
 def _select_only(context, obj):
-    for other in context.view_layer.objects:
-        other.select_set(False)
+    view_layer = getattr(context, "view_layer", None)
+    objects = None if view_layer is None else getattr(view_layer, "objects", None)
+    if objects is None or obj is None:
+        return
+    for other in objects:
+        if other is None:
+            continue
+        try:
+            other.select_set(False)
+        except Exception:
+            continue
     obj.select_set(True)
-    context.view_layer.objects.active = obj
+    objects.active = obj
 
 
 def _create_proxy_object(context, primitive_type):
@@ -579,6 +1125,162 @@ def _create_proxy_object(context, primitive_type):
     return obj
 
 
+def _proxy_record_id(obj):
+    return str(
+        getattr(obj, "mathops_v2_sdf_node_id", "")
+        or getattr(obj, "mathops_v2_sdf_proxy_id", "")
+        or ""
+    )
+
+
+def _proxy_target_collection(scene, context=None):
+    if context is not None and getattr(context, "scene", None) == scene:
+        return _active_collection(context)
+    return scene.collection
+
+
+def _configure_record_proxy(obj, record_id):
+    obj.mathops_v2_sdf_proxy = True
+    obj.mathops_v2_sdf_proxy_id = record_id
+    obj.mathops_v2_sdf_node_id = record_id
+    obj.hide_render = True
+
+
+def _apply_record_to_proxy(record, obj):
+    record_id = str(getattr(record, "primitive_id", "") or "")
+    _configure_record_proxy(obj, record_id)
+    obj.rotation_mode = "XYZ"
+    obj.matrix_world = _record_matrix(record)
+    _write_proxy_properties(obj, _record_props(record))
+    obj.empty_display_type = "PLAIN_AXES"
+    obj.empty_display_size = 0.01
+
+
+def _create_record_proxy(scene, record, context=None):
+    primitive_type = _sanitize_primitive_type(
+        getattr(record, "primitive_type", "sphere")
+    )
+    obj = bpy.data.objects.new(_PRIMITIVE_LABELS[primitive_type], None)
+    _proxy_target_collection(scene, context).objects.link(obj)
+    _apply_record_to_proxy(record, obj)
+    return obj
+
+
+def _record_snapshot_from_entry(entry):
+    if entry is None:
+        return None
+    return entry.get("record_snapshot", entry.get("node_snapshot"))
+
+
+def _store_record_sync_state(scene, obj, record_snapshot, object_snapshot):
+    proxy_id = _proxy_record_id(obj)
+    _sync_state[_sync_key(scene, obj)] = {
+        "node_id": proxy_id,
+        "object_name": obj.name,
+        "snapshot": object_snapshot,
+        "object_snapshot": object_snapshot,
+        "record_snapshot": record_snapshot,
+        "node_snapshot": record_snapshot,
+    }
+
+
+def _prune_store_sync_state(scene, current_keys):
+    scene_name = _scene_key(scene)
+    for key in list(_sync_state):
+        if key[0] == scene_name and key not in current_keys:
+            del _sync_state[key]
+
+
+def _ensure_store_proxy(scene, record, proxy_lookup, context=None):
+    record_id = str(getattr(record, "primitive_id", "") or "")
+    obj = proxy_lookup.get(record_id)
+    if obj is None:
+        obj = _create_record_proxy(scene, record, context)
+        proxy_lookup[record_id] = obj
+    else:
+        _configure_record_proxy(obj, record_id)
+
+    return obj
+
+
+def _sync_store_record_to_proxy(scene, record, proxy_lookup, context=None):
+    obj = _ensure_store_proxy(scene, record, proxy_lookup, context)
+
+    record_state = _record_state(record)
+    object_state = _proxy_state(obj)
+    if object_state != record_state:
+        _apply_record_to_proxy(record, obj)
+        object_state = _proxy_state(obj)
+    _store_record_sync_state(scene, obj, record_state, object_state)
+    return obj
+
+
+def _sync_store_proxy_full(scene, obj, record, node_lookup=None):
+    key = _sync_key(scene, obj)
+    previous = _sync_state.get(key)
+    record_state = _record_state(record)
+    object_state = _proxy_state(obj)
+
+    if previous is None:
+        if object_state != record_state:
+            _record_from_object(record, obj)
+            if node_lookup is not None:
+                node = node_lookup.get(str(getattr(record, "primitive_id", "") or ""))
+                if node is not None:
+                    _apply_proxy_to_node(obj, node)
+            record_state = _record_state(record)
+            object_state = _proxy_state(obj)
+        _store_record_sync_state(scene, obj, record_state, object_state)
+        return record_state
+
+    baseline_object = previous.get("object_snapshot")
+    baseline_record = _record_snapshot_from_entry(previous)
+    object_changed = object_state != baseline_object
+    record_changed = record_state != baseline_record
+
+    if object_changed and not record_changed:
+        _record_from_object(record, obj)
+        if node_lookup is not None:
+            node = node_lookup.get(str(getattr(record, "primitive_id", "") or ""))
+            if node is not None:
+                _apply_proxy_to_node(obj, node)
+        record_state = _record_state(record)
+        object_state = _proxy_state(obj)
+    elif record_changed and not object_changed:
+        _apply_record_to_proxy(record, obj)
+        object_state = _proxy_state(obj)
+        record_state = _record_state(record)
+    elif object_changed and record_changed and object_state != record_state:
+        _record_from_object(record, obj)
+        if node_lookup is not None:
+            node = node_lookup.get(str(getattr(record, "primitive_id", "") or ""))
+            if node is not None:
+                _apply_proxy_to_node(obj, node)
+        record_state = _record_state(record)
+        object_state = _proxy_state(obj)
+
+    _store_record_sync_state(scene, obj, record_state, object_state)
+    return record_state
+
+
+def _sync_store_proxy_to_record(scene, obj, record, node_lookup=None):
+    before = _record_state(record)
+    props = _read_proxy_properties(obj)
+    object_state = _proxy_state(obj, props)
+    previous = _sync_state.get(_sync_key(scene, obj))
+    baseline_object = None if previous is None else previous.get("object_snapshot")
+    changed = previous is None or object_state != baseline_object
+    if changed:
+        _record_from_object(record, obj)
+        if node_lookup is not None:
+            node = node_lookup.get(str(getattr(record, "primitive_id", "") or ""))
+            if node is not None:
+                _apply_proxy_to_node(obj, node)
+    record_state = _record_state(record)
+    _store_record_sync_state(scene, obj, record_state, object_state)
+    return before != record_state
+
+
 def _store_scene_active(scene, context=None):
     if _has_scene_store(scene):
         return True
@@ -589,8 +1291,99 @@ def _sync_store_scene(scene, updated_objects=None):
     if not _store_scene_active(scene):
         return False
 
-    for obj in _handle_objects(scene):
+    _remove_handle(scene)
+
+    all_proxies = [obj for obj in scene.objects if _is_proxy_object(obj)]
+    current_keys = {_sync_key(scene, obj) for obj in all_proxies}
+
+    tree = None
+    try:
+        tree = _ensure_scene_tree(scene, ensure=False)
+    except Exception:
+        tree = None
+
+    deleted_targets_removed = _remove_deleted_proxies(scene, tree, current_keys)
+
+    records = list(_scene_records(scene))
+    record_lookup = {
+        str(getattr(record, "primitive_id", "") or ""): record for record in records
+    }
+    record_ids = set(record_lookup)
+
+    duplicates_resolved = False
+    if updated_objects is None or len(all_proxies) != len(record_ids):
+        duplicates_resolved = _resolve_duplicate_proxies(scene, None)
+        if duplicates_resolved:
+            all_proxies = [obj for obj in scene.objects if _is_proxy_object(obj)]
+            current_keys = {_sync_key(scene, obj) for obj in all_proxies}
+
+    proxy_lookup = {}
+    stale_proxies = []
+    for obj in all_proxies:
+        proxy_id = _proxy_record_id(obj)
+        if proxy_id in record_lookup and proxy_id not in proxy_lookup:
+            proxy_lookup[proxy_id] = obj
+            continue
+        stale_proxies.append(obj)
+
+    context = bpy.context if getattr(bpy.context, "scene", None) == scene else None
+    records_changed = deleted_targets_removed
+    needs_full_sync = (
+        updated_objects is None
+        or duplicates_resolved
+        or len(proxy_lookup) != len(record_ids)
+    )
+    node_lookup = None
+    if tree is not None and sdf_nodes.proxy_tree_materialized(tree):
+        node_lookup = _primitive_node_lookup(tree)
+
+    current_keys = set()
+
+    if not needs_full_sync and updated_objects is not None:
+        for candidate in updated_objects:
+            if candidate is None or not _is_proxy_object(candidate):
+                continue
+            obj = scene.objects.get(candidate.name)
+            if obj is None or not _is_proxy_object(obj):
+                continue
+            proxy_id = _proxy_record_id(obj)
+            record = record_lookup.get(proxy_id)
+            if record is None:
+                needs_full_sync = True
+                break
+            if getattr(bpy.context, "active_object", None) == obj:
+                _set_active_record(scene, proxy_id)
+            if _sync_store_proxy_to_record(scene, obj, record, node_lookup):
+                records_changed = True
+            current_keys.add(_sync_key(scene, obj))
+
+    if needs_full_sync:
+        synced_objects = []
+        for record in records:
+            obj = _ensure_store_proxy(scene, record, proxy_lookup, context)
+            before = _record_state(record)
+            after = _sync_store_proxy_full(scene, obj, record, node_lookup)
+            if after != before:
+                records_changed = True
+            synced_objects.append(obj)
+            current_keys.add(_sync_key(scene, obj))
+        valid_names = {obj.name for obj in synced_objects}
+        stale_proxies = [
+            obj
+            for obj in scene.objects
+            if _is_proxy_object(obj) and obj.name not in valid_names
+        ]
+
+    for obj in stale_proxies:
         bpy.data.objects.remove(obj, do_unlink=True)
+
+    _prune_store_sync_state(scene, current_keys)
+
+    if records_changed:
+        _mark_selection_dirty(scene)
+
+    if context is not None:
+        sync_native_transform_gizmo(context)
     return True
 
 
@@ -663,13 +1456,70 @@ def _tracked_proxy_count(scene):
 
 def _remove_deleted_proxies(scene, tree, current_keys):
     scene_name = _scene_key(scene)
+    removed = False
     for key, state in list(_sync_state.items()):
         if key[0] != scene_name or key in current_keys:
             continue
-        node = sdf_nodes.find_primitive_node(tree, state.get("node_id", ""))
-        if node is not None:
-            sdf_nodes.remove_primitive_node(tree, node)
+        primitive_id = str(state.get("node_id", "") or key[1] or "")
+        if tree is not None:
+            node = sdf_nodes.find_primitive_node(tree, primitive_id)
+            if node is not None:
+                sdf_nodes.remove_primitive_node(tree, node)
+                removed = True
+        if primitive_id and _remove_record(scene, primitive_id):
+            removed = True
         del _sync_state[key]
+    return removed
+
+
+def _remove_missing_proxy_targets(scene, tree):
+    current_proxy_ids = {
+        _proxy_record_id(obj)
+        for obj in scene.objects
+        if _is_proxy_object(obj) and _proxy_record_id(obj)
+    }
+    removed_ids = set()
+
+    if tree is not None:
+        for node in list(sdf_nodes.iter_primitive_nodes(tree)):
+            if not getattr(node, "proxy_managed", False):
+                continue
+            node_id = sdf_nodes.primitive_node_token(node)
+            if node_id in current_proxy_ids:
+                continue
+            removed_ids.add(node_id)
+
+    scene_name = _scene_key(scene)
+    for key, state in list(_sync_state.items()):
+        if key[0] != scene_name:
+            continue
+        primitive_id = str(state.get("node_id", "") or key[1] or "")
+        if not primitive_id or primitive_id in current_proxy_ids:
+            continue
+        removed_ids.add(primitive_id)
+
+    if not removed_ids:
+        return False
+
+    with suppress_graph_to_proxy_sync(), sdf_nodes.deferred_graph_updates(bpy.context):
+        if tree is not None:
+            for primitive_id in removed_ids:
+                node = sdf_nodes.find_primitive_node(tree, primitive_id)
+                if node is not None and getattr(node, "proxy_managed", False):
+                    sdf_nodes.remove_primitive_node(tree, node)
+
+    for primitive_id in removed_ids:
+        _remove_record(scene, primitive_id)
+
+    for key, state in list(_sync_state.items()):
+        if key[0] != scene_name:
+            continue
+        primitive_id = str(state.get("node_id", "") or key[1] or "")
+        if primitive_id in removed_ids:
+            del _sync_state[key]
+
+    _mark_selection_dirty(scene)
+    return True
 
 
 def _primitive_node_lookup(tree):
@@ -688,21 +1538,26 @@ def _sync_active_node(scene, tree, obj, node):
     if getattr(context, "active_object", None) != obj:
         return
     if getattr(tree.nodes, "active", None) != node:
-        tree.nodes.active = node
+        try:
+            tree.nodes.active = node
+        except Exception:
+            pass
 
 
 def _sync_proxy_node_link(scene, tree, obj, props, node_lookup):
     _ensure_proxy_identity(obj)
+    node_id = str(obj.mathops_v2_sdf_node_id or obj.mathops_v2_sdf_proxy_id or "")
+    if not obj.mathops_v2_sdf_node_id and node_id:
+        obj.mathops_v2_sdf_node_id = node_id
+
+    node = node_lookup.get(node_id)
     if not sdf_nodes.proxy_tree_materialized(tree):
-        if not obj.mathops_v2_sdf_node_id:
-            obj.mathops_v2_sdf_node_id = obj.mathops_v2_sdf_proxy_id
-        return None
-    node = node_lookup.get(obj.mathops_v2_sdf_node_id)
+        return node
     if node is not None and props[_PROP_TYPE_KEY] != (
         sdf_nodes.primitive_type_from_node(node) or ""
     ):
         sdf_nodes.remove_primitive_node(tree, node)
-        node_lookup.pop(obj.mathops_v2_sdf_node_id, None)
+        node_lookup.pop(node_id, None)
         node = None
 
     if node is None:
@@ -742,6 +1597,21 @@ def _store_dual_sync_state(scene, obj, node, object_snapshot, node_snapshot):
     }
 
 
+def _sync_record_from_proxy(scene, obj, node=None):
+    record_id = str(obj.mathops_v2_sdf_node_id or obj.mathops_v2_sdf_proxy_id or "")
+    if not record_id:
+        return False
+    record, _index = _find_record(scene, record_id)
+    if record is None:
+        return False
+    before = _record_state(record)
+    if node is not None:
+        _record_from_node(record, node)
+    else:
+        _record_from_object(record, obj)
+    return _record_state(record) != before
+
+
 def _sync_proxy_object_from_object(scene, tree, obj, node_lookup):
     props = _read_proxy_properties(obj)
     node = _sync_proxy_node_link(scene, tree, obj, props, node_lookup)
@@ -751,6 +1621,7 @@ def _sync_proxy_object_from_object(scene, tree, obj, node_lookup):
 
     if node is None:
         if previous is None or object_state != baseline:
+            _sync_record_from_proxy(scene, obj, None)
             sdf_nodes.mark_tree_dirty(tree)
         previous_node = (
             object_state if previous is None else previous.get("node_snapshot")
@@ -759,8 +1630,14 @@ def _sync_proxy_object_from_object(scene, tree, obj, node_lookup):
         return
 
     if previous is None or object_state != baseline:
+        transform_only = _state_matches_except_matrix(object_state, baseline)
+        if transform_only:
+            _apply_proxy_transform_to_node(obj, node)
+        else:
+            _apply_proxy_to_node(obj, node)
+        _sync_record_from_proxy(scene, obj, node)
         sdf_nodes.mark_tree_dirty(tree)
-        node_state = _node_state(node)
+        node_state = dict(object_state) if transform_only else _node_state(node)
         _store_dual_sync_state(scene, obj, node, object_state, node_state)
     else:
         node_snapshot = previous.get("node_snapshot")
@@ -850,11 +1727,6 @@ def _sync_proxy_scene(scene, candidate_objects=None):
     except Exception:
         return
 
-    if not sdf_nodes.proxy_tree_materialized(
-        tree
-    ) and sdf_nodes._tree_open_in_node_editor(tree):
-        sdf_nodes.materialize_proxy_tree(scene, tree)
-
     duplicates_resolved = False
     if all_proxies:
         if candidate_objects is None or len(all_proxies) != _tracked_proxy_count(scene):
@@ -898,6 +1770,7 @@ def _sync_proxy_objects(scenes=None, candidate_objects_by_scene=None):
     if _sync_in_progress:
         return
 
+    start = time.perf_counter()
     _sync_in_progress = True
     try:
         with (
@@ -911,35 +1784,90 @@ def _sync_proxy_objects(scenes=None, candidate_objects_by_scene=None):
                     scene_candidates = candidate_objects_by_scene.get(
                         _scene_key(scene), []
                     )
+                settings = getattr(scene, "mathops_v2_settings", None)
+                use_node_scene = bool(
+                    settings is not None and getattr(settings, "use_sdf_nodes", False)
+                )
+                if use_node_scene and scene_candidates is not None:
+                    _sync_proxy_scene(scene, scene_candidates)
+                    continue
                 if _sync_store_scene(scene, scene_candidates):
                     continue
                 _sync_proxy_scene(scene, scene_candidates)
     finally:
         _sync_in_progress = False
+        total_ms = (time.perf_counter() - start) * 1000.0
+        scene_count = len(tuple(bpy.data.scenes if scenes is None else scenes))
+        candidate_count = 0
+        if candidate_objects_by_scene is not None:
+            candidate_count = sum(
+                len(items) for items in candidate_objects_by_scene.values()
+            )
+        runtime.debug_slow(
+            f"Proxy sync scenes={scene_count} candidates={candidate_count}",
+            total_ms,
+        )
 
 
 def sync_from_graph(context=None):
     if not graph_to_proxy_sync_enabled():
         return
+    start = time.perf_counter()
     scene = None if context is None else getattr(context, "scene", None)
     if scene is not None:
+        try:
+            tree = _ensure_scene_tree(scene, ensure=False)
+        except Exception:
+            return
+        records_start = time.perf_counter()
+        sync_tree_to_scene_records(scene, tree, context)
+        records_ms = (time.perf_counter() - records_start) * 1000.0
+        proxies_start = time.perf_counter()
         _sync_proxy_objects((scene,))
+        proxies_ms = (time.perf_counter() - proxies_start) * 1000.0
+        total_ms = (time.perf_counter() - start) * 1000.0
+        runtime.debug_slow(
+            f"Graph sync scene={scene.name} records={records_ms:.2f} proxies={proxies_ms:.2f}",
+            total_ms,
+        )
         return
+    for scene in bpy.data.scenes:
+        try:
+            tree = _ensure_scene_tree(scene, ensure=False)
+        except Exception:
+            continue
+        sync_tree_to_scene_records(scene, tree)
     _sync_proxy_objects()
+    runtime.debug_slow("Graph sync all scenes", (time.perf_counter() - start) * 1000.0)
 
 
 @persistent
 def _proxy_sync_load_post(_dummy):
     if _proxy_sync_handlers_suppressed > 0:
         return
-    _sync_proxy_objects()
+    for scene in bpy.data.scenes:
+        settings = getattr(scene, "mathops_v2_settings", None)
+        if settings is None or not getattr(settings, "use_sdf_nodes", False):
+            continue
+        if _has_scene_store(scene):
+            continue
+        try:
+            tree = _ensure_scene_tree(scene, ensure=False)
+        except Exception:
+            continue
+        sync_tree_to_scene_records(scene, tree)
+        _sync_proxy_objects((scene,))
 
 
 @persistent
 def _proxy_sync_depsgraph_post(scene, depsgraph):
     if _proxy_sync_handlers_suppressed > 0:
         return
+    if _native_proxy_duplicate_transform_active(scene):
+        _schedule_proxy_sync(0.05)
+        return
     updated_objects = []
+    deleted_proxy = False
     for update in depsgraph.updates:
         update_id = getattr(update, "id", None)
         if isinstance(update_id, bpy.types.Object):
@@ -948,8 +1876,42 @@ def _proxy_sync_depsgraph_post(scene, depsgraph):
                 _is_proxy_object(scene_object) or _is_handle_object(scene_object)
             ):
                 updated_objects.append(scene_object)
-    if not updated_objects:
+                continue
+            if _is_proxy_object(update_id):
+                deleted_proxy = True
+    settings = getattr(scene, "mathops_v2_settings", None)
+    use_node_scene = bool(
+        settings is not None and getattr(settings, "use_sdf_nodes", False)
+    )
+    tree = None
+    missing_proxy_targets = False
+    if use_node_scene:
+        current_proxy_count = sum(1 for obj in scene.objects if _is_proxy_object(obj))
+        tracked_proxy_count = _tracked_proxy_count(scene)
+        missing_proxy_targets = tracked_proxy_count > current_proxy_count
+        if not missing_proxy_targets and not updated_objects and not deleted_proxy:
+            try:
+                tree = _ensure_scene_tree(scene, ensure=False)
+            except Exception:
+                tree = None
+            if tree is not None:
+                managed_proxy_count = sum(
+                    1
+                    for node in sdf_nodes.iter_primitive_nodes(tree)
+                    if getattr(node, "proxy_managed", False)
+                )
+                missing_proxy_targets = managed_proxy_count > current_proxy_count
+    if not updated_objects and not deleted_proxy and not missing_proxy_targets:
         return
+    if use_node_scene and (deleted_proxy or missing_proxy_targets):
+        if tree is None:
+            try:
+                tree = _ensure_scene_tree(scene, ensure=False)
+            except Exception:
+                tree = None
+        _remove_missing_proxy_targets(scene, tree)
+        if not updated_objects:
+            return
     _sync_proxy_objects(
         (scene,),
         {
@@ -968,8 +1930,58 @@ def _remove_handler(handler_list, callback):
         handler_list.remove(callback)
 
 
+def _schedule_proxy_sync(first_interval=0.0):
+    if not bpy.app.timers.is_registered(_deferred_proxy_sync):
+        bpy.app.timers.register(_deferred_proxy_sync, first_interval=first_interval)
+
+
+def _scene_has_duplicate_proxy_ids(scene):
+    proxy_ids = set()
+    for obj in scene.objects:
+        if not _is_proxy_object(obj):
+            continue
+        proxy_id = str(getattr(obj, "mathops_v2_sdf_proxy_id", "") or "")
+        if not proxy_id:
+            continue
+        if proxy_id in proxy_ids:
+            return True
+        proxy_ids.add(proxy_id)
+    return False
+
+
+def _active_operator_idnames():
+    wm = getattr(bpy.context, "window_manager", None)
+    if wm is None:
+        return set()
+    idnames = set()
+    for operator in getattr(wm, "operators", ()):
+        idname = str(getattr(operator, "bl_idname", "") or "")
+        if not idname:
+            idname = str(
+                getattr(getattr(operator, "bl_rna", None), "identifier", "") or ""
+            )
+        if idname:
+            idnames.add(idname)
+    return idnames
+
+
+def _native_proxy_duplicate_transform_active(scene):
+    if scene is None or not _scene_has_duplicate_proxy_ids(scene):
+        return False
+    idnames = _active_operator_idnames()
+    if not idnames:
+        return False
+    if any(idname.startswith("OBJECT_OT_duplicate") for idname in idnames):
+        return True
+    return "TRANSFORM_OT_translate" in idnames
+
+
 def _deferred_proxy_sync():
+    for scene in bpy.data.scenes:
+        if _native_proxy_duplicate_transform_active(scene):
+            return 0.05
     _sync_proxy_objects()
+    sync_from_graph()
     return None
 
 
@@ -1003,6 +2015,7 @@ def _deferred_proxy_cleanup():
                 if sdf_nodes.primitive_node_token(node) not in referenced_node_ids:
                     orphan_nodes.append(node)
             for node in orphan_nodes:
+                _remove_record(scene, sdf_nodes.primitive_node_token(node))
                 sdf_nodes.remove_primitive_node(tree, node)
     if _pending_cleanup_scenes:
         return 0.0
@@ -1012,8 +2025,6 @@ def _deferred_proxy_cleanup():
 def start_proxy_sync():
     _ensure_handler(bpy.app.handlers.load_post, _proxy_sync_load_post)
     _ensure_handler(bpy.app.handlers.depsgraph_update_post, _proxy_sync_depsgraph_post)
-    if not bpy.app.timers.is_registered(_deferred_proxy_sync):
-        bpy.app.timers.register(_deferred_proxy_sync, first_interval=0.0)
     if not bpy.app.timers.is_registered(_deferred_proxy_cleanup):
         bpy.app.timers.register(_deferred_proxy_cleanup, first_interval=0.0)
 
@@ -1027,6 +2038,8 @@ def stop_proxy_sync():
         bpy.app.timers.unregister(_deferred_proxy_cleanup)
     _pending_cleanup_scenes.clear()
     _sync_state.clear()
+    for scene in bpy.data.scenes:
+        _remove_handle(scene)
 
 
 class MATHOPS_V2_OT_add_sdf_proxy(Operator):
@@ -1052,25 +2065,57 @@ class MATHOPS_V2_OT_add_sdf_proxy(Operator):
         default="sphere",
     )
 
+    def invoke(self, context, event):
+        del event
+        return self.execute(context)
+
     def execute(self, context):
         primitive_type = _sanitize_primitive_type(self.primitive_type)
-        with suppress_proxy_sync_handlers():
-            tree = _ensure_scene_tree(context.scene, ensure=False)
-            _store_scene_active(context.scene, context)
-            record = _new_record(context.scene, primitive_type)
+        active_id = ""
+        with (
+            suppress_proxy_sync_handlers(),
+            suppress_graph_to_proxy_sync(),
+            sdf_nodes.deferred_graph_updates(context),
+        ):
+            tree = _ensure_scene_tree(context.scene, ensure=True)
+            node = sdf_nodes.create_primitive_node(tree, primitive_type)
+            node.proxy_managed = True
+            for tree_node in tree.nodes:
+                tree_node.select = False
+            tree.nodes.active = node
+            node.select = True
             cursor = context.scene.cursor
-            record.location = tuple(float(v) for v in cursor.location)
-            record.rotation = tuple(float(v) for v in cursor.rotation_euler)
-            record.scale = (1.0, 1.0, 1.0)
-            _set_active_record(context.scene, record.primitive_id)
-            _remove_handle(context.scene)
+            _node_from_blender_matrix(
+                node,
+                Matrix.LocRotScale(
+                    cursor.location.copy(),
+                    cursor.rotation_euler.copy(),
+                    Vector((1.0, 1.0, 1.0)),
+                ),
+            )
+            defaults = _proxy_defaults(primitive_type)
+            node.color = defaults[_PROP_COLOR_KEY]
+            if primitive_type == "box":
+                node.size = defaults[_PROP_SIZE_KEY]
+                node.bevel = defaults[_PROP_BEVEL_KEY]
+            else:
+                node.radius = defaults[_PROP_RADIUS_KEY]
+                if primitive_type in {"cylinder", "cone"}:
+                    node.height = defaults[_PROP_HEIGHT_KEY]
+            sdf_nodes.insert_primitive_above_output(tree, node)
+            sync_tree_to_scene_records(context.scene, tree, context)
             sdf_nodes.mark_tree_dirty(tree)
+            active_id = str(
+                getattr(context.scene, "mathops_v2_active_primitive_id", "")
+            )
             try:
                 from .render import bridge
 
                 bridge.force_redraw_viewports(context)
             except Exception:
                 pass
+        sync_from_graph(context)
+        set_active_primitive(context.scene, active_id, context)
         return {"FINISHED"}
 
 
@@ -1081,7 +2126,7 @@ class VIEW3D_MT_mathops_v2_sdf_add(Menu):
     def draw(self, context):
         del context
         layout = self.layout
-        layout.operator_context = "INVOKE_REGION_WIN"
+        layout.operator_context = "EXEC_REGION_WIN"
         for primitive_type in _PRIMITIVE_ORDER:
             operator = layout.operator(
                 MATHOPS_V2_OT_add_sdf_proxy.bl_idname,

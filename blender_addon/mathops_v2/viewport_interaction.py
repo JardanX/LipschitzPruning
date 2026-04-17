@@ -34,17 +34,164 @@ def active_primitive_record(scene):
     return sdf_proxies.active_record(scene)
 
 
+def _vector2(value):
+    if hasattr(value, "x") and hasattr(value, "y"):
+        return Vector((float(value.x), float(value.y)))
+    return Vector((float(value[0]), float(value[1])))
+
+
+def _vector3(value):
+    if hasattr(value, "x") and hasattr(value, "y") and hasattr(value, "z"):
+        return Vector((float(value.x), float(value.y), float(value.z)))
+    return Vector((float(value[0]), float(value[1]), float(value[2])))
+
+
+def _record_lookup(scene):
+    return {
+        str(getattr(record, "primitive_id", "") or ""): record
+        for record in getattr(scene, "mathops_v2_primitives", ())
+    }
+
+
+def _target_from_node(scene, node, record_lookup=None):
+    del scene, record_lookup
+    if node is None:
+        return None, None
+    return "node", node
+
+
+def _target_key(kind, target):
+    if kind == "record":
+        return kind, str(getattr(target, "primitive_id", "") or "")
+    if kind == "node":
+        return kind, sdf_nodes.primitive_node_token(target)
+    return kind, ""
+
+
 def _active_target(scene):
+    node = active_primitive_node(scene)
+    if node is not None:
+        return _target_from_node(scene, node)
     record = active_primitive_record(scene)
     if record is not None:
         return "record", record
-    node = active_primitive_node(scene)
-    if node is not None:
-        return "node", node
     return None, None
 
 
-def _mark_scene_dirty(scene):
+def _location_from_target(kind, target):
+    if kind == "record":
+        return Vector(target.location)
+    if kind == "node":
+        return Vector(sdf_proxies._node_to_blender_matrix(target).translation)
+    return Vector((0.0, 0.0, 0.0))
+
+
+def _set_location_on_target(kind, target, value):
+    if kind == "record":
+        target.location = tuple(float(v) for v in value)
+    elif kind == "node":
+        matrix = sdf_proxies._node_to_blender_matrix(target).copy()
+        matrix.translation = _vector3(value)
+        sdf_proxies._node_from_blender_matrix(target, matrix)
+
+
+def _rotation_from_target(kind, target):
+    if kind == "record":
+        return Vector(target.rotation)
+    if kind == "node":
+        _location, rotation, _scale = sdf_proxies._node_to_blender_matrix(
+            target
+        ).decompose()
+        return Vector(rotation.to_euler("XYZ"))
+    return Vector((0.0, 0.0, 0.0))
+
+
+def _set_rotation_on_target(kind, target, value):
+    if kind == "record":
+        target.rotation = tuple(float(v) for v in value)
+    elif kind == "node":
+        location, _rotation, scale = sdf_proxies._node_to_blender_matrix(
+            target
+        ).decompose()
+        matrix = Matrix.LocRotScale(
+            location,
+            Euler(tuple(float(v) for v in value), "XYZ"),
+            scale,
+        )
+        sdf_proxies._node_from_blender_matrix(target, matrix)
+
+
+def _scale_from_target(kind, target):
+    if kind == "record":
+        return Vector(target.scale)
+    if kind == "node":
+        _location, _rotation, scale = sdf_proxies._node_to_blender_matrix(
+            target
+        ).decompose()
+        return Vector(scale)
+    return Vector((1.0, 1.0, 1.0))
+
+
+def _set_scale_on_target(kind, target, value):
+    clamped = [max(0.001, float(v)) for v in value]
+    if kind == "record":
+        target.scale = tuple(clamped)
+    elif kind == "node":
+        location, rotation, _scale = sdf_proxies._node_to_blender_matrix(
+            target
+        ).decompose()
+        matrix = Matrix.LocRotScale(location, rotation, Vector(clamped))
+        sdf_proxies._node_from_blender_matrix(target, matrix)
+
+
+def _selected_targets(scene):
+    tree = _selected_tree(scene)
+    if tree is not None:
+        record_lookup = _record_lookup(scene)
+        targets = []
+        seen = set()
+        for node in tree.nodes:
+            if not getattr(node, "select", False) or not sdf_nodes.is_primitive_node(
+                node
+            ):
+                continue
+            kind, target = _target_from_node(scene, node, record_lookup)
+            key = _target_key(kind, target)
+            if key in seen:
+                continue
+            seen.add(key)
+            targets.append((kind, target))
+        if targets:
+            return targets
+    kind, target = _active_target(scene)
+    if kind is None:
+        return []
+    return [(kind, target)]
+
+
+def _selection_center(scene, targets=None):
+    if targets is None:
+        targets = _selected_targets(scene)
+    if not targets:
+        return Vector((0.0, 0.0, 0.0))
+    center = Vector((0.0, 0.0, 0.0))
+    for kind, target in targets:
+        center += _location_from_target(kind, target)
+    return center / len(targets)
+
+
+def _apply_target_locations(scene, updates):
+    changed = False
+    targets = []
+    for kind, target, value in updates:
+        _set_location_on_target(kind, target, value)
+        targets.append((kind, target))
+        changed = True
+    if changed:
+        _mark_scene_dirty(scene, targets)
+
+
+def _mark_scene_dirty(scene, targets=None):
     settings = getattr(scene, "mathops_v2_settings", None)
     if settings is None:
         return
@@ -52,64 +199,80 @@ def _mark_scene_dirty(scene):
         tree = sdf_nodes.get_selected_tree(settings, create=False, ensure=False)
     except Exception:
         tree = None
+
+    target_list = [] if targets is None else list(targets)
+    if not target_list:
+        kind, target = _active_target(scene)
+        if kind is not None:
+            target_list.append((kind, target))
+
+    node_targets = []
+    needs_full_sync = False
+    seen = set()
+    for kind, target in target_list:
+        if kind != "node":
+            needs_full_sync = True
+            continue
+        node_id = sdf_nodes.primitive_node_token(target)
+        if node_id in seen:
+            continue
+        seen.add(node_id)
+        node_targets.append(target)
+
+    if not needs_full_sync and node_targets:
+        for node in node_targets:
+            try:
+                sdf_proxies.sync_primitive_node_update(scene, node, bpy.context)
+            except Exception:
+                needs_full_sync = True
+                break
+
     if tree is not None:
         sdf_nodes.mark_tree_dirty(tree)
+    if needs_full_sync or not node_targets:
+        try:
+            sdf_proxies.sync_from_graph(bpy.context)
+        except Exception:
+            pass
     bridge.force_redraw_viewports()
 
 
 def _target_location(scene):
     kind, target = _active_target(scene)
-    if kind == "record":
-        return Vector(target.location)
-    if kind == "node":
-        return Vector(target.sdf_location)
-    return Vector((0.0, 0.0, 0.0))
+    return _location_from_target(kind, target)
 
 
 def _set_target_location(scene, value):
     kind, target = _active_target(scene)
-    if kind == "record":
-        target.location = tuple(float(v) for v in value)
-    elif kind == "node":
-        target.sdf_location = tuple(float(v) for v in value)
-    _mark_scene_dirty(scene)
+    if kind is None:
+        return
+    _apply_target_locations(scene, ((kind, target, value),))
 
 
 def _target_rotation(scene):
     kind, target = _active_target(scene)
-    if kind == "record":
-        return Vector(target.rotation)
-    if kind == "node":
-        return Vector(target.sdf_rotation)
-    return Vector((0.0, 0.0, 0.0))
+    return _rotation_from_target(kind, target)
 
 
 def _set_target_rotation(scene, value):
     kind, target = _active_target(scene)
-    if kind == "record":
-        target.rotation = tuple(float(v) for v in value)
-    elif kind == "node":
-        target.sdf_rotation = tuple(float(v) for v in value)
-    _mark_scene_dirty(scene)
+    if kind is None:
+        return
+    _set_rotation_on_target(kind, target, value)
+    _mark_scene_dirty(scene, ((kind, target),))
 
 
 def _target_scale(scene):
     kind, target = _active_target(scene)
-    if kind == "record":
-        return Vector(target.scale)
-    if kind == "node":
-        return Vector(target.sdf_scale)
-    return Vector((1.0, 1.0, 1.0))
+    return _scale_from_target(kind, target)
 
 
 def _set_target_scale(scene, value):
-    clamped = [max(0.001, float(v)) for v in value]
     kind, target = _active_target(scene)
-    if kind == "record":
-        target.scale = tuple(clamped)
-    elif kind == "node":
-        target.sdf_scale = tuple(clamped)
-    _mark_scene_dirty(scene)
+    if kind is None:
+        return
+    _set_scale_on_target(kind, target, value)
+    _mark_scene_dirty(scene, ((kind, target),))
 
 
 def _record_axes(record):
@@ -140,7 +303,10 @@ def _selected_tree(scene):
 
 def _tag_redraws(tree):
     try:
-        for window in bpy.context.window_manager.windows:
+        window_manager = getattr(bpy.context, "window_manager", None)
+        if window_manager is None:
+            return
+        for window in window_manager.windows:
             for area in window.screen.areas:
                 if area.type == "VIEW_3D":
                     area.tag_redraw()
@@ -154,16 +320,25 @@ def _tag_redraws(tree):
         pass
 
 
-def _set_active_node(scene, node, extend=False):
+def _set_active_node(scene, node, extend=False, frame=False):
     tree = _selected_tree(scene)
     if tree is None or node is None:
         return False
-    if not extend:
-        for tree_node in tree.nodes:
-            tree_node.select = False
-    node.select = True
-    tree.nodes.active = node
-    sdf_proxies.set_active_primitive(scene, sdf_nodes.primitive_node_token(node))
+    sdf_nodes._select_tree_node(tree, node, extend=extend)
+    sdf_proxies.set_active_primitive(
+        scene, sdf_nodes.primitive_node_token(node), bpy.context, extend=extend
+    )
+    if frame:
+        try:
+            sdf_nodes.focus_scene_node(
+                bpy.context,
+                sdf_nodes.primitive_node_token(node),
+                create=False,
+                extend=extend,
+                frame=True,
+            )
+        except Exception:
+            pass
     _tag_redraws(tree)
     bridge.force_redraw_viewports()
     return True
@@ -472,21 +647,30 @@ def _pick_node_in_region(context, region, coord):
 
 
 def _node_rotation_matrix(node):
-    return Euler(node.sdf_rotation, "XYZ").to_matrix()
+    location, rotation, _scale = sdf_proxies._node_to_blender_matrix(node).decompose()
+    del location
+    return rotation.to_matrix()
 
 
 def _basis_from_axis(origin, axis, up_hint):
-    axis = Vector(axis)
+    axis = _vector3(axis)
     if axis.length_squared <= 1.0e-12:
         axis = Vector((0.0, 0.0, 1.0))
     else:
         axis.normalize()
 
-    up = Vector(up_hint) - Vector(up_hint).project(axis)
+    up_hint_vec = _vector3(up_hint)
+    up = up_hint_vec - up_hint_vec.project(axis)
     if up.length_squared <= 1.0e-12:
         up = axis.orthogonal()
     up.normalize()
-    side = axis.cross(up)
+    side = Vector(
+        (
+            axis.y * up.z - axis.z * up.y,
+            axis.z * up.x - axis.x * up.z,
+            axis.x * up.y - axis.y * up.x,
+        )
+    )
     if side.length_squared <= 1.0e-12:
         side = axis.orthogonal()
     side.normalize()
@@ -501,7 +685,7 @@ def _basis_from_axis(origin, axis, up_hint):
 
 def _node_axes(node):
     rotation_matrix = _node_rotation_matrix(node)
-    origin = Vector(node.sdf_location)
+    origin = Vector(sdf_proxies._node_to_blender_matrix(node).translation)
     axes = [Vector(rotation_matrix.col[index]) for index in range(3)]
     up_hints = (axes[1], axes[2], axes[1])
     return rotation_matrix, origin, axes, up_hints
@@ -525,20 +709,13 @@ def _target_axes(scene):
     )
 
 
-def _move_get():
-    return tuple(_target_location(bpy.context.scene))
-
-
-def _move_set(value):
-    _set_target_location(bpy.context.scene, Vector(value))
-
-
 def _rotation_get(axis_index):
     return float(_target_rotation(bpy.context.scene)[axis_index])
 
 
 def _rotation_set(axis_index, value):
-    rotation = list(_target_rotation(bpy.context.scene))
+    current = _target_rotation(bpy.context.scene)
+    rotation = [float(current.x), float(current.y), float(current.z)]
     rotation[axis_index] = float(value)
     _set_target_rotation(bpy.context.scene, Vector(rotation))
 
@@ -548,7 +725,8 @@ def _scale_get(axis_index):
 
 
 def _scale_set(axis_index, value):
-    scale = list(_target_scale(bpy.context.scene))
+    current = _target_scale(bpy.context.scene)
+    scale = [float(current.x), float(current.y), float(current.z)]
     scale[axis_index] = max(0.001, 1.0 + float(value) - _SCALE_GIZMO_BASE)
     _set_target_scale(bpy.context.scene, Vector(scale))
 
@@ -562,7 +740,7 @@ def _mouse_ray(context, coord):
     direction = view3d_utils.region_2d_to_vector_3d(region, region3d, coord)
     if direction.length_squared > 0.0:
         direction.normalize()
-    return Vector(origin), Vector(direction)
+    return _vector3(origin), _vector3(direction)
 
 
 def _intersect_plane(ray_origin, ray_direction, plane_origin, plane_normal):
@@ -574,8 +752,8 @@ def _intersect_plane(ray_origin, ray_direction, plane_origin, plane_normal):
 
 
 def _axis_parameter(axis_origin, axis_direction, ray_origin, ray_direction):
-    axis_direction = Vector(axis_direction)
-    ray_direction = Vector(ray_direction)
+    axis_direction = _vector3(axis_direction)
+    ray_direction = _vector3(ray_direction)
     w0 = axis_origin - ray_origin
     a_value = axis_direction.dot(axis_direction)
     b_value = axis_direction.dot(ray_direction)
@@ -609,6 +787,15 @@ class MATHOPS_V2_OT_transform_sdf(Operator):
         ),
         default="TRANSLATE",
     )
+    constraint_axis_init: bpy.props.StringProperty(default="", options={"HIDDEN"})
+    gizmo_axis_vector: bpy.props.FloatVectorProperty(
+        size=3,
+        default=(0.0, 0.0, 0.0),
+        options={"HIDDEN"},
+    )
+    delete_on_cancel_ids: bpy.props.StringProperty(default="", options={"HIDDEN"})
+    restore_selection_ids: bpy.props.StringProperty(default="", options={"HIDDEN"})
+    restore_active_id: bpy.props.StringProperty(default="", options={"HIDDEN"})
 
     @classmethod
     def poll(cls, context):
@@ -616,35 +803,48 @@ class MATHOPS_V2_OT_transform_sdf(Operator):
 
     def invoke(self, context, event):
         scene = context.scene
-        self.start_mouse = Vector((event.mouse_region_x, event.mouse_region_y))
-        self.initial_location = _target_location(scene).copy()
+        self.start_mouse = _vector2((event.mouse_region_x, event.mouse_region_y))
+        self.translate_targets = (
+            _selected_targets(scene) if self.mode == "TRANSLATE" else []
+        )
+        self.translate_start_locations = [
+            _location_from_target(kind, target).copy()
+            for kind, target in self.translate_targets
+        ]
+        self.initial_location = (
+            _selection_center(scene, self.translate_targets)
+            if self.translate_targets
+            else _target_location(scene)
+        ).copy()
         self.initial_rotation = _target_rotation(scene).copy()
         self.initial_scale = _target_scale(scene).copy()
-        self.constraint_axis = ""
+        self.constraint_axis = str(getattr(self, "constraint_axis_init", "") or "")
         self.numeric_text = ""
         self.current_value = 0.0
 
         origin, direction = _mouse_ray(context, self.start_mouse)
-        self.view_vector = (
-            Vector((0.0, 0.0, -1.0)) if direction is None else Vector(direction)
-        )
+        self.view_vector = Vector((0.0, 0.0, -1.0)) if direction is None else direction
         self.view_right = Vector((1.0, 0.0, 0.0))
-        if getattr(context.space_data, "region_3d", None) is not None:
-            view_inv = context.space_data.region_3d.view_matrix.inverted()
-            self.view_right = Vector(view_inv.col[0].xyz)
+        space = getattr(context, "space_data", None)
+        region3d = None if space is None else getattr(space, "region_3d", None)
+        if region3d is not None:
+            view_inv = region3d.view_matrix.inverted()
+            self.view_right = _vector3(view_inv.col[0].xyz)
         self.start_plane_point = self.initial_location.copy()
         if origin is not None and direction is not None:
             self.start_plane_point = _intersect_plane(
                 origin, direction, self.initial_location, self.view_vector
             )
 
-        context.window_manager.modal_handler_add(self)
+        window_manager = getattr(context, "window_manager", None)
+        if window_manager is not None:
+            window_manager.modal_handler_add(self)
         self._update_status(context)
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event):
         if event.type in {"ESC", "RIGHTMOUSE"}:
-            self._restore(context)
+            self._cancel(context)
             self._finish(context)
             return {"CANCELLED"}
         if (
@@ -681,6 +881,9 @@ class MATHOPS_V2_OT_transform_sdf(Operator):
         scene = context.scene
         axis = _constraint_axis_vector(self.constraint_axis)
         if self.mode == "TRANSLATE":
+            gizmo_axis = _vector3(self.gizmo_axis_vector)
+            if gizmo_axis.length_squared > 1.0e-12:
+                axis = gizmo_axis
             if axis is not None:
                 numeric_value = (
                     None
@@ -699,7 +902,7 @@ class MATHOPS_V2_OT_transform_sdf(Operator):
                 else:
                     value = numeric_value
                 self.current_value = value
-                _set_target_location(scene, self.initial_location + axis * value)
+                self._apply_translate_delta(scene, axis * value)
                 return
             ray_origin, ray_direction = _mouse_ray(
                 context, Vector((event.mouse_region_x, event.mouse_region_y))
@@ -713,7 +916,7 @@ class MATHOPS_V2_OT_transform_sdf(Operator):
             if self.numeric_text not in {"", "-", ".", "-."}:
                 delta = self.view_right.normalized() * float(self.numeric_text)
             self.current_value = delta.length
-            _set_target_location(scene, self.initial_location + delta)
+            self._apply_translate_delta(scene, delta)
             return
 
         if self.mode == "ROTATE":
@@ -723,7 +926,16 @@ class MATHOPS_V2_OT_transform_sdf(Operator):
                 angle = radians(float(self.numeric_text))
             matrix = (
                 Matrix.Rotation(angle, 4, axis_vec)
-                @ Euler(self.initial_rotation, "XYZ").to_matrix().to_4x4()
+                @ Euler(
+                    (
+                        float(self.initial_rotation.x),
+                        float(self.initial_rotation.y),
+                        float(self.initial_rotation.z),
+                    ),
+                    "XYZ",
+                )
+                .to_matrix()
+                .to_4x4()
             )
             self.current_value = degrees(angle)
             _set_target_rotation(scene, matrix.to_euler("XYZ"))
@@ -744,9 +956,50 @@ class MATHOPS_V2_OT_transform_sdf(Operator):
 
     def _restore(self, context):
         scene = context.scene
-        _set_target_location(scene, self.initial_location)
+        if self.translate_targets:
+            _apply_target_locations(
+                scene,
+                [
+                    (kind, target, value)
+                    for (kind, target), value in zip(
+                        self.translate_targets, self.translate_start_locations
+                    )
+                ],
+            )
+        else:
+            _set_target_location(scene, self.initial_location)
         _set_target_rotation(scene, self.initial_rotation)
         _set_target_scale(scene, self.initial_scale)
+
+    def _cancel(self, context):
+        delete_ids = sdf_proxies.decode_primitive_ids(self.delete_on_cancel_ids)
+        if not delete_ids:
+            self._restore(context)
+            return
+        scene = context.scene
+        sdf_proxies.remove_primitives(scene, delete_ids, context)
+        restore_ids = sdf_proxies.decode_primitive_ids(self.restore_selection_ids)
+        if restore_ids:
+            sdf_proxies.select_primitives(
+                scene,
+                restore_ids,
+                context,
+                self.restore_active_id or restore_ids[-1],
+            )
+
+    def _apply_translate_delta(self, scene, delta):
+        if not self.translate_targets:
+            _set_target_location(scene, self.initial_location + delta)
+            return
+        _apply_target_locations(
+            scene,
+            [
+                (kind, target, value + delta)
+                for (kind, target), value in zip(
+                    self.translate_targets, self.translate_start_locations
+                )
+            ],
+        )
 
     def _update_status(self, context):
         label = {"TRANSLATE": "G", "ROTATE": "R", "SCALE": "S"}[self.mode]
@@ -768,10 +1021,21 @@ class MATHOPS_V2_OT_duplicate_sdf(Operator):
         return _viewport_allows_sdf_edit(context)
 
     def execute(self, context):
-        record = sdf_proxies.duplicate_active_primitive(context.scene)
-        if record is None:
+        scene = context.scene
+        source_ids = sdf_proxies.selected_primitive_ids(scene, context)
+        if not source_ids:
             return {"CANCELLED"}
-        _mark_scene_dirty(context.scene)
+        restore_active_id = sdf_proxies.active_primitive_id(scene, context)
+        new_ids = sdf_proxies.duplicate_primitives(scene, source_ids, context)
+        if not new_ids:
+            return {"CANCELLED"}
+        bpy.ops.mathops_v2.transform_sdf(
+            "INVOKE_DEFAULT",
+            mode="TRANSLATE",
+            delete_on_cancel_ids=sdf_proxies.encode_primitive_ids(new_ids),
+            restore_selection_ids=sdf_proxies.encode_primitive_ids(source_ids),
+            restore_active_id=str(restore_active_id or ""),
+        )
         return {"FINISHED"}
 
 
@@ -791,9 +1055,15 @@ class MATHOPS_V2_OT_pick_sdf(Operator):
         if getattr(getattr(context, "space_data", None), "region_3d", None) is None:
             self.report({"ERROR"}, "Open a 3D View to pick an SDF")
             return {"CANCELLED"}
-        context.window.cursor_modal_set("EYEDROPPER")
-        context.workspace.status_text_set("Click an SDF surface to select its node")
-        context.window_manager.modal_handler_add(self)
+        window = getattr(context, "window", None)
+        if window is not None:
+            window.cursor_modal_set("EYEDROPPER")
+        workspace = getattr(context, "workspace", None)
+        if workspace is not None:
+            workspace.status_text_set("Click an SDF surface to select its node")
+        window_manager = getattr(context, "window_manager", None)
+        if window_manager is not None:
+            window_manager.modal_handler_add(self)
         return {"RUNNING_MODAL"}
 
     def modal(self, context, event):
@@ -820,7 +1090,7 @@ class MATHOPS_V2_OT_pick_sdf(Operator):
             self.report({"INFO"}, "Selected SDF primitive")
             return {"FINISHED"}
 
-        _set_active_node(scene, hit)
+        _set_active_node(scene, hit, frame=True)
         self.report({"INFO"}, f"Selected '{hit.name}'")
         return {"FINISHED"}
 
@@ -858,7 +1128,10 @@ class MATHOPS_V2_OT_select_sdf_click(Operator):
             return {"FINISHED"}
 
         _set_active_node(
-            context.scene, hit, extend=bool(getattr(event, "shift", False))
+            context.scene,
+            hit,
+            extend=bool(getattr(event, "shift", False)),
+            frame=True,
         )
         return {"FINISHED"}
 
@@ -868,16 +1141,8 @@ class _MathOPSV2GizmoBase:
 
     @classmethod
     def poll(cls, context):
-        space = getattr(context, "space_data", None)
-        scene = getattr(context, "scene", None)
-        return (
-            space is not None
-            and space.type == "VIEW_3D"
-            and scene is not None
-            and getattr(context, "mode", "OBJECT") == "OBJECT"
-            and _transform_mode(scene) == cls.transform_mode
-            and _active_target(scene)[0] is not None
-        )
+        del cls, context
+        return False
 
 
 class MATHOPS_V2_GGT_sdf_translate(_MathOPSV2GizmoBase, GizmoGroup):
@@ -888,32 +1153,51 @@ class MATHOPS_V2_GGT_sdf_translate(_MathOPSV2GizmoBase, GizmoGroup):
     bl_options = {"3D", "PERSISTENT"}
     transform_mode = "TRANSLATE"
 
+    @classmethod
+    def poll(cls, context):
+        del context
+        return False
+
     def setup(self, context):
         del context
-        self.move_gizmo = self.gizmos.new("GIZMO_GT_move_3d")
-        self.move_gizmo.target_set_handler("offset", get=_move_get, set=_move_set)
-        self.move_gizmo.scale_basis = 0.16
-        self.move_gizmo.line_width = 2.0
-        self.move_gizmo.color = 0.9, 0.9, 0.9
-        self.move_gizmo.alpha = 0.55
-        self.move_gizmo.color_highlight = 1.0, 1.0, 1.0
-        self.move_gizmo.alpha_highlight = 1.0
-        self.move_gizmo.use_draw_modal = True
+        self.move_gizmos = []
+        self.move_ops = []
+        for axis_index, color in enumerate(_AXIS_COLORS):
+            arrow = self.gizmos.new("GIZMO_GT_arrow_3d")
+            op = arrow.target_set_operator(MATHOPS_V2_OT_transform_sdf.bl_idname)
+            op.mode = "TRANSLATE"
+            op.constraint_axis_init = "XYZ"[axis_index]
+            op.gizmo_axis_vector = (0.0, 0.0, 0.0)
+            arrow.scale_basis = 0.32
+            arrow.line_width = 2.4
+            arrow.color = color[0], color[1], color[2]
+            arrow.alpha = 0.7
+            arrow.color_highlight = color[0], color[1], color[2]
+            arrow.alpha_highlight = 1.0
+            arrow.use_draw_modal = True
+            self.move_gizmos.append(arrow)
+            self.move_ops.append(op)
 
     def refresh(self, context):
-        self._update_matrix(context)
+        self._update_gizmos(context)
 
     def draw_prepare(self, context):
-        self._update_matrix(context)
+        self._update_gizmos(context)
 
-    def _update_matrix(self, context):
+    def _update_gizmos(self, context):
         kind, _target = _active_target(context.scene)
         if kind is None:
             return
-        rotation_matrix, _origin, _axes, _up_hints = _target_axes(context.scene)
-        move_basis = rotation_matrix.to_4x4()
-        move_basis.translation = Vector((0.0, 0.0, 0.0))
-        self.move_gizmo.matrix_basis = move_basis
+        _rotation_matrix, _origin, axes, up_hints = _target_axes(context.scene)
+        origin = _selection_center(context.scene)
+        for axis_index, gizmo in enumerate(self.move_gizmos):
+            axis = axes[axis_index]
+            gizmo.matrix_basis = _basis_from_axis(origin, axis, up_hints[axis_index])
+            self.move_ops[axis_index].gizmo_axis_vector = (
+                float(axis.x),
+                float(axis.y),
+                float(axis.z),
+            )
 
 
 class MATHOPS_V2_GGT_sdf_rotate(_MathOPSV2GizmoBase, GizmoGroup):
@@ -1031,14 +1315,7 @@ def _register_keymaps():
         "CLICK",
     )
     _addon_keymaps.append((km, kmi))
-    for key, mode in (("G", "TRANSLATE"), ("R", "ROTATE"), ("S", "SCALE")):
-        kmi = km.keymap_items.new(
-            MATHOPS_V2_OT_transform_sdf.bl_idname,
-            key,
-            "PRESS",
-        )
-        kmi.properties.mode = mode
-        _addon_keymaps.append((km, kmi))
+    km = keyconfig.keymaps.new(name="Object Mode", space_type="EMPTY")
     kmi = km.keymap_items.new(
         MATHOPS_V2_OT_duplicate_sdf.bl_idname,
         "D",
