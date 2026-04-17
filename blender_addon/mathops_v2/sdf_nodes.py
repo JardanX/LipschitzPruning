@@ -60,6 +60,8 @@ _EDITOR_SPACE_STATE = {}
 _SYNC_MSGBUS_OWNER = object()
 _PROXY_TREE_MATERIALIZED_KEY = "mathops_v2_proxy_tree_materialized"
 _IDENTITY_MATRIX_3X4 = [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0]
+_LIVE_GRAPH_COMPILE_GRACE = 0.2
+_LIVE_GRAPH_COMPILE_INTERVAL = 1.0 / 30.0
 _BLENDER_TO_RENDERER_BASIS = Matrix(
     (
         (1.0, 0.0, 0.0, 0.0),
@@ -472,6 +474,15 @@ def _is_proxy_union_node(node) -> bool:
     return False
 
 
+def _is_proxy_csg_union_node(node) -> bool:
+    node_idname = getattr(node, "bl_idname", "")
+    if node_idname == UNION_NODE_IDNAME:
+        return True
+    if node_idname == CSG_NODE_IDNAME:
+        return getattr(node, "blend_mode", "") == "union"
+    return False
+
+
 def _bootstrap_proxy_union_tree(tree) -> bool:
     primitive_count = 0
     for node in tree.nodes:
@@ -503,6 +514,23 @@ def _is_pure_proxy_union_tree(tree) -> bool:
             continue
         return False
     return True
+
+
+def _is_pure_proxy_csg_union_tree(tree) -> bool:
+    has_primitive = False
+    for node in tree.nodes:
+        node_idname = getattr(node, "bl_idname", "")
+        if node_idname == OUTPUT_NODE_IDNAME:
+            continue
+        if is_primitive_node(node):
+            has_primitive = True
+            if not getattr(node, "proxy_managed", False):
+                return False
+            continue
+        if _is_proxy_csg_union_node(node):
+            continue
+        return False
+    return has_primitive
 
 
 def _tree_open_in_node_editor(tree) -> bool:
@@ -1873,6 +1901,20 @@ def _primitive_payload_bounds(node_payload):
     )
 
 
+def _record_compile_state(record):
+    return {
+        "type": str(record.primitive_type or "sphere").strip().lower(),
+        "location": tuple(round(float(v), 6) for v in record.location),
+        "rotation": tuple(round(float(v), 6) for v in record.rotation),
+        "scale": tuple(round(float(v), 6) for v in record.scale),
+        "color": tuple(round(float(v), 6) for v in record.color),
+        "size": tuple(round(float(v), 6) for v in record.size),
+        "radius": round(float(record.radius), 6),
+        "height": round(float(record.height), 6),
+        "bevel": round(float(record.bevel), 6),
+    }
+
+
 def _is_exact_union_payload(node_payload):
     return (
         isinstance(node_payload, dict)
@@ -2257,44 +2299,58 @@ def _blender_to_renderer_matrix(matrix):
     return _BLENDER_TO_RENDERER_BASIS @ matrix @ _RENDERER_TO_BLENDER_BASIS
 
 
-def _scene_store_items(scene):
+def _scene_store_items(scene, cached_item_cache=None):
     records = getattr(scene, "mathops_v2_primitives", ())
     if len(records) == 0:
-        return None
+        return None, None
     items = []
+    item_cache = {}
     for record in records:
-        primitive_type = str(record.primitive_type or "sphere").strip().lower()
+        record_id = str(record.primitive_id)
+        record_state = _record_compile_state(record)
+        primitive_type = record_state["type"]
         if primitive_type not in {"sphere", "box", "cylinder", "cone"}:
-            return None
-        blender_matrix = Matrix.LocRotScale(
-            Vector(record.location),
-            Euler(record.rotation, "XYZ"),
-            Vector(record.scale),
+            return None, None
+        cached_entry = (
+            None if cached_item_cache is None else cached_item_cache.get(record_id)
         )
-        renderer_matrix = _blender_to_renderer_matrix(blender_matrix)
-        world_to_local = renderer_matrix.inverted_safe()
-        payload = {
-            "nodeType": "primitive",
-            "nodeId": str(record.primitive_id),
-            "primitiveType": primitive_type,
-            "color": [float(v) for v in record.color],
-            "round_x": 0.0,
-            "round_y": 0.0,
-            "matrix": _matrix_to_json_values(world_to_local),
-        }
-        if primitive_type == "sphere":
-            payload["radius"] = float(record.radius)
-        elif primitive_type == "box":
-            bevel = max(0.0, float(record.bevel))
-            payload["sides"] = [float(v) for v in record.size]
-            payload["bevel"] = [bevel, bevel, bevel, bevel]
+        if cached_entry is not None and cached_entry.get("state") == record_state:
+            payload = cached_entry["payload"]
+            bounds = cached_entry["bounds"]
         else:
-            payload["radius"] = float(record.radius)
-            payload["height"] = float(record.height)
-        items.append(
-            (str(record.primitive_id), payload, _primitive_payload_bounds(payload))
-        )
-    return items
+            blender_matrix = Matrix.LocRotScale(
+                Vector(record.location),
+                Euler(record.rotation, "XYZ"),
+                Vector(record.scale),
+            )
+            renderer_matrix = _blender_to_renderer_matrix(blender_matrix)
+            world_to_local = renderer_matrix.inverted_safe()
+            payload = {
+                "nodeType": "primitive",
+                "nodeId": record_id,
+                "primitiveType": primitive_type,
+                "color": [float(v) for v in record.color],
+                "round_x": 0.0,
+                "round_y": 0.0,
+                "matrix": _matrix_to_json_values(world_to_local),
+            }
+            if primitive_type == "sphere":
+                payload["radius"] = float(record.radius)
+            elif primitive_type == "box":
+                bevel = max(0.0, float(record.bevel))
+                payload["sides"] = [float(v) for v in record.size]
+                payload["bevel"] = [bevel, bevel, bevel, bevel]
+            else:
+                payload["radius"] = float(record.radius)
+                payload["height"] = float(record.height)
+            bounds = _primitive_payload_bounds(payload)
+        items.append((record_id, payload, bounds))
+        item_cache[record_id] = {
+            "state": record_state,
+            "payload": payload,
+            "bounds": bounds,
+        }
+    return items, item_cache
 
 
 def _proxy_scene_fast_path_supported(scene, tree):
@@ -2317,28 +2373,24 @@ def _proxy_scene_fast_path_supported(scene, tree):
             if primitive_node_token(node) not in record_ids:
                 return False
             continue
-        if node_idname == CSG_NODE_IDNAME:
-            if getattr(node, "blend_mode", "") != "union":
-                return False
-            if abs(float(getattr(node, "blend_radius", 0.0))) > 1.0e-9:
-                return False
+        if _is_proxy_union_node(node):
             continue
         return False
 
     return primitive_count == len(record_ids)
 
 
-def _proxy_scene_items(scene, tree):
+def _proxy_scene_items(scene, tree, cached_item_cache=None):
     if _proxy_scene_fast_path_supported(scene, tree):
-        store_items = _scene_store_items(scene)
+        store_items, item_cache = _scene_store_items(scene, cached_item_cache)
         if store_items is not None:
-            return store_items
+            return store_items, item_cache
 
     proxies = [
         obj for obj in scene.objects if getattr(obj, "mathops_v2_sdf_proxy", False)
     ]
     if not proxies:
-        return None
+        return None, None
 
     def build_items():
         items = []
@@ -2377,8 +2429,8 @@ def _proxy_scene_items(scene, tree):
             items.append((proxy_id, payload, _primitive_payload_bounds(payload)))
         return items
 
-    if not proxy_tree_materialized(tree):
-        return build_items()
+    if not proxy_tree_materialized(tree) and not _is_pure_proxy_union_tree(tree):
+        return None, None
 
     proxy_node_ids = {
         str(getattr(obj, "mathops_v2_sdf_node_id", "") or "") for obj in proxies
@@ -2391,26 +2443,100 @@ def _proxy_scene_items(scene, tree):
         if is_primitive_node(node):
             primitive_count += 1
             if not getattr(node, "proxy_managed", False):
-                return None
+                return None, None
             if primitive_node_token(node) not in proxy_node_ids:
-                return None
+                return None, None
             continue
-        if node_idname == CSG_NODE_IDNAME:
-            if getattr(node, "blend_mode", "") != "union":
-                return None
-            if abs(float(getattr(node, "blend_radius", 0.0))) > 1.0e-9:
-                return None
+        if _is_proxy_union_node(node):
             continue
-        return None
+        return None, None
 
     if primitive_count != len(proxies):
+        return None, None
+
+    return build_items(), None
+
+
+def _compile_proxy_csg_union_payload(scene, tree, cached=None):
+    if not _is_pure_proxy_csg_union_tree(tree):
         return None
 
-    return build_items()
+    cached_item_cache = None if cached is None else cached.get("item_cache")
+    items, item_cache = _scene_store_items(scene, cached_item_cache)
+    if not items:
+        return None
+    item_map = {proxy_id: (payload, bounds) for proxy_id, payload, bounds in items}
+
+    output_node = _find_output_node(tree)
+    if (
+        output_node is None
+        or not output_node.inputs
+        or not output_node.inputs[0].is_linked
+    ):
+        return None
+
+    def build_payload(node):
+        if is_primitive_node(node):
+            return item_map.get(primitive_node_token(node))
+        if not _is_proxy_csg_union_node(node):
+            return None
+        left_node = _socket_source_node(node.inputs[0], "A", node)
+        right_node = _socket_source_node(node.inputs[1], "B", node)
+        left_item = build_payload(left_node)
+        right_item = build_payload(right_node)
+        if left_item is None or right_item is None:
+            return None
+        left_payload, left_bounds = left_item
+        right_payload, right_bounds = right_item
+        blend_radius = max(0.0, float(getattr(node, "blend_radius", 0.0)))
+        payload = {
+            "nodeType": "binaryOperator",
+            "leftChild": left_payload,
+            "rightChild": right_payload,
+            "blendMode": "union",
+            "blendRadius": blend_radius,
+            "matrix": list(_IDENTITY_MATRIX_3X4),
+        }
+        bounds = _union_bounds(left_bounds, right_bounds)
+        if blend_radius > 0.0:
+            bounds = _inflate_bounds(bounds, blend_radius * 0.25)
+        return payload, bounds
+
+    root_node = _socket_source_node(output_node.inputs[0], "SDF", output_node)
+    built = build_payload(root_node)
+    if built is None:
+        return None
+    payload, bounds = built
+    compiled = dict(payload)
+    compiled["aabb_min"] = [float(v) for v in bounds[0]]
+    compiled["aabb_max"] = [float(v) for v in bounds[1]]
+
+    topology_tokens = []
+    for node in tree.nodes:
+        node_idname = getattr(node, "bl_idname", "")
+        if node_idname == OUTPUT_NODE_IDNAME:
+            continue
+        if is_primitive_node(node):
+            topology_tokens.append(f"P:{primitive_node_token(node)}")
+        elif _is_proxy_csg_union_node(node):
+            topology_tokens.append(
+                f"U:{getattr(node, 'name', '')}:{round(float(getattr(node, 'blend_radius', 0.0)), 6)}"
+            )
+        else:
+            return None
+    topology_hash = hashlib.sha1("\n".join(topology_tokens).encode("utf-8")).hexdigest()
+    return {
+        "payload": compiled,
+        "proxy_order": None,
+        "topology_hash": topology_hash,
+        "item_cache": item_cache,
+        "node_count": _count_payload_nodes(compiled),
+    }
 
 
 def _compile_proxy_scene_payload(scene, tree, cached=None):
-    items = _proxy_scene_items(scene, tree)
+    cached_item_cache = None if cached is None else cached.get("item_cache")
+    items, item_cache = _proxy_scene_items(scene, tree, cached_item_cache)
     if not items:
         return None
     item_map = {proxy_id: (payload, bounds) for proxy_id, payload, bounds in items}
@@ -2441,9 +2567,6 @@ def _compile_proxy_scene_payload(scene, tree, cached=None):
         ]
 
     ordered = [item_map[proxy_id] for proxy_id in ordered_ids]
-    combined_bounds = None
-    for _payload, bounds in ordered:
-        combined_bounds = _union_bounds(combined_bounds, bounds)
     payload, bounds = _balanced_union_payload_sorted(ordered)
     compiled = dict(payload)
     compiled["aabb_min"] = [float(v) for v in bounds[0]]
@@ -2453,6 +2576,10 @@ def _compile_proxy_scene_payload(scene, tree, cached=None):
         "payload": compiled,
         "proxy_order": ordered_ids,
         "topology_hash": topology_hash,
+        "item_cache": item_cache,
+        "node_count": None
+        if cached is None or ordered_ids != cached_order
+        else cached.get("metadata", {}).get("node_count"),
     }
 
 
@@ -2466,6 +2593,16 @@ def ensure_compiled_scene_cache(settings, create=False):
     if cached and cache_key not in runtime.generated_scene_dirty:
         runtime.generated_scene_path_hashes[scene_path_key] = cached["hash"]
         return cached
+
+    now = time.perf_counter()
+    interaction_active = (
+        now - runtime.graph_interaction_time
+    ) <= _LIVE_GRAPH_COMPILE_GRACE
+    if cached and cache_key in runtime.generated_scene_dirty and interaction_active:
+        last_compile = float(runtime.generated_scene_last_compile.get(cache_key, 0.0))
+        if (now - last_compile) < _LIVE_GRAPH_COMPILE_INTERVAL:
+            runtime.generated_scene_path_hashes[scene_path_key] = cached["hash"]
+            return cached
 
     scene = _owner_scene(settings)
     if scene is not None and len(getattr(scene, "mathops_v2_primitives", ())) == 0:
@@ -2483,6 +2620,8 @@ def ensure_compiled_scene_cache(settings, create=False):
     compile_mode = "tree"
     if scene is not None:
         proxy_compiled = _compile_proxy_scene_payload(scene, tree, cached)
+        if proxy_compiled is None:
+            proxy_compiled = _compile_proxy_csg_union_payload(scene, tree, cached)
     if proxy_compiled is not None:
         payload = proxy_compiled["payload"]
         topology_hash = proxy_compiled["topology_hash"]
@@ -2505,7 +2644,12 @@ def ensure_compiled_scene_cache(settings, create=False):
             float(v) for v in payload.get("aabb_min", (-1.0, -1.0, -1.0))
         ),
         "aabb_max": tuple(float(v) for v in payload.get("aabb_max", (1.0, 1.0, 1.0))),
-        "node_count": _count_payload_nodes(payload),
+        "node_count": (
+            proxy_compiled.get("node_count")
+            if proxy_compiled is not None
+            and proxy_compiled.get("node_count") is not None
+            else _count_payload_nodes(payload)
+        ),
     }
     cached = {
         "hash": scene_hash,
@@ -2516,8 +2660,12 @@ def ensure_compiled_scene_cache(settings, create=False):
         "tree_name": tree.name_full,
         "topology_hash": topology_hash or scene_hash,
         "proxy_order": proxy_order,
+        "item_cache": None
+        if proxy_compiled is None
+        else proxy_compiled.get("item_cache"),
     }
     runtime.generated_scene_cache[cache_key] = cached
+    runtime.generated_scene_last_compile[cache_key] = time.perf_counter()
     runtime.generated_scene_path_hashes[scene_path_key] = scene_hash
     runtime.generated_scene_dirty.discard(cache_key)
     runtime.debug_slow(

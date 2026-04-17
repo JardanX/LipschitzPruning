@@ -18,7 +18,7 @@ _DYNAMIC_AABB_GROW_PAD = 0.08
 _DYNAMIC_AABB_SHRINK_PAD = 0.03
 _DYNAMIC_AABB_SHRINK_INTERVAL = 0.75
 _DYNAMIC_AABB_SHRINK_THRESHOLD = 1.05
-_LIVE_GRAPH_CULLING_GRACE = 0.35
+_LIVE_GRAPH_CULLING_GRACE = 1.5
 
 
 def addon_dir() -> Path:
@@ -160,6 +160,7 @@ def get_viewport_render_size(
         max_dim = max(0, int(getattr(settings, "viewport_max_dim", 0)))
     else:
         max_dim = max(0, int(max_dim_override))
+
     if max_dim <= 0:
         return width, height
 

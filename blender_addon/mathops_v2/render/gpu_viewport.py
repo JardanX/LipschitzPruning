@@ -37,6 +37,7 @@ _COUNTERS_OLD_TO_NEW_BASE = 10
 _COUNTERS_STATUS = 20
 _COUNTERS_SIZE = 21
 _GRAPH_VIEWPORT_CULLING_MIN_NODES = 0
+_LIVE_GRAPH_PRUNING_INTERVAL = 0
 
 _GL_SHADER_STORAGE_BARRIER_BIT = 0x2000
 _GL_BUFFER_UPDATE_BARRIER_BIT = 0x0200
@@ -1162,6 +1163,7 @@ class MathOPSV2GPUViewport:
         self.batch = None
         self.offscreen = None
         self.offscreen_size = (0, 0)
+        self._last_logged_internal_size = None
         self.scene_key = None
         self.pruning_key = None
         self.scene_info = None
@@ -1183,6 +1185,7 @@ class MathOPSV2GPUViewport:
         self.max_active_count = 0
         self.max_tmp_count = 0
         self.culling_overflow = False
+        self.last_pruning_update_time = 0.0
         self._buffer_config_key = None
         self._parents_init_raw = b""
         self._active_init_raw = b""
@@ -1235,6 +1238,7 @@ class MathOPSV2GPUViewport:
         self.scene_static_key = None
         self.pruning_key = None
         self.scene_info = None
+        self.last_pruning_update_time = 0.0
         self.runtime_failed = False
         self.shader_source_token = None
         self.int16_storage_supported = (
@@ -1995,7 +1999,8 @@ class MathOPSV2GPUViewport:
                 self.scene_info["aabb_min"] = tuple(packed["aabb_min"])
                 self.scene_info["aabb_max"] = tuple(packed["aabb_max"])
             self.scene_key = scene_key
-            self.pruning_key = None
+            if full_refresh:
+                self.pruning_key = None
             self.culling_overflow = False
             self.last_overflow_message = ""
             if full_refresh:
@@ -2150,7 +2155,13 @@ class MathOPSV2GPUViewport:
         self.offscreen_size = size
 
     def _update_pruning(self, scene_path: Path, settings, aabb_min, aabb_max):
-        if not self._viewport_culling_enabled(settings):
+        culling_requested = bool(settings.culling_enabled)
+        if getattr(settings, "use_sdf_nodes", False):
+            node_count = int(self.scene_info.get("node_count", 0))
+            if node_count <= _GRAPH_VIEWPORT_CULLING_MIN_NODES:
+                culling_requested = False
+
+        if not culling_requested:
             self.frame_culling_ms = 0.0
             self.max_active_count = 0
             self.max_tmp_count = 0
@@ -2159,6 +2170,7 @@ class MathOPSV2GPUViewport:
             return
 
         pruning_key = (
+            self.scene_static_key,
             self.scene_key,
             bridge.grid_level(settings),
             tuple(round(float(v), 6) for v in aabb_min),
@@ -2167,6 +2179,14 @@ class MathOPSV2GPUViewport:
         if self.pruning_key == pruning_key:
             self.frame_culling_ms = 0.0
             return
+
+        interaction_active = not bridge.live_graph_culling_enabled(settings)
+        if interaction_active and self.pruning_key is not None:
+            if (
+                time.perf_counter() - self.last_pruning_update_time
+            ) < _LIVE_GRAPH_PRUNING_INTERVAL:
+                self.frame_culling_ms = 0.0
+                return
 
         runtime.debug_log(f"Viewport pruning recompute: {scene_path.name}")
         start = time.perf_counter()
@@ -2251,6 +2271,7 @@ class MathOPSV2GPUViewport:
                 self.culling_overflow = False
                 self.last_overflow_message = ""
                 self.pruning_key = pruning_key
+                self.last_pruning_update_time = time.perf_counter()
                 runtime.debug_log(
                     f"Viewport pruning ready: active={self.max_active_count:,}, tmp={self.max_tmp_count:,}, culling={self.frame_culling_ms:.2f}ms"
                 )
@@ -2331,13 +2352,15 @@ class MathOPSV2GPUViewport:
         )
 
     def _viewport_culling_enabled(self, settings) -> bool:
-        if not bridge.live_graph_culling_enabled(settings):
+        if not bool(settings.culling_enabled):
             return False
         if getattr(settings, "use_sdf_nodes", False):
             node_count = int(self.scene_info.get("node_count", 0))
             if node_count <= _GRAPH_VIEWPORT_CULLING_MIN_NODES:
                 return False
-        return True
+        if self.pruning_key is None:
+            return False
+        return self.pruning_key[0] == self.scene_static_key
 
     def _set_draw_uniforms(
         self,
@@ -2477,9 +2500,17 @@ class MathOPSV2GPUViewport:
             start = time.perf_counter()
             if width != region_width or height != region_height:
                 self._ensure_offscreen(width, height)
-                runtime.debug_log(
-                    f"Viewport internal size: {width}x{height} (region {region_width}x{region_height})"
+                size_log = (
+                    int(width),
+                    int(height),
+                    int(region_width),
+                    int(region_height),
                 )
+                if self._last_logged_internal_size != size_log:
+                    runtime.debug_log(
+                        f"Viewport internal size: {width}x{height} (region {region_width}x{region_height})"
+                    )
+                    self._last_logged_internal_size = size_log
                 with self.offscreen.bind():
                     fb = gpu.state.active_framebuffer_get()
                     fb.clear(color=(0.0, 0.0, 0.0, 0.0))
@@ -2499,6 +2530,7 @@ class MathOPSV2GPUViewport:
                 gpu.state.depth_mask_set(False)
                 gpu.state.blend_set("NONE")
                 self.batch.draw(self.draw_shader)
+                self._last_logged_internal_size = None
             tracing_ms = (time.perf_counter() - start) * 1000.0
             render_ms = tracing_ms + self.frame_culling_ms
 

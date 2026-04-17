@@ -33,6 +33,7 @@ scene_payload_cache = {}
 scene_bounds_cache = {}
 generated_scene_cache = {}
 generated_scene_path_hashes = {}
+generated_scene_last_compile = {}
 generated_scene_dirty = set()
 dynamic_aabb_state = {}
 compat_panels = []
@@ -44,6 +45,7 @@ demo_anim_timer_registered = False
 current_effective_aabb = None
 graph_interaction_time = 0.0
 graph_sync_suppressed_until = 0.0
+proxy_sync_suppressed_until = 0.0
 last_render_stats = {
     "scene_name": "",
     "scene_path": "",
@@ -99,7 +101,8 @@ def reset_runtime():
         demo_anim_timer_registered, \
         current_effective_aabb, \
         graph_interaction_time, \
-        graph_sync_suppressed_until
+        graph_sync_suppressed_until, \
+        proxy_sync_suppressed_until
     native_module = None
     renderer = None
     renderer_key = None
@@ -112,6 +115,7 @@ def reset_runtime():
     scene_bounds_cache.clear()
     generated_scene_cache.clear()
     generated_scene_path_hashes.clear()
+    generated_scene_last_compile.clear()
     generated_scene_dirty.clear()
     dynamic_aabb_state.clear()
     last_error_message = ""
@@ -121,6 +125,7 @@ def reset_runtime():
     current_effective_aabb = None
     graph_interaction_time = 0.0
     graph_sync_suppressed_until = 0.0
+    proxy_sync_suppressed_until = 0.0
     last_render_stats.update(
         {
             "scene_name": "",
