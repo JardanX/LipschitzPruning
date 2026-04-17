@@ -52,7 +52,7 @@ def _mark_record_dirty(record, context):
             if tree is not None and record_id:
                 node = sdf_nodes.find_primitive_node(tree, record_id)
             if node is not None:
-                sdf_nodes.mark_tree_transform_dirty(tree)
+                sdf_nodes.mark_tree_transform_dirty(tree, record_id)
                 try:
                     sdf_proxies.sync_primitive_node_update(scene, node, context)
                 except Exception:
@@ -84,15 +84,8 @@ def _reset_bounds_state():
 def _sync_auto_bounds(settings):
     if not getattr(settings, "use_scene_bounds", False):
         return
-    if getattr(settings, "use_sdf_nodes", False):
-        try:
-            tree = sdf_nodes.get_selected_tree(settings, create=False, ensure=False)
-        except Exception:
-            return
-        scene_cache = bridge.graph_scene_cache(settings)
-        metadata = scene_cache["metadata"] if scene_cache is not None else None
-    else:
-        metadata = bridge.safe_scene_metadata(bridge.resolve_scene_path(settings))
+    scene_cache = bridge.graph_scene_cache(settings)
+    metadata = scene_cache["metadata"] if scene_cache is not None else None
     if metadata is None:
         return
     settings.aabb_min = metadata["aabb_min"]
@@ -101,6 +94,16 @@ def _sync_auto_bounds(settings):
 
 def _update_template_scene(self, context):
     _reset_bounds_state()
+    scene = None if context is None else getattr(context, "scene", None)
+    if scene is not None:
+        try:
+            sdf_nodes.ensure_template_scene_tree(scene, self, self.template_scene)
+        except Exception as exc:
+            bridge.set_last_error(str(exc))
+            return
+        if not self.use_sdf_nodes:
+            self.use_sdf_nodes = True
+            return
     _sync_auto_bounds(self)
     runtime.last_error_message = ""
     _redraw_viewports(context)

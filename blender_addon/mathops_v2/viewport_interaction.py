@@ -183,10 +183,11 @@ def _selection_center(scene, targets=None):
 def _apply_target_locations(scene, updates):
     changed = False
     targets = []
-    for kind, target, value in updates:
-        _set_location_on_target(kind, target, value)
-        targets.append((kind, target))
-        changed = True
+    with sdf_nodes.deferred_graph_updates(bpy.context, flush=False):
+        for kind, target, value in updates:
+            _set_location_on_target(kind, target, value)
+            targets.append((kind, target))
+            changed = True
     if changed:
         _mark_scene_dirty(scene, targets)
 
@@ -207,6 +208,7 @@ def _mark_scene_dirty(scene, targets=None):
             target_list.append((kind, target))
 
     node_targets = []
+    node_ids = []
     needs_full_sync = False
     seen = set()
     for kind, target in target_list:
@@ -218,6 +220,7 @@ def _mark_scene_dirty(scene, targets=None):
             continue
         seen.add(node_id)
         node_targets.append(target)
+        node_ids.append(node_id)
 
     if not needs_full_sync and node_targets:
         for node in node_targets:
@@ -231,7 +234,7 @@ def _mark_scene_dirty(scene, targets=None):
         if needs_full_sync or not node_targets:
             sdf_nodes.mark_tree_dirty(tree)
         else:
-            sdf_nodes.mark_tree_transform_dirty(tree)
+            sdf_nodes.mark_tree_transform_dirty(tree, node_ids)
     if needs_full_sync or not node_targets:
         try:
             sdf_proxies.sync_from_graph(bpy.context)
@@ -261,7 +264,8 @@ def _set_target_rotation(scene, value):
     kind, target = _active_target(scene)
     if kind is None:
         return
-    _set_rotation_on_target(kind, target, value)
+    with sdf_nodes.deferred_graph_updates(bpy.context, flush=False):
+        _set_rotation_on_target(kind, target, value)
     _mark_scene_dirty(scene, ((kind, target),))
 
 
@@ -274,7 +278,8 @@ def _set_target_scale(scene, value):
     kind, target = _active_target(scene)
     if kind is None:
         return
-    _set_scale_on_target(kind, target, value)
+    with sdf_nodes.deferred_graph_updates(bpy.context, flush=False):
+        _set_scale_on_target(kind, target, value)
     _mark_scene_dirty(scene, ((kind, target),))
 
 

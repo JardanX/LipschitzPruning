@@ -1,3 +1,4 @@
+import os
 import time
 
 
@@ -37,6 +38,7 @@ generated_scene_path_hashes = {}
 generated_scene_last_compile = {}
 generated_scene_dirty = set()
 scene_transform_dirty = set()
+scene_transform_dirty_records = {}
 dynamic_aabb_state = {}
 compat_panels = []
 debug_log_buffer = []
@@ -66,10 +68,26 @@ last_render_stats = {
     "background_color": (0.05, 0.05, 0.05),
     "background_alpha": 1.0,
 }
-SLOW_DEBUG_MS = 2.0
+_VERBOSE_LOG_VALUE = os.environ.get("MATHOPS_V2_VERBOSE_LOG", "").strip().lower()
+VERBOSE_DEBUG_LOG = _VERBOSE_LOG_VALUE in {"1", "true", "yes", "on"}
+SLOW_DEBUG_MS = float(os.environ.get("MATHOPS_V2_CRITICAL_DEBUG_MS", "5.0"))
 
 
-def debug_log(message: str):
+def _should_emit_debug(message: str, force: bool = False) -> bool:
+    if force or VERBOSE_DEBUG_LOG:
+        return True
+    lowered = str(message).lower()
+    return (
+        lowered.startswith("error:")
+        or " failed" in lowered
+        or lowered.endswith("failed")
+        or "overflow" in lowered
+    )
+
+
+def debug_log(message: str, force: bool = False):
+    if not _should_emit_debug(message, force=force):
+        return
     timestamp = time.strftime("%H:%M:%S")
     line = f"[{timestamp}] {message}"
     print(f"[MathOPS-v2] {line}")
@@ -81,7 +99,7 @@ def debug_log(message: str):
 def debug_slow(message: str, duration_ms: float, threshold_ms: float = SLOW_DEBUG_MS):
     if float(duration_ms) < float(threshold_ms):
         return
-    debug_log(f"{message}: {duration_ms:.2f}ms")
+    debug_log(f"{message}: {duration_ms:.2f}ms", force=True)
 
 
 def clear_debug_log():
@@ -127,6 +145,7 @@ def reset_runtime():
     generated_scene_last_compile.clear()
     generated_scene_dirty.clear()
     scene_transform_dirty.clear()
+    scene_transform_dirty_records.clear()
     dynamic_aabb_state.clear()
     last_error_message = ""
     demo_anim_running = False

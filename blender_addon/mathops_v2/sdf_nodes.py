@@ -119,7 +119,7 @@ def _graph_updated(_owner=None, context=None):
 
         if owner_scene is not None and is_primitive_node(_owner):
             if sdf_proxies.sync_primitive_node_update(owner_scene, _owner, context):
-                mark_tree_transform_dirty(tree)
+                mark_tree_transform_dirty(tree, primitive_node_token(_owner))
                 runtime.debug_slow(
                     f"Graph update primitive-fast tree={getattr(tree, 'name', 'Unknown')}",
                     (time.perf_counter() - start) * 1000.0,
@@ -138,15 +138,31 @@ def _graph_updated(_owner=None, context=None):
 
 def mark_tree_dirty(tree):
     if getattr(tree, "bl_idname", "") == TREE_IDNAME:
-        runtime.generated_scene_dirty.add(tree.name_full)
+        cache_key = tree.name_full
+        runtime.generated_scene_dirty.add(cache_key)
+        runtime.scene_transform_dirty.discard(cache_key)
+        runtime.scene_transform_dirty_records.pop(cache_key, None)
 
     runtime.last_error_message = ""
     runtime.graph_interaction_time = time.perf_counter()
 
 
-def mark_tree_transform_dirty(tree):
+def mark_tree_transform_dirty(tree, record_id=None):
     if getattr(tree, "bl_idname", "") == TREE_IDNAME:
-        runtime.scene_transform_dirty.add(tree.name_full)
+        cache_key = tree.name_full
+        runtime.scene_transform_dirty.add(cache_key)
+        if record_id is not None:
+            if isinstance(record_id, (list, tuple, set)):
+                record_ids = record_id
+            else:
+                record_ids = (record_id,)
+            dirty_records = runtime.scene_transform_dirty_records.setdefault(
+                cache_key, set()
+            )
+            for item in record_ids:
+                item_id = str(item or "")
+                if item_id:
+                    dirty_records.add(item_id)
 
     runtime.graph_interaction_time = time.perf_counter()
 
@@ -1763,6 +1779,122 @@ def _json_matrix_to_world_to_local(matrix_values):
     )
 
 
+def _template_scene_dir() -> Path:
+    addon_dir = Path(__file__).resolve().parent
+    repo_dir = addon_dir.parent.parent
+    for candidate in (addon_dir / "scenes", repo_dir / "scenes"):
+        if candidate.is_dir():
+            return candidate
+    return repo_dir / "scenes"
+
+
+def _template_scene_payload(template_id: str):
+    template_name = runtime.TEMPLATE_FILES.get(str(template_id), "")
+    if not template_name:
+        raise RuntimeError(f"Unknown template scene '{template_id}'")
+    template_path = _template_scene_dir() / template_name
+    return json.loads(template_path.read_text(encoding="utf-8"))
+
+
+def _payload_to_blender_matrix(matrix_values):
+    world_to_local = _json_matrix_to_world_to_local(
+        matrix_values or list(_IDENTITY_MATRIX_3X4)
+    )
+    renderer_matrix = world_to_local.inverted_safe()
+    return _RENDERER_TO_BLENDER_BASIS @ renderer_matrix @ _BLENDER_TO_RENDERER_BASIS
+
+
+def _apply_payload_primitive_node(node, node_payload):
+    blender_matrix = _payload_to_blender_matrix(node_payload.get("matrix"))
+    location, rotation, scale = blender_matrix.decompose()
+    node.sdf_location = tuple(float(v) for v in location)
+    node.sdf_rotation = tuple(float(v) for v in rotation.to_euler("XYZ"))
+    node.sdf_scale = tuple(max(0.001, abs(float(v))) for v in scale)
+    node.color = tuple(float(v) for v in node_payload.get("color", (0.8, 0.8, 0.8)))
+
+    primitive_type = str(node_payload.get("primitiveType", "sphere"))
+    if primitive_type == "sphere":
+        node.radius = float(node_payload.get("radius", 0.5))
+        return
+    if primitive_type == "box":
+        node.size = tuple(float(v) for v in node_payload.get("sides", (1.0, 1.0, 1.0)))
+        bevel = node_payload.get("bevel", (0.0, 0.0, 0.0, 0.0))
+        node.bevel = max(0.0, float(bevel[0] if bevel else 0.0))
+        return
+    node.radius = float(node_payload.get("radius", 0.35))
+    node.height = float(node_payload.get("height", 1.0))
+
+
+def _import_payload_to_tree(tree, node_payload, x_loc=-260.0, y_loc=0.0):
+    if not isinstance(node_payload, dict):
+        raise RuntimeError("Template payload node must be a dictionary")
+
+    node_type = str(node_payload.get("nodeType", ""))
+    if node_type == "primitive":
+        primitive_type = str(node_payload.get("primitiveType", "sphere"))
+        node_idname = {
+            "sphere": SPHERE_NODE_IDNAME,
+            "box": BOX_NODE_IDNAME,
+            "cylinder": CYLINDER_NODE_IDNAME,
+            "cone": CONE_NODE_IDNAME,
+        }.get(primitive_type)
+        if node_idname is None:
+            raise RuntimeError(f"Unsupported template primitive '{primitive_type}'")
+        node = tree.nodes.new(node_idname)
+        node.location = (x_loc, y_loc)
+        _apply_payload_primitive_node(node, node_payload)
+        return node, 1
+
+    if node_type != "binaryOperator":
+        raise RuntimeError(f"Unsupported template node type '{node_type}'")
+
+    left_payload = node_payload.get("leftChild")
+    right_payload = node_payload.get("rightChild")
+    left_count = max(1, _count_payload_nodes(left_payload))
+    right_count = max(1, _count_payload_nodes(right_payload))
+    child_gap = 120.0 * max(1, min(12, left_count + right_count))
+    child_x = x_loc - 260.0
+
+    left_node, _left_span = _import_payload_to_tree(
+        tree, left_payload, child_x, y_loc + child_gap * 0.5
+    )
+    right_node, _right_span = _import_payload_to_tree(
+        tree, right_payload, child_x, y_loc - child_gap * 0.5
+    )
+
+    node = tree.nodes.new(CSG_NODE_IDNAME)
+    node.location = (x_loc, y_loc)
+    node.blend_mode = str(node_payload.get("blendMode", "union"))
+    node.blend_radius = max(0.0, float(node_payload.get("blendRadius", 0.0)))
+    tree.links.new(left_node.outputs[0], node.inputs[0])
+    tree.links.new(right_node.outputs[0], node.inputs[1])
+    return node, left_count + right_count + 1
+
+
+def ensure_template_scene_tree(scene, settings=None, template_id=None):
+    if settings is None:
+        settings = scene.mathops_v2_settings
+    template_id = str(template_id or getattr(settings, "template_scene", "TREES"))
+    payload = _template_scene_payload(template_id)
+    payload, _bounds, _union_terms = _optimize_payload(payload)
+    tree = ensure_scene_tree(scene, settings)
+
+    with deferred_graph_updates(flush=False):
+        output_node = _ensure_output_node(tree)
+        for link in list(tree.links):
+            tree.links.remove(link)
+        for node in list(tree.nodes):
+            if node != output_node:
+                tree.nodes.remove(node)
+        root_node, _node_count = _import_payload_to_tree(tree, payload)
+        output_node.location = (40.0, 0.0)
+        tree.links.new(root_node.outputs[0], output_node.inputs[0])
+
+    mark_tree_dirty(tree)
+    _set_selected_tree(settings, tree, scene)
+    return tree
+
+
 def _primitive_local_corners(node_payload):
     primitive_type = node_payload.get("primitiveType")
     if primitive_type == "sphere":
@@ -1928,6 +2060,42 @@ def _record_compile_state(record):
         "height": round(float(record.height), 6),
         "bevel": round(float(record.bevel), 6),
     }
+
+
+def _compile_scene_store_item(record):
+    record_id = str(getattr(record, "primitive_id", "") or "")
+    record_state = _record_compile_state(record)
+    primitive_type = record_state["type"]
+    if primitive_type not in {"sphere", "box", "cylinder", "cone"}:
+        return None
+
+    blender_matrix = Matrix.LocRotScale(
+        Vector(record.location),
+        Euler(record.rotation, "XYZ"),
+        Vector(record.scale),
+    )
+    renderer_matrix = _blender_to_renderer_matrix(blender_matrix)
+    world_to_local = renderer_matrix.inverted_safe()
+    payload = {
+        "nodeType": "primitive",
+        "nodeId": record_id,
+        "primitiveType": primitive_type,
+        "color": [float(v) for v in record.color],
+        "round_x": 0.0,
+        "round_y": 0.0,
+        "matrix": _matrix_to_json_values(world_to_local),
+    }
+    if primitive_type == "sphere":
+        payload["radius"] = float(record.radius)
+    elif primitive_type == "box":
+        bevel = max(0.0, float(record.bevel))
+        payload["sides"] = [float(v) for v in record.size]
+        payload["bevel"] = [bevel, bevel, bevel, bevel]
+    else:
+        payload["radius"] = float(record.radius)
+        payload["height"] = float(record.height)
+    bounds = _primitive_payload_bounds(payload)
+    return record_id, record_state, payload, bounds
 
 
 def _is_exact_union_payload(node_payload):
@@ -2402,58 +2570,155 @@ def _blender_to_renderer_matrix(matrix):
     return _BLENDER_TO_RENDERER_BASIS @ matrix @ _RENDERER_TO_BLENDER_BASIS
 
 
-def _scene_store_items(scene, cached_item_cache=None):
+def _scene_store_items(scene, cached_item_cache=None, dirty_record_ids=None):
     records = getattr(scene, "mathops_v2_primitives", ())
     if len(records) == 0:
         return None, None
+    dirty_ids = None
+    if dirty_record_ids:
+        dirty_ids = {
+            str(record_id or "") for record_id in dirty_record_ids if record_id
+        }
     items = []
     item_cache = {}
     for record in records:
         record_id = str(record.primitive_id)
-        record_state = _record_compile_state(record)
-        primitive_type = record_state["type"]
-        if primitive_type not in {"sphere", "box", "cylinder", "cone"}:
-            return None, None
         cached_entry = (
             None if cached_item_cache is None else cached_item_cache.get(record_id)
         )
-        if cached_entry is not None and cached_entry.get("state") == record_state:
+        if (
+            cached_entry is not None
+            and dirty_ids is not None
+            and record_id not in dirty_ids
+        ):
             payload = cached_entry["payload"]
             bounds = cached_entry["bounds"]
         else:
-            blender_matrix = Matrix.LocRotScale(
-                Vector(record.location),
-                Euler(record.rotation, "XYZ"),
-                Vector(record.scale),
-            )
-            renderer_matrix = _blender_to_renderer_matrix(blender_matrix)
-            world_to_local = renderer_matrix.inverted_safe()
-            payload = {
-                "nodeType": "primitive",
-                "nodeId": record_id,
-                "primitiveType": primitive_type,
-                "color": [float(v) for v in record.color],
-                "round_x": 0.0,
-                "round_y": 0.0,
-                "matrix": _matrix_to_json_values(world_to_local),
-            }
-            if primitive_type == "sphere":
-                payload["radius"] = float(record.radius)
-            elif primitive_type == "box":
-                bevel = max(0.0, float(record.bevel))
-                payload["sides"] = [float(v) for v in record.size]
-                payload["bevel"] = [bevel, bevel, bevel, bevel]
+            compiled = _compile_scene_store_item(record)
+            if compiled is None:
+                return None, None
+            _compiled_id, record_state, next_payload, next_bounds = compiled
+            if cached_entry is not None and cached_entry.get("state") == record_state:
+                payload = cached_entry["payload"]
+                bounds = cached_entry["bounds"]
             else:
-                payload["radius"] = float(record.radius)
-                payload["height"] = float(record.height)
-            bounds = _primitive_payload_bounds(payload)
+                payload = next_payload
+                bounds = next_bounds
         items.append((record_id, payload, bounds))
         item_cache[record_id] = {
-            "state": record_state,
+            "state": (
+                cached_entry["state"]
+                if cached_entry is not None
+                and dirty_ids is not None
+                and record_id not in dirty_ids
+                else record_state
+            ),
             "payload": payload,
             "bounds": bounds,
         }
     return items, item_cache
+
+
+def _payload_leaf_map(node_payload, leaves=None):
+    if leaves is None:
+        leaves = {}
+    if not isinstance(node_payload, dict):
+        return leaves
+    if node_payload.get("nodeType") == "primitive":
+        node_id = str(node_payload.get("nodeId", "") or "")
+        if node_id:
+            leaves[node_id] = node_payload
+        return leaves
+    _payload_leaf_map(node_payload.get("leftChild"), leaves)
+    _payload_leaf_map(node_payload.get("rightChild"), leaves)
+    return leaves
+
+
+def _item_cache_bounds(item_cache):
+    bounds = None
+    for entry in item_cache.values():
+        bounds = _union_bounds(bounds, entry.get("bounds"))
+    return bounds
+
+
+def _content_revision_hash(topology_hash, revision):
+    return f"{str(topology_hash or 'scene')}::r{int(revision)}"
+
+
+def _ensure_scene_cache_runtime_data(scene_cache):
+    if not isinstance(scene_cache, dict):
+        return
+    if "_content_revision" not in scene_cache:
+        scene_cache["_content_revision"] = 0
+    if not isinstance(scene_cache.get("_payload_leaf_cache"), dict):
+        scene_cache["_payload_leaf_cache"] = _payload_leaf_map(
+            scene_cache.get("payload")
+        )
+
+
+def _patch_cached_proxy_payload(scene, cached, dirty_record_ids):
+    if not dirty_record_ids or not isinstance(cached, dict):
+        return False
+    payload = cached.get("payload")
+    item_cache = cached.get("item_cache")
+    if not isinstance(payload, dict) or not isinstance(item_cache, dict):
+        return False
+
+    _ensure_scene_cache_runtime_data(cached)
+    leaf_cache = cached.get("_payload_leaf_cache")
+    if not isinstance(leaf_cache, dict):
+        return False
+
+    record_lookup = {
+        str(getattr(record, "primitive_id", "") or ""): record
+        for record in getattr(scene, "mathops_v2_primitives", ())
+    }
+    updated = False
+    for record_id in dirty_record_ids:
+        record_key = str(record_id or "")
+        if not record_key:
+            continue
+        record = record_lookup.get(record_key)
+        leaf_payload = leaf_cache.get(record_key)
+        if record is None or leaf_payload is None:
+            return False
+        compiled = _compile_scene_store_item(record)
+        if compiled is None:
+            return False
+        _compiled_id, record_state, next_payload, next_bounds = compiled
+        leaf_payload.clear()
+        leaf_payload.update(next_payload)
+        item_cache[record_key] = {
+            "state": record_state,
+            "payload": leaf_payload,
+            "bounds": next_bounds,
+        }
+        updated = True
+
+    if not updated:
+        return False
+
+    bounds = _item_cache_bounds(item_cache)
+    if bounds is None:
+        bounds = ((-1.0, -1.0, -1.0), (1.0, 1.0, 1.0))
+    aabb_min = [float(v) for v in bounds[0]]
+    aabb_max = [float(v) for v in bounds[1]]
+    payload["aabb_min"] = aabb_min
+    payload["aabb_max"] = aabb_max
+    metadata = cached.get("metadata") or {}
+    metadata["aabb_min"] = tuple(aabb_min)
+    metadata["aabb_max"] = tuple(aabb_max)
+    if metadata.get("node_count") is None:
+        metadata["node_count"] = _count_payload_nodes(payload)
+    cached["metadata"] = metadata
+    cached["item_cache"] = item_cache
+    cached["json"] = None
+    cached["json_hash"] = None
+    cached.pop("file_hash", None)
+    revision = int(cached.get("_content_revision", 0)) + 1
+    cached["_content_revision"] = revision
+    cached["hash"] = _content_revision_hash(cached.get("topology_hash"), revision)
+    return True
 
 
 def _proxy_scene_fast_path_supported(scene, tree):
@@ -2483,9 +2748,13 @@ def _proxy_scene_fast_path_supported(scene, tree):
     return primitive_count == len(record_ids)
 
 
-def _proxy_scene_items(scene, tree, cached_item_cache=None):
+def _proxy_scene_items(scene, tree, cached_item_cache=None, dirty_record_ids=None):
     if _proxy_scene_fast_path_supported(scene, tree):
-        store_items, item_cache = _scene_store_items(scene, cached_item_cache)
+        store_items, item_cache = _scene_store_items(
+            scene,
+            cached_item_cache,
+            dirty_record_ids=dirty_record_ids,
+        )
         if store_items is not None:
             return store_items, item_cache
 
@@ -2560,12 +2829,16 @@ def _proxy_scene_items(scene, tree, cached_item_cache=None):
     return build_items(), None
 
 
-def _compile_proxy_csg_union_payload(scene, tree, cached=None):
+def _compile_proxy_csg_union_payload(scene, tree, cached=None, dirty_record_ids=None):
     if not _is_pure_proxy_csg_union_tree(tree):
         return None
 
     cached_item_cache = None if cached is None else cached.get("item_cache")
-    items, item_cache = _scene_store_items(scene, cached_item_cache)
+    items, item_cache = _scene_store_items(
+        scene,
+        cached_item_cache,
+        dirty_record_ids=dirty_record_ids,
+    )
     if not items:
         return None
     item_map = {proxy_id: (payload, bounds) for proxy_id, payload, bounds in items}
@@ -2637,9 +2910,14 @@ def _compile_proxy_csg_union_payload(scene, tree, cached=None):
     }
 
 
-def _compile_proxy_scene_payload(scene, tree, cached=None):
+def _compile_proxy_scene_payload(scene, tree, cached=None, dirty_record_ids=None):
     cached_item_cache = None if cached is None else cached.get("item_cache")
-    items, item_cache = _proxy_scene_items(scene, tree, cached_item_cache)
+    items, item_cache = _proxy_scene_items(
+        scene,
+        tree,
+        cached_item_cache,
+        dirty_record_ids=dirty_record_ids,
+    )
     if not items:
         return None
     item_map = {proxy_id: (payload, bounds) for proxy_id, payload, bounds in items}
@@ -2693,18 +2971,39 @@ def ensure_compiled_scene_cache(settings, create=False):
     scene_path_key = str(scene_path.resolve())
     cache_key = tree.name_full
     cached = runtime.generated_scene_cache.get(cache_key)
+    dirty_record_ids = runtime.scene_transform_dirty_records.pop(cache_key, None)
 
     if cache_key in runtime.scene_transform_dirty:
         runtime.scene_transform_dirty.discard(cache_key)
         runtime.generated_scene_dirty.discard(cache_key)
         if cached is not None:
             scene = _owner_scene(settings)
+            if scene is not None and _patch_cached_proxy_payload(
+                scene, cached, dirty_record_ids
+            ):
+                _ensure_scene_cache_runtime_data(cached)
+                runtime.generated_scene_cache[cache_key] = cached
+                runtime.generated_scene_last_compile[cache_key] = time.perf_counter()
+                runtime.generated_scene_path_hashes[scene_path_key] = cached["hash"]
+                runtime.debug_slow(
+                    f"Transform-fast tree={tree.name_full}",
+                    (time.perf_counter() - start) * 1000.0,
+                )
+                return cached
             proxy_compiled = None
             if scene is not None:
-                proxy_compiled = _compile_proxy_scene_payload(scene, tree, cached)
+                proxy_compiled = _compile_proxy_scene_payload(
+                    scene,
+                    tree,
+                    cached,
+                    dirty_record_ids=dirty_record_ids,
+                )
                 if proxy_compiled is None:
                     proxy_compiled = _compile_proxy_csg_union_payload(
-                        scene, tree, cached
+                        scene,
+                        tree,
+                        cached,
+                        dirty_record_ids=dirty_record_ids,
                     )
             if proxy_compiled is not None:
                 payload = proxy_compiled["payload"]
@@ -2724,7 +3023,8 @@ def ensure_compiled_scene_cache(settings, create=False):
                         else _count_payload_nodes(payload)
                     ),
                 }
-                scene_hash = cached.get("hash", "") + f"t{time.perf_counter()}"
+                revision = int(cached.get("_content_revision", 0)) + 1
+                scene_hash = _content_revision_hash(static_hash, revision)
                 cached = {
                     "hash": scene_hash,
                     "path": str(scene_path),
@@ -2736,7 +3036,9 @@ def ensure_compiled_scene_cache(settings, create=False):
                     "topology_hash": static_hash,
                     "proxy_order": proxy_order,
                     "item_cache": proxy_compiled.get("item_cache"),
+                    "_content_revision": revision,
                 }
+                _ensure_scene_cache_runtime_data(cached)
                 runtime.generated_scene_cache[cache_key] = cached
                 runtime.generated_scene_last_compile[cache_key] = time.perf_counter()
                 runtime.generated_scene_path_hashes[scene_path_key] = scene_hash
@@ -2825,9 +3127,11 @@ def ensure_compiled_scene_cache(settings, create=False):
         "item_cache": None
         if proxy_compiled is None
         else proxy_compiled.get("item_cache"),
+        "_content_revision": 0,
     }
     if file_hash == scene_hash:
         cached["file_hash"] = file_hash
+    _ensure_scene_cache_runtime_data(cached)
     runtime.generated_scene_cache[cache_key] = cached
     runtime.generated_scene_last_compile[cache_key] = time.perf_counter()
     runtime.generated_scene_path_hashes[scene_path_key] = scene_hash

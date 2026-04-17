@@ -388,7 +388,7 @@ def _set_target_matrix(kind, target, matrix):
         _node_from_blender_matrix(target, matrix)
 
 
-def _mark_selection_dirty(scene):
+def _mark_selection_dirty(scene, record_ids=None):
     settings = getattr(scene, "mathops_v2_settings", None)
     if settings is None:
         return
@@ -397,7 +397,7 @@ def _mark_selection_dirty(scene):
     except Exception:
         tree = None
     if tree is not None:
-        sdf_nodes.mark_tree_transform_dirty(tree)
+        sdf_nodes.mark_tree_transform_dirty(tree, record_ids)
 
 
 def _sync_selected_targets_from_handle(scene, handle):
@@ -409,9 +409,19 @@ def _sync_selected_targets_from_handle(scene, handle):
     if _matrix_signature(base_matrix) == _matrix_signature(handle_matrix):
         return False
     delta_matrix = handle_matrix @ base_matrix.inverted_safe()
-    for kind, target in targets:
-        _set_target_matrix(kind, target, delta_matrix @ _target_matrix(kind, target))
-    _mark_selection_dirty(scene)
+    record_ids = []
+    with sdf_nodes.deferred_graph_updates(bpy.context, flush=False):
+        for kind, target in targets:
+            _set_target_matrix(
+                kind, target, delta_matrix @ _target_matrix(kind, target)
+            )
+            if kind == "node":
+                record_ids.append(sdf_nodes.primitive_node_token(target))
+            elif kind == "record":
+                record_id = str(getattr(target, "primitive_id", "") or "")
+                if record_id:
+                    record_ids.append(record_id)
+    _mark_selection_dirty(scene, record_ids)
     return True
 
 
@@ -1734,8 +1744,7 @@ def _sync_proxy_object_from_object(scene, tree, obj, node_lookup):
         ):
             _sync_record_from_proxy(scene, obj, None)
             _queue_pending_record_node_sync(scene, _proxy_record_id(obj))
-            _mark_selection_dirty(scene)
-            sdf_nodes.mark_tree_transform_dirty(tree)
+            _mark_selection_dirty(scene, (_proxy_record_id(obj),))
             node_state = (
                 previous.get("node_snapshot")
                 if previous is not None
@@ -1994,12 +2003,13 @@ def _proxy_sync_depsgraph_post(scene, depsgraph):
                     _record_from_object(record, active)
                     if _record_state(record) != before:
                         sdf_nodes.mark_tree_transform_dirty(
-                            _ensure_scene_tree(scene, ensure=False)
+                            _ensure_scene_tree(scene, ensure=False),
+                            record_id,
                         )
         return
 
     if _native_proxy_duplicate_transform_active(scene):
-        _schedule_proxy_sync(0.05)
+        _sync_proxy_objects((scene,))
         return
     updated_objects = []
     deleted_proxy = False
@@ -2141,12 +2151,17 @@ def _deferred_proxy_sync():
         getattr(runtime, "proxy_sync_suppressed_until", 0.0)
     ):
         return 0.05
+    duplicate_active = False
     for scene in bpy.data.scenes:
         if _native_proxy_duplicate_transform_active(scene):
-            return 0.05
+            _sync_proxy_objects((scene,))
+            duplicate_active = True
+            continue
         if _proxy_transform_active(scene):
             return 0.05
         _flush_pending_record_node_sync(scene)
+    if duplicate_active:
+        return 0.05
     _sync_proxy_objects()
     sync_from_graph()
     return None

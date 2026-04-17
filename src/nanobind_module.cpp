@@ -148,6 +148,13 @@ float primitive_distance_scale(const glm::mat4& world_to_prim)
     return max_inv_scale > 0.0f ? 1.0f / max_inv_scale : 1.0f;
 }
 
+glm::mat4 payload_matrix_to_glm(const nb::list& values);
+void load_payload_dict(
+    const nb::dict& payload,
+    std::vector<CSGNode>& nodes,
+    glm::vec3& aabb_min,
+    glm::vec3& aabb_max);
+
 glm::vec3 to_vec3(const std::vector<float>& value) {
     if (value.size() != 3) {
         throw std::runtime_error("camera vectors must contain exactly 3 floats");
@@ -211,6 +218,15 @@ public:
         upload_scene(nodes, aabb_min, aabb_max);
     }
 
+    void load_scene_payload(const nb::dict& scene_payload) {
+        ensure_open();
+        std::vector<CSGNode> nodes;
+        glm::vec3 aabb_min;
+        glm::vec3 aabb_max;
+        load_payload_dict(scene_payload, nodes, aabb_min, aabb_max);
+        upload_scene(nodes, aabb_min, aabb_max);
+    }
+
     void configure(
         bool culling_enabled,
         bool compute_culling,
@@ -245,7 +261,7 @@ public:
     {
         ensure_open();
         if (!scene_loaded) {
-            throw std::runtime_error("load_scene_file() or load_scene_json() must be called before render_rgba()");
+            throw std::runtime_error("load_scene_file(), load_scene_json(), or load_scene_payload() must be called before render_rgba()");
         }
 
         timings = ctx.render(to_vec3(camera_position), to_vec3(camera_target), to_vec3(camera_up), fov_y, !interactive);
@@ -883,6 +899,7 @@ NB_MODULE(lipschitz_pruning_native, m) {
             nb::arg("num_samples") = 1,
             nb::arg("gamma") = 1.2f)
         .def("load_scene_file", &OffscreenRenderer::load_scene_file, nb::arg("scene_path"))
+        .def("load_scene_payload", &OffscreenRenderer::load_scene_payload, nb::arg("scene_payload"))
         .def("load_scene_json", &OffscreenRenderer::load_scene_json, nb::arg("scene_json"))
         .def("close", &OffscreenRenderer::close)
         .def("configure", &OffscreenRenderer::configure,

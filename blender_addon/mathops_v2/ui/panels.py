@@ -173,13 +173,14 @@ class MATHOPS_V2_PT_scene(_MathOPSV2Panel, Panel):
                     scene_path = Path(scene_cache["path"])
                     metadata = scene_cache["metadata"]
         else:
-            scene_path = bridge.resolve_scene_path(settings)
-            metadata = bridge.safe_scene_metadata(scene_path)
+            scene_cache = bridge.graph_scene_cache(settings)
+            if scene_cache is not None:
+                scene_path = Path(scene_cache["path"])
+                metadata = scene_cache["metadata"]
 
         layout.prop(settings, "use_sdf_nodes")
-        if not settings.use_sdf_nodes:
-            layout.prop(settings, "template_scene", text="Template")
-        else:
+        layout.prop(settings, "template_scene", text="Template")
+        if settings.use_sdf_nodes:
             row = layout.row(align=True)
             row.label(
                 text=tree.name if tree is not None else "Pending", icon="NODETREE"

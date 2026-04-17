@@ -37,7 +37,7 @@ _COUNTERS_OLD_TO_NEW_BASE = 10
 _COUNTERS_STATUS = 20
 _COUNTERS_SIZE = 21
 _GRAPH_VIEWPORT_CULLING_MIN_NODES = 0
-_LIVE_GRAPH_PRUNING_INTERVAL = 0
+_LIVE_GRAPH_PRUNING_INTERVAL = 0.1
 
 _GL_SHADER_STORAGE_BARRIER_BIT = 0x2000
 _GL_BUFFER_UPDATE_BARRIER_BIT = 0x0200
@@ -2009,7 +2009,7 @@ class MathOPSV2GPUViewport:
                 )
 
         self._ensure_work_buffers(
-            self.scene_info["node_count"], bridge.grid_level(settings)
+            self.scene_info["node_count"], bridge.viewport_grid_level(settings)
         )
 
     def _reset_pruning_state(self):
@@ -2172,7 +2172,7 @@ class MathOPSV2GPUViewport:
         pruning_key = (
             self.scene_static_key,
             self.scene_key,
-            bridge.grid_level(settings),
+            bridge.viewport_grid_level(settings),
             tuple(round(float(v), 6) for v in aabb_min),
             tuple(round(float(v), 6) for v in aabb_max),
         )
@@ -2190,7 +2190,7 @@ class MathOPSV2GPUViewport:
 
         runtime.debug_log(f"Viewport pruning recompute: {scene_path.name}")
         start = time.perf_counter()
-        grid_level = bridge.grid_level(settings)
+        grid_level = bridge.viewport_grid_level(settings)
         while True:
             self._reset_pruning_state()
 
@@ -2396,7 +2396,7 @@ class MathOPSV2GPUViewport:
             int(width),
             int(height),
             int(self.scene_info["node_count"]),
-            1 << bridge.grid_level(settings),
+            1 << max(2, int(self.final_grid_level)),
         )
         params.ints1[:] = (
             {
@@ -2448,15 +2448,11 @@ class MathOPSV2GPUViewport:
             cache_start = time.perf_counter()
             scene_cache = bridge.graph_scene_cache(settings, create=True)
             cache_ms = (time.perf_counter() - cache_start) * 1000.0
-            scene_path = (
-                Path(scene_cache["path"])
-                if scene_cache is not None
-                else bridge.resolve_scene_path(settings, create=True)
-            )
-            if scene_cache is None and not scene_path.is_file():
+            if scene_cache is None:
                 if not runtime.last_error_message:
-                    bridge.set_last_error(f"Scene file not found: {scene_path}")
+                    bridge.set_last_error("Scene SDF graph is unavailable")
                 return False
+            scene_path = Path(scene_cache["path"])
 
             sync_start = time.perf_counter()
             self._sync_scene(scene_path, settings, scene_cache)

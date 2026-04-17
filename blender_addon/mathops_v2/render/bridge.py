@@ -20,6 +20,7 @@ _DYNAMIC_AABB_SHRINK_PAD = 0.03
 _DYNAMIC_AABB_SHRINK_INTERVAL = 0.75
 _DYNAMIC_AABB_SHRINK_THRESHOLD = 1.05
 _LIVE_GRAPH_CULLING_GRACE = 0.3
+_LIVE_GRAPH_INTERACTION_GRID_LEVEL = 2
 
 
 def addon_dir() -> Path:
@@ -136,6 +137,10 @@ def load_native_module():
                         raise ImportError(
                             "Native module is missing required attributes: "
                             + ", ".join(missing_attrs)
+                        )
+                    if not hasattr(native_module.Renderer, "load_scene_payload"):
+                        raise ImportError(
+                            "Native module renderer is missing required method: load_scene_payload"
                         )
                     runtime.debug_log(
                         f"Native module loaded from {cached_module_path.name}"
@@ -254,6 +259,17 @@ def grid_level(settings) -> int:
     return value
 
 
+def viewport_grid_level(settings) -> int:
+    value = grid_level(settings)
+    if not getattr(settings, "use_sdf_nodes", False):
+        return value
+    if not bool(getattr(settings, "culling_enabled", False)):
+        return value
+    if live_graph_culling_enabled(settings):
+        return value
+    return min(value, _LIVE_GRAPH_INTERACTION_GRID_LEVEL)
+
+
 def shader_dir(settings) -> str:
     return (
         bpy.path.abspath(settings.shader_dir)
@@ -287,7 +303,15 @@ def resolve_scene_path(settings, strict=False, create=False) -> Path:
 
 def graph_scene_cache(settings, create=False):
     if not getattr(settings, "use_sdf_nodes", False):
-        return None
+        scene = sdf_nodes._owner_scene(settings)
+        if scene is None:
+            return None
+        try:
+            sdf_nodes.ensure_template_scene_tree(
+                scene, settings, getattr(settings, "template_scene", "TREES")
+            )
+        except Exception:
+            return None
     try:
         return sdf_nodes.ensure_compiled_scene_cache(settings, create=create)
     except Exception:
@@ -927,15 +951,11 @@ def render_rgba(
 ):
     settings = scene.mathops_v2_settings
     scene_cache = graph_scene_cache(settings, create=True)
-    scene_path = (
-        Path(scene_cache["path"])
-        if scene_cache is not None
-        else resolve_scene_path(settings, strict=True, create=True)
-    )
-    if scene_cache is None and not scene_path.is_file():
+    if scene_cache is None:
         if runtime.last_error_message:
             raise RuntimeError(runtime.last_error_message)
-        raise FileNotFoundError(f"Scene file not found: {scene_path}")
+        raise RuntimeError("Scene SDF graph is unavailable")
+    scene_path = Path(scene_cache["path"])
 
     if (
         camera_position is None
@@ -975,7 +995,7 @@ def render_rgba(
     if runtime.loaded_scene_key != scene_key:
         runtime.debug_log(f"Uploading scene data from {scene_path.name}")
         if scene_cache is not None:
-            renderer.load_scene_json(scene_cache_json(scene_cache))
+            renderer.load_scene_payload(scene_cache["payload"])
         else:
             renderer.load_scene_file(str(scene_path))
         runtime.loaded_scene_key = scene_key
