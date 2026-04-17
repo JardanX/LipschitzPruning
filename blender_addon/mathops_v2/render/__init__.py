@@ -1,1 +1,6 @@
-from .bridge import *  # noqa: F401,F403
+def register():
+    return None
+
+
+def unregister():
+    return None

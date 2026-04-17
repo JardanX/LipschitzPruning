@@ -1,178 +1,96 @@
-import os
-import time
+import hashlib
+import struct
 
 
 ENGINE_ID = "MATHOPS_V2"
+TREE_IDNAME = "MathOPSV2NodeTree"
+OUTPUT_NODE_IDNAME = "MathOPSV2OutputNode"
+OBJECT_NODE_IDNAME = "MathOPSV2ObjectNode"
+CSG_NODE_IDNAME = "MathOPSV2CSGNode"
 
-TEMPLATE_SCENES = (
-    ("TREES", "Trees", "trees.json", "Bundled tree template"),
-    ("MONUMENT", "Monument", "monument.json", "Bundled monument template"),
-    ("MOLECULE", "Molecule", "molecule.json", "Bundled molecule template"),
-)
+MAX_STACK = 256
+PRIMITIVE_TEXELS = 5
 
-TEMPLATE_FILES = {
-    identifier: filename
-    for identifier, _label, filename, _description in TEMPLATE_SCENES
-}
+BACKGROUND_COLOR = (0.035, 0.04, 0.05, 1.0)
 
-COMPAT_PANEL_NAMES = (
-    "RENDER_PT_context",
-    "RENDER_PT_dimensions",
-    "RENDER_PT_output",
-    "RENDER_PT_color_management",
-    "VIEWLAYER_PT_layer",
-)
-
-native_module = None
-native_module_dll_dirs = []
-renderer = None
-renderer_key = None
-loaded_scene_key = None
-gpu_viewport_enabled = False
-pruning_cache_key = None
-scene_metadata_cache = {}
-scene_payload_cache = {}
-scene_bounds_cache = {}
-generated_scene_cache = {}
-generated_scene_path_hashes = {}
-generated_scene_last_compile = {}
-generated_scene_dirty = set()
-scene_transform_dirty = set()
-scene_transform_dirty_records = {}
-dynamic_aabb_state = {}
-compat_panels = []
-debug_log_buffer = []
 last_error_message = ""
-demo_anim_running = False
-demo_anim_start_time = 0.0
-demo_anim_timer_registered = False
-current_effective_aabb = None
-graph_interaction_time = 0.0
-graph_sync_suppressed_until = 0.0
-proxy_sync_suppressed_until = 0.0
-last_render_stats = {
-    "scene_name": "",
-    "scene_path": "",
-    "node_count": 0,
-    "render_ms": 0.0,
-    "shader_ms": 0.0,
-    "upload_ms": 0.0,
-    "frame_ms": 0.0,
-    "tracing_ms": 0.0,
-    "culling_ms": 0.0,
-    "eval_grid_ms": 0.0,
-    "pruning_mem_gb": 0.0,
-    "tracing_mem_gb": 0.0,
-    "active_ratio": 0.0,
-    "tmp_ratio": 0.0,
-    "background_color": (0.05, 0.05, 0.05),
-    "background_alpha": 1.0,
-}
-_VERBOSE_LOG_VALUE = os.environ.get("MATHOPS_V2_VERBOSE_LOG", "").strip().lower()
-VERBOSE_DEBUG_LOG = _VERBOSE_LOG_VALUE in {"1", "true", "yes", "on"}
-SLOW_DEBUG_MS = float(os.environ.get("MATHOPS_V2_CRITICAL_DEBUG_MS", "5.0"))
 
 
-def _should_emit_debug(message: str, force: bool = False) -> bool:
-    if force or VERBOSE_DEBUG_LOG:
-        return True
-    lowered = str(message).lower()
-    return (
-        lowered.startswith("error:")
-        or " failed" in lowered
-        or lowered.endswith("failed")
-        or "overflow" in lowered
-    )
+def set_error(message: str) -> None:
+    global last_error_message
+    last_error_message = str(message or "")
 
 
-def debug_log(message: str, force: bool = False):
-    if not _should_emit_debug(message, force=force):
-        return
-    timestamp = time.strftime("%H:%M:%S")
-    line = f"[{timestamp}] {message}"
-    print(f"[MathOPS-v2] {line}")
-    debug_log_buffer.append(line)
-    if len(debug_log_buffer) > 80:
-        del debug_log_buffer[:-80]
-
-
-def debug_slow(message: str, duration_ms: float, threshold_ms: float = SLOW_DEBUG_MS):
-    if float(duration_ms) < float(threshold_ms):
-        return
-    debug_log(f"{message}: {duration_ms:.2f}ms", force=True)
-
-
-def clear_debug_log():
-    debug_log_buffer.clear()
-
-
-def reset_runtime():
-    global \
-        native_module, \
-        native_module_dll_dirs, \
-        renderer, \
-        renderer_key, \
-        loaded_scene_key, \
-        gpu_viewport_enabled, \
-        pruning_cache_key, \
-        compat_panels, \
-        last_error_message, \
-        demo_anim_running, \
-        demo_anim_start_time, \
-        demo_anim_timer_registered, \
-        current_effective_aabb, \
-        graph_interaction_time, \
-        graph_sync_suppressed_until, \
-        proxy_sync_suppressed_until
-    for handle in native_module_dll_dirs:
-        try:
-            handle.close()
-        except Exception:
-            pass
-    native_module = None
-    native_module_dll_dirs = []
-    renderer = None
-    renderer_key = None
-    loaded_scene_key = None
-    gpu_viewport_enabled = False
-    pruning_cache_key = None
-    compat_panels = []
-    scene_metadata_cache.clear()
-    scene_payload_cache.clear()
-    scene_bounds_cache.clear()
-    generated_scene_cache.clear()
-    generated_scene_path_hashes.clear()
-    generated_scene_last_compile.clear()
-    generated_scene_dirty.clear()
-    scene_transform_dirty.clear()
-    scene_transform_dirty_records.clear()
-    dynamic_aabb_state.clear()
+def clear_error() -> None:
+    global last_error_message
     last_error_message = ""
-    demo_anim_running = False
-    demo_anim_start_time = 0.0
-    demo_anim_timer_registered = False
-    current_effective_aabb = None
-    graph_interaction_time = 0.0
-    graph_sync_suppressed_until = 0.0
-    proxy_sync_suppressed_until = 0.0
-    last_render_stats.update(
-        {
-            "scene_name": "",
-            "scene_path": "",
-            "node_count": 0,
-            "render_ms": 0.0,
-            "shader_ms": 0.0,
-            "upload_ms": 0.0,
-            "frame_ms": 0.0,
-            "tracing_ms": 0.0,
-            "culling_ms": 0.0,
-            "eval_grid_ms": 0.0,
-            "pruning_mem_gb": 0.0,
-            "tracing_mem_gb": 0.0,
-            "active_ratio": 0.0,
-            "tmp_ratio": 0.0,
-            "background_color": (0.05, 0.05, 0.05),
-            "background_alpha": 1.0,
-        }
-    )
-    clear_debug_log()
+
+
+def scene_settings(scene):
+    return getattr(scene, "mathops_v2", None)
+
+
+def object_settings(obj):
+    try:
+        return getattr(obj, "mathops_v2_sdf", None)
+    except ReferenceError:
+        return None
+
+
+def is_sdf_proxy(obj) -> bool:
+    try:
+        settings = object_settings(obj)
+        return bool(obj and obj.type == "EMPTY" and settings and settings.enabled)
+    except ReferenceError:
+        return False
+
+
+def safe_pointer(rna) -> int:
+    try:
+        return 0 if rna is None else int(rna.as_pointer())
+    except ReferenceError:
+        return 0
+
+
+def normalize3(values):
+    x = float(values[0])
+    y = float(values[1])
+    z = float(values[2])
+    length_sq = (x * x) + (y * y) + (z * z)
+    if length_sq <= 1.0e-12:
+        return (0.57735, 0.57735, 0.57735)
+    inv_length = length_sq ** -0.5
+    return (x * inv_length, y * inv_length, z * inv_length)
+
+
+def tag_redraw(context=None) -> None:
+    try:
+        import bpy
+    except Exception:
+        return
+
+    windows = []
+    if context is not None:
+        window = getattr(context, "window", None)
+        if window is not None:
+            windows.append(window)
+    if not windows:
+        windows.extend(getattr(bpy.context.window_manager, "windows", ()))
+
+    for window in windows:
+        screen = getattr(window, "screen", None)
+        if screen is None:
+            continue
+        for area in screen.areas:
+            if area.type in {"VIEW_3D", "NODE_EDITOR", "PROPERTIES"}:
+                area.tag_redraw()
+
+
+def hash_compiled_rows(primitive_rows, instruction_rows) -> str:
+    digest = hashlib.sha1()
+    digest.update(struct.pack("<II", len(primitive_rows), len(instruction_rows)))
+    for row in primitive_rows:
+        digest.update(struct.pack("<4f", *[float(value) for value in row]))
+    for row in instruction_rows:
+        digest.update(struct.pack("<4f", *[float(value) for value in row]))
+    return digest.hexdigest()

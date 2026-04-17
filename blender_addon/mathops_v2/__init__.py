@@ -1,56 +1,32 @@
 bl_info = {
-    "name": "MathOPS-v2",
+    "name": "MathOPS V2",
     "author": "OpenCode",
-    "version": (0, 3, 0),
-    "blender": (4, 2, 0),
-    "location": "Render > MathOPS-v2",
+    "version": (0, 1, 0),
+    "blender": (5, 0, 0),
+    "location": "Render, Node Editor, Shift+A",
     "category": "Render",
-    "description": "Custom Blender render engine bridge for the MathOPS-v2 Vulkan renderer",
+    "description": "Simple SDF raymarcher with proxy empties and a custom SDF node graph",
 }
 
-from . import (
-    engine,
-    operators,
-    properties,
-    sdf_proxies,
-    runtime,
-    sdf_nodes,
-    viewport_interaction,
-    ui,
-)
-from .render import bridge, matcap
+from . import engine, nodes, operators, properties, ui
 
 
 modules = (
-    sdf_nodes,
     properties,
-    sdf_proxies,
+    nodes,
     operators,
-    viewport_interaction,
     engine,
     ui,
 )
 
 
 def register():
-    matcap.clear_cache()
-    runtime.reset_runtime()
     for module in modules:
         if hasattr(module, "register"):
             module.register()
-    if hasattr(sdf_nodes, "post_register"):
-        sdf_nodes.post_register()
-    bridge.register_compat_panels()
-    runtime.debug_log("MathOPS-v2 addon registered")
 
 
 def unregister():
-    if hasattr(sdf_nodes, "pre_unregister"):
-        sdf_nodes.pre_unregister()
-    bridge.unregister_compat_panels()
-    bridge.close_renderer()
-    matcap.clear_cache()
     for module in reversed(modules):
         if hasattr(module, "unregister"):
             module.unregister()
-    runtime.reset_runtime()
