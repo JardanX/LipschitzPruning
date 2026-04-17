@@ -43,6 +43,7 @@ demo_anim_start_time = 0.0
 demo_anim_timer_registered = False
 current_effective_aabb = None
 graph_interaction_time = 0.0
+graph_sync_suppressed_until = 0.0
 last_render_stats = {
     "scene_name": "",
     "scene_path": "",
@@ -97,7 +98,8 @@ def reset_runtime():
         demo_anim_start_time, \
         demo_anim_timer_registered, \
         current_effective_aabb, \
-        graph_interaction_time
+        graph_interaction_time, \
+        graph_sync_suppressed_until
     native_module = None
     renderer = None
     renderer_key = None
@@ -118,6 +120,7 @@ def reset_runtime():
     demo_anim_timer_registered = False
     current_effective_aabb = None
     graph_interaction_time = 0.0
+    graph_sync_suppressed_until = 0.0
     last_render_stats.update(
         {
             "scene_name": "",

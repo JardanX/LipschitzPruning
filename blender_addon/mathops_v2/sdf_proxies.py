@@ -688,7 +688,10 @@ def duplicate_primitives(scene, primitive_ids, context=None):
     active_source_id = active_primitive_id(scene, context)
     new_ids = []
     active_new_id = ""
-    with suppress_graph_to_proxy_sync(), sdf_nodes.deferred_graph_updates(bpy.context):
+    with (
+        suppress_graph_to_proxy_sync(),
+        sdf_nodes.deferred_graph_updates(bpy.context, flush=False),
+    ):
         for tree_node in tree.nodes:
             tree_node.select = False
         for source_node in source_nodes:
@@ -727,7 +730,10 @@ def remove_primitives(scene, primitive_ids, context=None):
         return removed
 
     removed = False
-    with suppress_graph_to_proxy_sync(), sdf_nodes.deferred_graph_updates(bpy.context):
+    with (
+        suppress_graph_to_proxy_sync(),
+        sdf_nodes.deferred_graph_updates(bpy.context, flush=False),
+    ):
         for primitive_id in target_ids:
             node = sdf_nodes.find_primitive_node(tree, primitive_id)
             if node is None:
@@ -1404,7 +1410,10 @@ def _ensure_scene_tree(scene, ensure=False):
 def _create_proxy_node(scene, tree, obj):
     primitive_type = _read_proxy_properties(obj)[_PROP_TYPE_KEY]
     del scene
-    with suppress_graph_to_proxy_sync(), sdf_nodes.deferred_graph_updates(bpy.context):
+    with (
+        suppress_graph_to_proxy_sync(),
+        sdf_nodes.deferred_graph_updates(bpy.context, flush=False),
+    ):
         node = sdf_nodes.create_primitive_node(tree, primitive_type)
         node.proxy_managed = True
         obj.mathops_v2_sdf_node_id = sdf_nodes.primitive_node_token(node)
@@ -1501,7 +1510,10 @@ def _remove_missing_proxy_targets(scene, tree):
     if not removed_ids:
         return False
 
-    with suppress_graph_to_proxy_sync(), sdf_nodes.deferred_graph_updates(bpy.context):
+    with (
+        suppress_graph_to_proxy_sync(),
+        sdf_nodes.deferred_graph_updates(bpy.context, flush=False),
+    ):
         if tree is not None:
             for primitive_id in removed_ids:
                 node = sdf_nodes.find_primitive_node(tree, primitive_id)
@@ -1705,7 +1717,10 @@ def sync_proxy_nodes_to_tree(scene, tree):
         return
 
     node_lookup = _primitive_node_lookup(tree)
-    with suppress_graph_to_proxy_sync(), sdf_nodes.deferred_graph_updates(bpy.context):
+    with (
+        suppress_graph_to_proxy_sync(),
+        sdf_nodes.deferred_graph_updates(bpy.context, flush=False),
+    ):
         for obj in all_proxies:
             props = _read_proxy_properties(obj)
             node = _sync_proxy_node_link(scene, tree, obj, props, node_lookup)
@@ -1775,7 +1790,7 @@ def _sync_proxy_objects(scenes=None, candidate_objects_by_scene=None):
     try:
         with (
             suppress_graph_to_proxy_sync(),
-            sdf_nodes.deferred_graph_updates(bpy.context),
+            sdf_nodes.deferred_graph_updates(bpy.context, flush=False),
         ):
             scene_iterable = bpy.data.scenes if scenes is None else scenes
             for scene in scene_iterable:
@@ -1994,7 +2009,10 @@ def _deferred_proxy_cleanup():
     if not pending_scene_names:
         return None
 
-    with suppress_graph_to_proxy_sync(), sdf_nodes.deferred_graph_updates(bpy.context):
+    with (
+        suppress_graph_to_proxy_sync(),
+        sdf_nodes.deferred_graph_updates(bpy.context, flush=False),
+    ):
         for scene_name in pending_scene_names:
             scene = bpy.data.scenes.get(scene_name)
             if scene is None:
@@ -2075,7 +2093,7 @@ class MATHOPS_V2_OT_add_sdf_proxy(Operator):
         with (
             suppress_proxy_sync_handlers(),
             suppress_graph_to_proxy_sync(),
-            sdf_nodes.deferred_graph_updates(context),
+            sdf_nodes.deferred_graph_updates(context, flush=False),
         ):
             tree = _ensure_scene_tree(context.scene, ensure=True)
             node = sdf_nodes.create_primitive_node(tree, primitive_type)

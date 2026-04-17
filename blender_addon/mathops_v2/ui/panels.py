@@ -63,26 +63,28 @@ def _surface_output_socket(node):
 def _driver_node_prop(node, socket_name, fallback_prop):
     source_node = sdf_nodes.node_input_source_node(node, socket_name)
     if source_node is None:
-        return node, fallback_prop, node.name
+        return node, fallback_prop, node.name, True
 
     prop_name = {
         sdf_nodes.VALUE_NODE_IDNAME: "value",
         sdf_nodes.VECTOR_NODE_IDNAME: "value",
         sdf_nodes.COLOR_NODE_IDNAME: "value",
     }.get(getattr(source_node, "bl_idname", ""))
-    return source_node, prop_name, source_node.name
+    if prop_name is None:
+        return None, None, source_node.name, False
+    return source_node, prop_name, source_node.name, True
 
 
 def _draw_driver_prop(layout, label, node, socket_name, fallback_prop):
-    target_node, prop_name, source_name = _driver_node_prop(
+    target_node, prop_name, source_name, editable = _driver_node_prop(
         node, socket_name, fallback_prop
     )
     box = layout.box()
     box.label(text=f"{label} <- {source_name}", icon="NODE")
-    if prop_name and hasattr(target_node, prop_name):
+    if editable and prop_name and hasattr(target_node, prop_name):
         box.prop(target_node, prop_name, text=label)
     else:
-        box.label(text="Driven through graph", icon="INFO")
+        box.label(text="Driven by a non-inline graph node", icon="INFO")
 
 
 def _affecting_csg_nodes(node):
@@ -414,6 +416,7 @@ class MATHOPS_V2_PT_proxy_data(Panel):
             obj.get("sdf_type", "primitive")
         )
         layout.label(text=f"Primitive Type: {primitive_type}")
+        layout.label(text="Showing direct drivers only", icon="FILTER")
 
         box = layout.box()
         box.label(text=f"Quick Edit: {node.name}")
@@ -430,20 +433,25 @@ class MATHOPS_V2_PT_proxy_data(Panel):
         csg_nodes = _affecting_csg_nodes(node)
         if csg_nodes:
             ops_box = layout.box()
-            ops_box.label(text="Affecting Operation Nodes")
-            for csg_node in csg_nodes:
-                csg_box = ops_box.box()
-                csg_box.label(text=csg_node.name, icon="NODE")
-                if getattr(csg_node, "bl_idname", "") == sdf_nodes.CSG_NODE_IDNAME:
-                    csg_box.prop(csg_node, "blend_mode", text="Operation")
-                else:
-                    csg_box.label(text=f"Operation: {csg_node.bl_label}")
-                _draw_driver_prop(
-                    csg_box,
-                    "Blend Radius",
-                    csg_node,
-                    "Blend Radius",
-                    "blend_radius",
+            ops_box.label(text="Direct Operation")
+            csg_node = csg_nodes[0]
+            csg_box = ops_box.box()
+            csg_box.label(text=csg_node.name, icon="NODE")
+            if getattr(csg_node, "bl_idname", "") == sdf_nodes.CSG_NODE_IDNAME:
+                csg_box.prop(csg_node, "blend_mode", text="Operation")
+            else:
+                csg_box.label(text=f"Operation: {csg_node.bl_label}")
+            _draw_driver_prop(
+                csg_box,
+                "Blend Radius",
+                csg_node,
+                "Blend Radius",
+                "blend_radius",
+            )
+            if len(csg_nodes) > 1:
+                ops_box.label(
+                    text=f"{len(csg_nodes) - 1} downstream operation nodes hidden",
+                    icon="INFO",
                 )
 
 

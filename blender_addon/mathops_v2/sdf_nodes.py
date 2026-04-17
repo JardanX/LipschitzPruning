@@ -97,10 +97,19 @@ def _graph_updated(_owner=None, context=None):
         bridge.force_redraw_viewports(context)
     except Exception:
         pass
+    owner_scene = _tree_owner_scene(tree)
+    if owner_scene is not None and time.perf_counter() < getattr(
+        runtime, "graph_sync_suppressed_until", 0.0
+    ):
+        _bootstrap_proxy_union_tree(tree)
+        runtime.debug_slow(
+            f"Graph update suppressed tree={getattr(tree, 'name', 'Unknown')}",
+            (time.perf_counter() - start) * 1000.0,
+        )
+        return
     try:
         from . import sdf_proxies
 
-        owner_scene = _tree_owner_scene(tree)
         if owner_scene is not None and is_primitive_node(_owner):
             if sdf_proxies.sync_primitive_node_update(owner_scene, _owner, context):
                 runtime.debug_slow(
@@ -130,14 +139,15 @@ def suspend_graph_updates():
     _GRAPH_UPDATE_SUPPRESS += 1
 
 
-def resume_graph_updates(context=None):
+def resume_graph_updates(context=None, flush=True):
     global _GRAPH_UPDATE_SUPPRESS, _GRAPH_UPDATE_PENDING
     if _GRAPH_UPDATE_SUPPRESS <= 0:
         return
     _GRAPH_UPDATE_SUPPRESS -= 1
     if _GRAPH_UPDATE_SUPPRESS == 0 and _GRAPH_UPDATE_PENDING:
         _GRAPH_UPDATE_PENDING = False
-        _graph_updated(context=context)
+        if flush:
+            _graph_updated(context=context)
 
 
 @contextmanager
@@ -151,12 +161,12 @@ def suppress_auto_insert():
 
 
 @contextmanager
-def deferred_graph_updates(context=None):
+def deferred_graph_updates(context=None, flush=True):
     suspend_graph_updates()
     try:
         yield
     finally:
-        resume_graph_updates(context)
+        resume_graph_updates(context, flush=flush)
 
 
 def _owner_scene(settings):
@@ -450,6 +460,36 @@ def set_proxy_tree_materialized(tree, value: bool):
         pass
 
 
+def _is_proxy_union_node(node) -> bool:
+    node_idname = getattr(node, "bl_idname", "")
+    if node_idname == UNION_NODE_IDNAME:
+        return abs(float(getattr(node, "blend_radius", 0.0))) <= 1.0e-9
+    if node_idname == CSG_NODE_IDNAME:
+        return (
+            getattr(node, "blend_mode", "") == "union"
+            and abs(float(getattr(node, "blend_radius", 0.0))) <= 1.0e-9
+        )
+    return False
+
+
+def _bootstrap_proxy_union_tree(tree) -> bool:
+    primitive_count = 0
+    for node in tree.nodes:
+        node_idname = getattr(node, "bl_idname", "")
+        if node_idname == OUTPUT_NODE_IDNAME:
+            continue
+        if is_primitive_node(node):
+            primitive_count += 1
+            primitive_node_token(node)
+            if not getattr(node, "proxy_managed", False):
+                node.proxy_managed = True
+            continue
+        if _is_proxy_union_node(node):
+            continue
+        return False
+    return primitive_count > 0
+
+
 def _is_pure_proxy_union_tree(tree) -> bool:
     for node in tree.nodes:
         node_idname = getattr(node, "bl_idname", "")
@@ -459,11 +499,7 @@ def _is_pure_proxy_union_tree(tree) -> bool:
             if not getattr(node, "proxy_managed", False):
                 return False
             continue
-        if node_idname == CSG_NODE_IDNAME:
-            if getattr(node, "blend_mode", "") != "union":
-                return False
-            if abs(float(getattr(node, "blend_radius", 0.0))) > 1.0e-9:
-                return False
+        if _is_proxy_union_node(node):
             continue
         return False
     return True
@@ -758,8 +794,9 @@ def _sync_node_editors():
 
 
 def start_editor_sync():
-    if not bpy.app.timers.is_registered(_sync_node_editors):
-        bpy.app.timers.register(_sync_node_editors, first_interval=0.0)
+    if bpy.app.timers.is_registered(_sync_node_editors):
+        bpy.app.timers.unregister(_sync_node_editors)
+    _sync_node_editors()
 
 
 def stop_editor_sync():
@@ -829,11 +866,13 @@ def initialize_scene_trees():
 def _deferred_post_register():
     if not initialize_scene_trees():
         return 0.1
+    runtime.graph_sync_suppressed_until = time.perf_counter() + 0.5
     return None
 
 
 @persistent
 def _scene_tree_load_post(_dummy):
+    runtime.graph_sync_suppressed_until = time.perf_counter() + 0.5
     initialize_scene_trees()
     start_editor_sync()
 
@@ -2430,10 +2469,14 @@ def ensure_compiled_scene_cache(settings, create=False):
 
     scene = _owner_scene(settings)
     if scene is not None and len(getattr(scene, "mathops_v2_primitives", ())) == 0:
+        _bootstrap_proxy_union_tree(tree)
         try:
             from . import sdf_proxies
 
-            sdf_proxies._migrate_legacy_proxies(scene)
+            if _is_pure_proxy_union_tree(tree):
+                sdf_proxies.sync_tree_to_scene_records(scene, tree)
+            else:
+                sdf_proxies._migrate_legacy_proxies(scene)
         except Exception:
             pass
     proxy_compiled = None
