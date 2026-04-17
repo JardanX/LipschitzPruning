@@ -73,6 +73,7 @@ def _sync_proxy_transform_updates(scene, depsgraph):
         sdf_tree.sync_node_to_proxy(node, include_transform=False)
 
     if changed:
+        runtime.mark_scene_transform_dirty(scene)
         runtime.note_interaction()
         runtime.tag_redraw()
     return True

@@ -60,11 +60,46 @@ def _poll_sdf_proxy(_self, obj):
     return runtime.is_sdf_proxy(obj)
 
 
-def _update_object_node_data(self, context):
+def _scene_for_tree(tree, context=None):
+    if context is not None:
+        scene = getattr(context, "scene", None)
+        settings = None if scene is None else runtime.scene_settings(scene)
+        if settings is not None and getattr(settings, "node_tree", None) == tree:
+            return scene
+
+    scenes = getattr(bpy.data, "scenes", ())
+    for scene in scenes:
+        settings = runtime.scene_settings(scene)
+        if settings is not None and getattr(settings, "node_tree", None) == tree:
+            return scene
+    return None
+
+
+def _mark_tree_dirty(tree, static=False, context=None):
+    scene = _scene_for_tree(tree, context=context)
+    if scene is None:
+        return
+    if static:
+        runtime.mark_scene_static_dirty(scene)
+    else:
+        runtime.mark_scene_transform_dirty(scene)
+
+
+def _update_object_node_transform(self, context):
     if _object_node_updates_suppressed > 0:
         return
     ensure_object_node_id(self)
     sync_node_to_proxy(self)
+    _mark_tree_dirty(getattr(self, "id_data", None), static=False, context=context)
+    _tag_redraw(self, context)
+
+
+def _update_object_node_payload(self, context):
+    if _object_node_updates_suppressed > 0:
+        return
+    ensure_object_node_id(self)
+    sync_node_to_proxy(self)
+    _mark_tree_dirty(getattr(self, "id_data", None), static=True, context=context)
     _tag_redraw(self, context)
 
 
@@ -74,6 +109,12 @@ def _update_object_node_target(self, context):
     self.use_proxy = self.target is not None
     ensure_object_node_id(self)
     sync_node_to_proxy(self)
+    _mark_tree_dirty(getattr(self, "id_data", None), static=True, context=context)
+    _tag_redraw(self, context)
+
+
+def _update_csg_node_data(self, context):
+    _mark_tree_dirty(getattr(self, "id_data", None), static=True, context=context)
     _tag_redraw(self, context)
 
 
@@ -94,7 +135,10 @@ class MathOPSV2NodeTree(NodeTree):
     bl_icon = "NODETREE"
 
     def update(self):
+        if Node.bl_rna_get_subclass_py(runtime.OUTPUT_NODE_IDNAME, None) is None:
+            return
         ensure_graph_output(self)
+        _mark_tree_dirty(self, static=True)
         runtime.note_interaction()
         runtime.tag_redraw()
 
@@ -143,20 +187,20 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
     target: PointerProperty(type=bpy.types.Object, poll=_poll_sdf_proxy, update=_update_object_node_target)
     use_proxy: BoolProperty(default=False, options={"HIDDEN"})
     proxy_id: StringProperty(default="", options={"HIDDEN"})
-    primitive_type: EnumProperty(items=_NODE_PRIMITIVE_ITEMS, default="sphere", update=_update_object_node_data)
+    primitive_type: EnumProperty(items=_NODE_PRIMITIVE_ITEMS, default="sphere", update=_update_object_node_payload)
     sdf_location: FloatVectorProperty(
         name="Location",
         size=3,
         default=(0.0, 0.0, 0.0),
         subtype="XYZ",
-        update=_update_object_node_data,
+        update=_update_object_node_transform,
     )
     sdf_rotation: FloatVectorProperty(
         name="Rotation",
         size=3,
         default=(0.0, 0.0, 0.0),
         subtype="EULER",
-        update=_update_object_node_data,
+        update=_update_object_node_transform,
     )
     sdf_scale: FloatVectorProperty(
         name="Scale",
@@ -164,20 +208,20 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
         default=(1.0, 1.0, 1.0),
         min=0.001,
         subtype="XYZ",
-        update=_update_object_node_data,
+        update=_update_object_node_transform,
     )
-    radius: FloatProperty(name="Radius", default=0.5, min=0.001, update=_update_object_node_data)
+    radius: FloatProperty(name="Radius", default=0.5, min=0.001, update=_update_object_node_payload)
     size: FloatVectorProperty(
         name="Half Size",
         size=3,
         default=(0.5, 0.5, 0.5),
         min=0.001,
         subtype="XYZ",
-        update=_update_object_node_data,
+        update=_update_object_node_payload,
     )
-    height: FloatProperty(name="Height", default=1.0, min=0.001, update=_update_object_node_data)
-    major_radius: FloatProperty(name="Major Radius", default=0.75, min=0.001, update=_update_object_node_data)
-    minor_radius: FloatProperty(name="Minor Radius", default=0.25, min=0.001, update=_update_object_node_data)
+    height: FloatProperty(name="Height", default=1.0, min=0.001, update=_update_object_node_payload)
+    major_radius: FloatProperty(name="Major Radius", default=0.75, min=0.001, update=_update_object_node_payload)
+    minor_radius: FloatProperty(name="Minor Radius", default=0.25, min=0.001, update=_update_object_node_payload)
 
     def init(self, _context):
         self.outputs.new(MathOPSV2SDFSocket.bl_idname, "SDF")
@@ -248,7 +292,7 @@ class MathOPSV2CSGNode(_MathOPSV2NodeBase):
             ("INTERSECT", "Intersect", "Keep the overlap of A and B"),
         ),
         default="UNION",
-        update=_tag_redraw,
+        update=_update_csg_node_data,
     )
     blend: FloatProperty(
         name="Blend",
@@ -256,7 +300,7 @@ class MathOPSV2CSGNode(_MathOPSV2NodeBase):
         min=0.0,
         max=2.0,
         description="Smooth blend radius for the CSG operation",
-        update=_tag_redraw,
+        update=_update_csg_node_data,
     )
 
     def init(self, _context):
@@ -348,6 +392,7 @@ def new_scene_tree(scene):
     settings = runtime.scene_settings(scene)
     if settings is not None:
         settings.node_tree = tree
+    runtime.mark_scene_static_dirty(scene)
     runtime.tag_redraw()
     return tree
 
@@ -642,6 +687,7 @@ def add_proxy_to_tree(scene, obj):
 
     object_node = tree.nodes.new(runtime.OBJECT_NODE_IDNAME)
     attach_proxy_to_node(object_node, obj, adopt_proxy=True)
+    runtime.mark_scene_static_dirty(scene)
     if existing_root is None:
         object_node.location = (120.0, 0.0)
         output.location = (400.0, 0.0)
@@ -801,7 +847,7 @@ def _stack_usage(instructions):
     return max_depth
 
 
-def _emit_node(node, primitive_rows, instructions, primitive_map, primitive_specs, visiting):
+def _emit_node(node, primitive_rows, instructions, primitive_map, primitive_specs, primitive_nodes, visiting):
     node_key = node.as_pointer()
     if node_key in visiting:
         raise RuntimeError(f"Cycle detected at node '{node.name}'")
@@ -818,6 +864,7 @@ def _emit_node(node, primitive_rows, instructions, primitive_map, primitive_spec
                 primitive_map[proxy_key] = primitive_index
                 primitive_rows.extend(_primitive_rows_from_node(node))
                 primitive_specs.append(_primitive_spec_from_node(node, primitive_index))
+                primitive_nodes.append(node)
             instruction_index = len(instructions)
             _append_instruction(instructions, (0.0, float(primitive_index), 0.0, 0.0))
             return {
@@ -831,8 +878,8 @@ def _emit_node(node, primitive_rows, instructions, primitive_map, primitive_spec
             right = _linked_source_node(node.inputs[1])
             if left is None or right is None:
                 raise RuntimeError(f"Node '{node.name}' needs both inputs connected")
-            left_compiled = _emit_node(left, primitive_rows, instructions, primitive_map, primitive_specs, visiting)
-            right_compiled = _emit_node(right, primitive_rows, instructions, primitive_map, primitive_specs, visiting)
+            left_compiled = _emit_node(left, primitive_rows, instructions, primitive_map, primitive_specs, primitive_nodes, visiting)
+            right_compiled = _emit_node(right, primitive_rows, instructions, primitive_map, primitive_specs, primitive_nodes, visiting)
             operation = _CSG_OPERATION_TO_ID.get(getattr(node, "operation", "UNION"), 1.0)
             blend = float(getattr(node, "blend", 0.0))
             instruction_index = len(instructions)
@@ -871,14 +918,16 @@ def _compile_tree(tree):
     instructions = []
     primitive_map = {}
     primitive_specs = []
-    root_node = _emit_node(root, primitive_rows, instructions, primitive_map, primitive_specs, set())
-    return primitive_rows, instructions, primitive_specs, root_node
+    primitive_nodes = []
+    root_node = _emit_node(root, primitive_rows, instructions, primitive_map, primitive_specs, primitive_nodes, set())
+    return primitive_rows, instructions, primitive_specs, primitive_nodes, root_node
 
 
 def _compile_scene_union(scene):
     primitive_rows = []
     instructions = []
     primitive_specs = []
+    primitive_nodes = []
     root_node = None
     proxies = list_proxy_objects(scene)
     tree = get_scene_tree(scene, create=False)
@@ -887,6 +936,7 @@ def _compile_scene_union(scene):
         if node is not None:
             primitive_rows.extend(_primitive_rows_from_node(node))
             primitive_specs.append(_primitive_spec_from_node(node, primitive_index))
+            primitive_nodes.append(node)
         else:
             temp_node = type("_TempNode", (), {})()
             settings = runtime.object_settings(obj)
@@ -901,6 +951,7 @@ def _compile_scene_union(scene):
             temp_node.sdf_scale = tuple(float(component) for component in obj.scale)
             primitive_rows.extend(_primitive_rows_from_node(temp_node))
             primitive_specs.append(_primitive_spec_from_node(temp_node, primitive_index))
+            primitive_nodes.append(temp_node)
         primitive_instruction_index = len(instructions)
         _append_instruction(instructions, (0.0, float(primitive_index), 0.0, 0.0))
         primitive_node = {
@@ -922,7 +973,35 @@ def _compile_scene_union(scene):
             }
         if primitive_index > 0:
             _append_instruction(instructions, (1.0, 0.0, 0.0, 0.0))
-    return primitive_rows, instructions, primitive_specs, root_node
+    return primitive_rows, instructions, primitive_specs, primitive_nodes, root_node
+
+
+def refresh_compiled_scene_dynamic(compiled):
+    primitive_nodes = list(compiled.get("primitive_nodes", ()))
+    if not primitive_nodes:
+        return compiled
+
+    primitive_rows = []
+    primitive_specs = []
+    for primitive_index, node in enumerate(primitive_nodes):
+        primitive_rows.extend(_primitive_rows_from_node(node))
+        primitive_specs.append(_primitive_spec_from_node(node, primitive_index))
+
+    scene_bounds = _scene_bounds_from_specs(primitive_specs)
+    instruction_rows = list(compiled.get("instruction_rows", ()))
+    rows = primitive_rows + instruction_rows
+    refreshed = dict(compiled)
+    refreshed.update(
+        {
+            "primitive_rows": primitive_rows,
+            "primitive_specs": primitive_specs,
+            "primitive_count": len(primitive_rows) // runtime.PRIMITIVE_TEXELS,
+            "scene_bounds": scene_bounds,
+            "rows": rows,
+            "hash": runtime.hash_compiled_rows(primitive_rows, instruction_rows),
+        }
+    )
+    return refreshed
 
 
 def ensure_unique_initializer_ids(tree):
@@ -990,6 +1069,10 @@ def prune_tree(tree, valid_target_pointers=None):
             break
 
     ensure_graph_output(tree)
+    if changed:
+        scene = _scene_for_tree(tree)
+        if scene is not None:
+            runtime.mark_scene_static_dirty(scene)
     return changed
 
 
@@ -1003,12 +1086,15 @@ def compile_scene(scene):
     tree = None if settings is None else getattr(settings, "node_tree", None)
     if tree is not None and getattr(tree, "bl_idname", "") == runtime.TREE_IDNAME:
         try:
-            primitive_rows, instructions, primitive_specs, root_node = _compile_tree(tree)
+            primitive_rows, instructions, primitive_specs, primitive_nodes, root_node = _compile_tree(tree)
         except RuntimeError as exc:
             message = f"Graph fallback: {exc}"
+            primitive_nodes = []
+    else:
+        primitive_nodes = []
 
     if not instructions:
-        primitive_rows, instructions, primitive_specs, root_node = _compile_scene_union(scene)
+        primitive_rows, instructions, primitive_specs, primitive_nodes, root_node = _compile_scene_union(scene)
 
     stack_depth = _stack_usage(instructions)
     if stack_depth > runtime.MAX_STACK:
@@ -1023,6 +1109,7 @@ def compile_scene(scene):
         "primitive_rows": primitive_rows,
         "instruction_rows": instructions,
         "primitive_specs": primitive_specs,
+        "primitive_nodes": primitive_nodes,
         "root_node": root_node,
         "primitive_count": len(primitive_rows) // runtime.PRIMITIVE_TEXELS,
         "instruction_count": len(instructions),
@@ -1058,10 +1145,10 @@ node_categories = [
 
 classes = (
     MathOPSV2SDFSocket,
-    MathOPSV2NodeTree,
     MathOPSV2OutputNode,
     MathOPSV2ObjectNode,
     MathOPSV2CSGNode,
+    MathOPSV2NodeTree,
 )
 
 

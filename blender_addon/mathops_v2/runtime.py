@@ -16,6 +16,7 @@ BACKGROUND_COLOR = (0.035, 0.04, 0.05, 1.0)
 
 last_error_message = ""
 graph_interaction_time = 0.0
+scene_revisions = {}
 
 
 def set_error(message: str) -> None:
@@ -31,6 +32,39 @@ def clear_error() -> None:
 def note_interaction() -> None:
     global graph_interaction_time
     graph_interaction_time = time.perf_counter()
+
+
+def _scene_revision_entry(scene):
+    key = safe_pointer(scene)
+    if key == 0:
+        return None
+    entry = scene_revisions.get(key)
+    if entry is None:
+        entry = {"static": 0, "transform": 0}
+        scene_revisions[key] = entry
+    return entry
+
+
+def scene_revision_tuple(scene):
+    entry = _scene_revision_entry(scene)
+    if entry is None:
+        return (0, 0)
+    return (int(entry["static"]), int(entry["transform"]))
+
+
+def mark_scene_static_dirty(scene) -> None:
+    entry = _scene_revision_entry(scene)
+    if entry is None:
+        return
+    entry["static"] += 1
+    entry["transform"] += 1
+
+
+def mark_scene_transform_dirty(scene) -> None:
+    entry = _scene_revision_entry(scene)
+    if entry is None:
+        return
+    entry["transform"] += 1
 
 
 def interaction_active(grace_period: float) -> bool:

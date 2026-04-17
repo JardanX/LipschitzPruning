@@ -30,6 +30,10 @@ class MathOPSV2GPUViewport:
         self._params_ubo = None
         self._scene_texture = None
         self._scene_hash = ""
+        self._compiled_scene = None
+        self._compiled_scene_scene_key = 0
+        self._compiled_scene_static_revision = -1
+        self._compiled_scene_transform_revision = -1
         self._dummy_scalar_texture = None
         self._topology_key = None
         self._content_key = None
@@ -61,6 +65,10 @@ class MathOPSV2GPUViewport:
         self._params_ubo = None
         self._scene_texture = None
         self._scene_hash = ""
+        self._compiled_scene = None
+        self._compiled_scene_scene_key = 0
+        self._compiled_scene_static_revision = -1
+        self._compiled_scene_transform_revision = -1
         self._dummy_scalar_texture = None
         self._topology_key = None
         self._content_key = None
@@ -154,6 +162,25 @@ class MathOPSV2GPUViewport:
         self._scene_texture = self._create_scene_texture(compiled["rows"])
         self._scene_hash = scene_hash
         return self._scene_texture
+
+    def _ensure_compiled_scene(self, scene):
+        scene_key = runtime.safe_pointer(scene)
+        static_revision, transform_revision = runtime.scene_revision_tuple(scene)
+        if (
+            self._compiled_scene is None
+            or self._compiled_scene_scene_key != scene_key
+            or self._compiled_scene_static_revision != static_revision
+        ):
+            self._compiled_scene = sdf_tree.compile_scene(scene)
+            self._compiled_scene_scene_key = scene_key
+            self._compiled_scene_static_revision = static_revision
+            self._compiled_scene_transform_revision = transform_revision
+            return self._compiled_scene
+
+        if self._compiled_scene_transform_revision != transform_revision:
+            self._compiled_scene = sdf_tree.refresh_compiled_scene_dynamic(self._compiled_scene)
+            self._compiled_scene_transform_revision = transform_revision
+        return self._compiled_scene
 
     def _ensure_draw_shader(self):
         if self._draw_shader is not None:
@@ -477,7 +504,7 @@ class MathOPSV2GPUViewport:
         if settings is None:
             raise RuntimeError("MathOPS scene settings are unavailable")
 
-        compiled = sdf_tree.compile_scene(scene)
+        compiled = self._ensure_compiled_scene(scene)
         if compiled.get("message"):
             runtime.set_error(compiled["message"])
         else:
