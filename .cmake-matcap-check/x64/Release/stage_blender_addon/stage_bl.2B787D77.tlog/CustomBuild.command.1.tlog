@@ -1,0 +1,34 @@
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\CMAKEFILES\603104AEC117C21A681803CBAFBF4F64\STAGE_BLENDER_ADDON.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E make_directory D:/Projects/GitHub/MathOPS-v2/blender_addon/mathops_v2
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/Projects/GitHub/MathOPS-v2/blender_addon/mathops_v2/mathops_matcap_native.cp311-win_amd64.pyd D:/Projects/GitHub/MathOPS-v2/blender_addon/mathops_v2/mathops_matcap_native.cp311-win_amd64.pyd
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/Projects/GitHub/blender-sdf/lib/windows_x64/imath/bin/Imath.dll D:/Projects/GitHub/MathOPS-v2/blender_addon/mathops_v2/Imath.dll
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/Projects/GitHub/blender-sdf/lib/windows_x64/openjph/bin/openjph.0.25.dll D:/Projects/GitHub/MathOPS-v2/blender_addon/mathops_v2/openjph.0.25.dll
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/Projects/GitHub/blender-sdf/lib/windows_x64/openexr/bin/Iex.dll D:/Projects/GitHub/MathOPS-v2/blender_addon/mathops_v2/Iex.dll
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/Projects/GitHub/blender-sdf/lib/windows_x64/openexr/bin/IlmThread.dll D:/Projects/GitHub/MathOPS-v2/blender_addon/mathops_v2/IlmThread.dll
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/Projects/GitHub/blender-sdf/lib/windows_x64/openexr/bin/OpenEXRCore.dll D:/Projects/GitHub/MathOPS-v2/blender_addon/mathops_v2/OpenEXRCore.dll
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E copy_if_different D:/Projects/GitHub/blender-sdf/lib/windows_x64/openexr/bin/OpenEXR.dll D:/Projects/GitHub/MathOPS-v2/blender_addon/mathops_v2/OpenEXR.dll
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/MathOPS-v2 -BD:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check --check-stamp-file D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

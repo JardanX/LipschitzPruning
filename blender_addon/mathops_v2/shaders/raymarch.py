@@ -4,11 +4,14 @@ from .. import runtime
 UNIFORMS_SOURCE = """
 struct MathOPSV2ViewParams {
   vec4 cameraPosition;
-  vec4 lightDirectionSurfaceEpsilon;
-  vec4 distanceAndCounts;
+  vec4 surfaceDistanceCounts;
+  vec4 instructionDebugSpecular;
   vec4 pruningBoundsMinGridSize;
   vec4 pruningBoundsMaxEnabled;
-  vec4 debugModePadding;
+  vec4 viewRow0;
+  vec4 viewRow1;
+  vec4 viewRow2;
+  vec4 viewRow3;
 };
 """
 
@@ -62,27 +65,27 @@ vec3 primitiveScale(int primitiveIndex)
 
 float surfaceEpsilonValue()
 {
-  return mathops.lightDirectionSurfaceEpsilon.w;
+  return mathops.surfaceDistanceCounts.x;
 }
 
 float maxDistanceValue()
 {
-  return mathops.distanceAndCounts.x;
+  return mathops.surfaceDistanceCounts.y;
 }
 
 int maxStepsValue()
 {
-  return int(mathops.distanceAndCounts.y + 0.5);
+  return int(mathops.surfaceDistanceCounts.z + 0.5);
 }
 
 int primitiveCountValue()
 {
-  return int(mathops.distanceAndCounts.z + 0.5);
+  return int(mathops.surfaceDistanceCounts.w + 0.5);
 }
 
 int instructionCountValue()
 {
-  return int(mathops.distanceAndCounts.w + 0.5);
+  return int(mathops.instructionDebugSpecular.x + 0.5);
 }
 
 int pruningGridSizeValue()
@@ -107,12 +110,22 @@ vec3 pruningBoundsMaxValue()
 
 int debugModeValue()
 {
-  return int(mathops.debugModePadding.x + 0.5);
+  return int(mathops.instructionDebugSpecular.y + 0.5);
 }
 
 float debugVizMaxValue()
 {
-  return max(mathops.debugModePadding.y, 1.0);
+  return max(mathops.instructionDebugSpecular.z, 1.0);
+}
+
+bool showSpecularValue()
+{
+  return mathops.instructionDebugSpecular.w > 0.5;
+}
+
+float gammaValue()
+{
+  return max(0.001, mathops.viewRow3.w);
 }
 
 vec3 toLocalPoint(int primitiveIndex, vec3 worldPoint)
@@ -471,6 +484,50 @@ vec3 backgroundColor(vec3 rayDirection)
   return mix(vec3(0.02, 0.03, 0.05), vec3(0.12, 0.14, 0.18), t);
 }
 
+vec2 matcapUV(vec3 normalView, vec3 viewDirView)
+{
+  float a = 1.0 / max(1.0 + viewDirView.z, 0.001);
+  float b = -viewDirView.x * viewDirView.y * a;
+  vec3 basisX = vec3(
+    1.0 - viewDirView.x * viewDirView.x * a,
+    b,
+    -viewDirView.x
+  );
+  vec3 basisY = vec3(
+    b,
+    1.0 - viewDirView.y * viewDirView.y * a,
+    -viewDirView.y
+  );
+  vec2 uv = vec2(dot(basisX, normalView), dot(basisY, normalView));
+  return clamp(uv * 0.496 + 0.5, vec2(0.0), vec2(1.0));
+}
+
+vec3 shadeSurface(vec3 normal, vec3 hitPos)
+{
+  vec4 hitWorld = vec4(hitPos, 1.0);
+  vec3 normalView = normalize(vec3(
+    dot(mathops.viewRow0.xyz, normal),
+    dot(mathops.viewRow1.xyz, normal),
+    dot(mathops.viewRow2.xyz, normal)
+  ));
+  vec3 hitViewPos = vec3(
+    dot(mathops.viewRow0, hitWorld),
+    dot(mathops.viewRow1, hitWorld),
+    dot(mathops.viewRow2, hitWorld)
+  );
+  vec3 incident = vec3(0.0, 0.0, 1.0);
+  float hitViewLenSq = dot(hitViewPos, hitViewPos);
+  if (hitViewLenSq > 1e-12) {
+    incident = normalize(-hitViewPos);
+  }
+  vec2 uv = matcapUV(normalView, incident);
+  vec3 color = texture(matcapDiffuse, uv).rgb;
+  if (showSpecularValue()) {
+    color += texture(matcapSpecular, uv).rgb;
+  }
+  return color;
+}
+
 vec3 pruningDebugColor(vec3 worldPoint, vec3 fallbackColor)
 {
   if (!pruningEnabledValue()) {
@@ -508,7 +565,7 @@ void main()
   vec3 rayOrigin = mathops.cameraPosition.xyz;
   vec3 rayDirection = computeRayDirection(uvInterp);
   if (primitiveCountValue() <= 0 || instructionCountValue() <= 0) {
-    FragColor = vec4(backgroundColor(rayDirection), 1.0);
+    FragColor = vec4(pow(backgroundColor(rayDirection), vec3(gammaValue())), 1.0);
     return;
   }
 
@@ -516,7 +573,7 @@ void main()
   vec3 boundsMax = pruningBoundsMaxValue();
   float travel = 0.0;
   if (!bboxIntersect(boundsMin, boundsMax, rayOrigin, rayDirection, travel)) {
-    FragColor = vec4(backgroundColor(rayDirection), 1.0);
+    FragColor = vec4(pow(backgroundColor(rayDirection), vec3(gammaValue())), 1.0);
     return;
   }
   travel += 1e-4;
@@ -548,23 +605,17 @@ void main()
   }
 
   if (!hit) {
-    FragColor = vec4(backgroundColor(rayDirection), 1.0);
+    FragColor = vec4(pow(backgroundColor(rayDirection), vec3(gammaValue())), 1.0);
     return;
   }
 
   vec3 normal = (pruningEnabledValue() && hitCellIndex >= 0) ? estimateNormalActive(worldPoint, hitCellIndex) : estimateNormal(worldPoint);
-  vec3 light = normalize(mathops.lightDirectionSurfaceEpsilon.xyz);
-  float diffuse = max(dot(normal, light), 0.0);
-  float rim = pow(max(1.0 - max(dot(normal, -rayDirection), 0.0), 0.0), 2.0);
-  vec3 baseColor = vec3(0.78, 0.82, 0.90);
-  vec3 color = (0.12 + diffuse) * baseColor + rim * vec3(0.12, 0.18, 0.28);
+  vec3 color = shadeSurface(normal, worldPoint);
   if (debugModeValue() != 0) {
     color = pruningDebugColor(worldPoint, color);
-    FragColor = vec4(color, 1.0);
+    FragColor = vec4(pow(color, vec3(gammaValue())), 1.0);
     return;
   }
-  float fog = 1.0 - exp(-0.02 * travel);
-  color = mix(color, backgroundColor(rayDirection), clamp(fog, 0.0, 1.0));
-  FragColor = vec4(color, 1.0);
+  FragColor = vec4(pow(color, vec3(gammaValue())), 1.0);
 }
 """ % (runtime.PRIMITIVE_TEXELS, runtime.MAX_STACK)

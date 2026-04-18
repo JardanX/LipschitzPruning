@@ -9,7 +9,7 @@ from .. import runtime
 from ..nodes import sdf_tree
 from ..shaders import pruning as pruning_shader
 from ..shaders import raymarch
-from . import pruning
+from . import matcap, pruning
 
 
 _COUNTERS_ACTIVE_BASE = 0
@@ -198,6 +198,8 @@ class MathOPSV2GPUViewport:
         shader_info.sampler(2, "FLOAT_2D", "pruneCellOffsets")
         shader_info.sampler(3, "FLOAT_2D", "pruneCellCounts")
         shader_info.sampler(4, "FLOAT_2D", "pruneCellErrors")
+        shader_info.sampler(5, "FLOAT_2D", "matcapDiffuse")
+        shader_info.sampler(6, "FLOAT_2D", "matcapSpecular")
         shader_info.vertex_in(0, "VEC2", "position")
         shader_info.vertex_out(interface)
         shader_info.fragment_out(0, "VEC4", "FragColor")
@@ -458,10 +460,11 @@ class MathOPSV2GPUViewport:
             }
             return
 
-    def _ensure_params_ubo(self, settings, compiled, camera_position, light_direction):
+    def _ensure_params_ubo(self, settings, compiled, camera_position, region_data, show_specular):
         pruning_enabled = bool(self._final_active_nodes is not None)
         bounds_min, bounds_max = pruning.normalized_bounds(compiled)
         grid_size = float(pruning.final_grid_size(settings)) if pruning_enabled else 0.0
+        view_matrix = region_data.view_matrix
 
         viz_max = float(max(int(getattr(settings, "colormap_max", 25)), 1))
         data = [
@@ -469,14 +472,14 @@ class MathOPSV2GPUViewport:
             float(camera_position[1]),
             float(camera_position[2]),
             1.0,
-            float(light_direction[0]),
-            float(light_direction[1]),
-            float(light_direction[2]),
             float(settings.surface_epsilon),
             float(settings.max_distance),
             float(settings.max_steps),
             float(compiled["primitive_count"]),
             float(compiled["instruction_count"]),
+            float(pruning.debug_mode_value(settings)),
+            viz_max,
+            1.0 if show_specular else 0.0,
             float(bounds_min[0]),
             float(bounds_min[1]),
             float(bounds_min[2]),
@@ -485,10 +488,22 @@ class MathOPSV2GPUViewport:
             float(bounds_max[1]),
             float(bounds_max[2]),
             1.0 if pruning_enabled else 0.0,
-            float(pruning.debug_mode_value(settings)),
-            viz_max,
-            0.0,
-            0.0,
+            float(view_matrix[0][0]),
+            float(view_matrix[0][1]),
+            float(view_matrix[0][2]),
+            float(view_matrix[0][3]),
+            float(view_matrix[1][0]),
+            float(view_matrix[1][1]),
+            float(view_matrix[1][2]),
+            float(view_matrix[1][3]),
+            float(view_matrix[2][0]),
+            float(view_matrix[2][1]),
+            float(view_matrix[2][2]),
+            float(view_matrix[2][3]),
+            float(view_matrix[3][0]),
+            float(view_matrix[3][1]),
+            float(view_matrix[3][2]),
+            float(settings.gamma),
         ]
         buffer = gpu.types.Buffer("FLOAT", len(data), data)
         if self._params_ubo is None:
@@ -521,8 +536,9 @@ class MathOPSV2GPUViewport:
         region_data = context.region_data
         inv_view_projection = region_data.perspective_matrix.inverted()
         camera_position = region_data.view_matrix.inverted().translation
-        light_direction = runtime.normalize3(settings.light_direction)
-        params_ubo = self._ensure_params_ubo(settings, compiled, camera_position, light_direction)
+        shading = getattr(getattr(context, "space_data", None), "shading", None)
+        show_specular = bool(getattr(shading, "show_specular_highlight", True))
+        params_ubo = self._ensure_params_ubo(settings, compiled, camera_position, region_data, show_specular)
 
         gpu.state.depth_test_set("NONE")
         gpu.state.depth_mask_set(False)
@@ -535,6 +551,9 @@ class MathOPSV2GPUViewport:
         shader.uniform_sampler("pruneCellOffsets", self._final_cell_offsets or self._ensure_dummy_scalar_texture())
         shader.uniform_sampler("pruneCellCounts", self._final_cell_counts or self._ensure_dummy_scalar_texture())
         shader.uniform_sampler("pruneCellErrors", self._final_cell_errors or self._ensure_dummy_scalar_texture())
+        diffuse_texture, specular_texture = matcap.get_matcap_textures(context, getattr(settings, "custom_matcap", ""))
+        shader.uniform_sampler("matcapDiffuse", diffuse_texture)
+        shader.uniform_sampler("matcapSpecular", specular_texture)
         batch.draw(shader)
 
         compiled["pruning_active"] = bool(self._pruning_stats["active"])

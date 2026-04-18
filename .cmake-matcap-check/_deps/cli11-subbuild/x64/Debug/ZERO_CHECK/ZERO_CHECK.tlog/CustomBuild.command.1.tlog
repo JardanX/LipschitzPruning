@@ -1,0 +1,10 @@
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\_DEPS\CLI11-SUBBUILD\CMAKEFILES\06F1935589AF71CD80CFE968F4E0AFF3\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/cli11-subbuild -BD:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/cli11-subbuild --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/cli11-subbuild/cli11-populate.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

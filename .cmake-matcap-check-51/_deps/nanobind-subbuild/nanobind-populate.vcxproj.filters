@@ -1,0 +1,44 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check-51\_deps\nanobind-subbuild\CMakeFiles\6637ffd759648d446a4666339b37a1e0\nanobind-populate-mkdir.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check-51\_deps\nanobind-subbuild\CMakeFiles\6637ffd759648d446a4666339b37a1e0\nanobind-populate-download.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check-51\_deps\nanobind-subbuild\CMakeFiles\6637ffd759648d446a4666339b37a1e0\nanobind-populate-update.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check-51\_deps\nanobind-subbuild\CMakeFiles\6637ffd759648d446a4666339b37a1e0\nanobind-populate-patch.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check-51\_deps\nanobind-subbuild\CMakeFiles\6637ffd759648d446a4666339b37a1e0\nanobind-populate-configure.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check-51\_deps\nanobind-subbuild\CMakeFiles\6637ffd759648d446a4666339b37a1e0\nanobind-populate-build.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check-51\_deps\nanobind-subbuild\CMakeFiles\6637ffd759648d446a4666339b37a1e0\nanobind-populate-install.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check-51\_deps\nanobind-subbuild\CMakeFiles\6637ffd759648d446a4666339b37a1e0\nanobind-populate-test.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check-51\_deps\nanobind-subbuild\CMakeFiles\e26ea675b32dd8de605ae7ac0d9d1755\nanobind-populate-complete.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check-51\_deps\nanobind-subbuild\CMakeFiles\b29727771c455e1307637208284441fb\nanobind-populate.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check-51\_deps\nanobind-subbuild\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check-51\_deps\nanobind-subbuild\CMakeFiles\nanobind-populate" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{4EE41BAB-5932-3A5C-96DE-F7F0CF5CC5C3}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

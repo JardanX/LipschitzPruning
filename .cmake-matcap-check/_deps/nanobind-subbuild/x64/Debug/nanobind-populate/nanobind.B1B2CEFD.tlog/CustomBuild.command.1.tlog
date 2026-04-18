@@ -1,0 +1,150 @@
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\_DEPS\NANOBIND-SUBBUILD\CMAKEFILES\DEC3A03F16B0B65121A23CCDA8AE86EA\NANOBIND-POPULATE-MKDIR.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -Dcfgdir=/Debug -P D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/nanobind-populate-prefix/tmp/nanobind-populate-mkdirs.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/nanobind-populate-prefix/src/nanobind-populate-stamp/Debug/nanobind-populate-mkdir
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\_DEPS\NANOBIND-SUBBUILD\CMAKEFILES\DEC3A03F16B0B65121A23CCDA8AE86EA\NANOBIND-POPULATE-DOWNLOAD.RULE
+setlocal
+cd D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check\_deps
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/nanobind-populate-prefix/tmp/nanobind-populate-gitclone.cmake
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/nanobind-populate-prefix/src/nanobind-populate-stamp/Debug/nanobind-populate-download
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\_DEPS\NANOBIND-SUBBUILD\CMAKEFILES\DEC3A03F16B0B65121A23CCDA8AE86EA\NANOBIND-POPULATE-UPDATE.RULE
+setlocal
+cd D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check\_deps\nanobind-src
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -Dcan_fetch=YES -DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE -P D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/nanobind-populate-prefix/tmp/nanobind-populate-gitupdate.cmake
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\_DEPS\NANOBIND-SUBBUILD\CMAKEFILES\DEC3A03F16B0B65121A23CCDA8AE86EA\NANOBIND-POPULATE-PATCH.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/nanobind-populate-prefix/src/nanobind-populate-stamp/Debug/nanobind-populate-patch
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\_DEPS\NANOBIND-SUBBUILD\CMAKEFILES\DEC3A03F16B0B65121A23CCDA8AE86EA\NANOBIND-POPULATE-CONFIGURE.RULE
+setlocal
+cd D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check\_deps\nanobind-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/nanobind-populate-prefix/src/nanobind-populate-stamp/Debug/nanobind-populate-configure
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\_DEPS\NANOBIND-SUBBUILD\CMAKEFILES\DEC3A03F16B0B65121A23CCDA8AE86EA\NANOBIND-POPULATE-BUILD.RULE
+setlocal
+cd D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check\_deps\nanobind-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/nanobind-populate-prefix/src/nanobind-populate-stamp/Debug/nanobind-populate-build
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\_DEPS\NANOBIND-SUBBUILD\CMAKEFILES\DEC3A03F16B0B65121A23CCDA8AE86EA\NANOBIND-POPULATE-INSTALL.RULE
+setlocal
+cd D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check\_deps\nanobind-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/nanobind-populate-prefix/src/nanobind-populate-stamp/Debug/nanobind-populate-install
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\_DEPS\NANOBIND-SUBBUILD\CMAKEFILES\DEC3A03F16B0B65121A23CCDA8AE86EA\NANOBIND-POPULATE-TEST.RULE
+setlocal
+cd D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check\_deps\nanobind-build
+if %errorlevel% neq 0 goto :cmEnd
+D:
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E echo_append
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/nanobind-populate-prefix/src/nanobind-populate-stamp/Debug/nanobind-populate-test
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\_DEPS\NANOBIND-SUBBUILD\CMAKEFILES\CD4CB4E805C5A64EB7B299C8989DF215\NANOBIND-POPULATE-COMPLETE.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -E make_directory D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/Debug
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/Debug/nanobind-populate-complete
+if %errorlevel% neq 0 goto :cmEnd
+"C:\Program Files\CMake\bin\cmake.exe" -E touch D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/nanobind-populate-prefix/src/nanobind-populate-stamp/Debug/nanobind-populate-done
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\_DEPS\NANOBIND-SUBBUILD\CMAKEFILES\A84140A489CDDF5075FA10BF8C41F24C\NANOBIND-POPULATE.RULE
+setlocal
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\_DEPS\NANOBIND-SUBBUILD\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild -BD:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild --check-stamp-file D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

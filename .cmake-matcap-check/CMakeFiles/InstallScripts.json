@@ -1,0 +1,12 @@
+{
+	"InstallScripts" : 
+	[
+		"D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/cmake_install.cmake",
+		"D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/cli11-build/cmake_install.cmake",
+		"D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/cli11-build/fuzz/cmake_install.cmake",
+		"D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/cli11-build/src/cmake_install.cmake",
+		"D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/cli11-build/single-include/cmake_install.cmake",
+		"D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

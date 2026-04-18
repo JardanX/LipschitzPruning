@@ -8,13 +8,14 @@ bl_info = {
     "description": "Simple SDF raymarcher with proxy empties and a custom SDF node graph",
 }
 
-from . import engine, operators, properties, ui
+from . import engine, operators, properties, render, ui
 from .nodes import scene_sync, sdf_tree
 
 
 modules = (
     sdf_tree,
     properties,
+    render,
     scene_sync,
     operators,
     engine,

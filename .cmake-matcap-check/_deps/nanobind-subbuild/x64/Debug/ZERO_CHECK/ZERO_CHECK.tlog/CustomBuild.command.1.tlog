@@ -1,0 +1,10 @@
+^D:\PROJECTS\GITHUB\MATHOPS-V2\.CMAKE-MATCAP-CHECK\_DEPS\NANOBIND-SUBBUILD\CMAKEFILES\A84140A489CDDF5075FA10BF8C41F24C\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SD:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild -BD:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/nanobind-populate.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

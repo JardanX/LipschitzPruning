@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check-51\CMakeFiles\4b0b98ab78c598c42da40425b5d10298\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{4835AFC4-36E8-30E6-A9CD-4893BA65E959}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check\CMakeFiles\603104aec117c21a681803cbafbf4f64\stage_blender_addon.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+    <CustomBuild Include="D:\Projects\GitHub\MathOPS-v2\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="D:\Projects\GitHub\MathOPS-v2\.cmake-matcap-check\CMakeFiles\stage_blender_addon" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{36C3B470-418C-3CFB-AFD1-23FFAF04CF43}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

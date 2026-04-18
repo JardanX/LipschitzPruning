@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/nanobind-populate"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/a84140a489cddf5075fa10bf8c41f24c/nanobind-populate.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/cd4cb4e805c5a64eb7b299c8989df215/nanobind-populate-complete.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/dec3a03f16b0b65121a23ccda8ae86ea/nanobind-populate-build.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/dec3a03f16b0b65121a23ccda8ae86ea/nanobind-populate-configure.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/dec3a03f16b0b65121a23ccda8ae86ea/nanobind-populate-download.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/dec3a03f16b0b65121a23ccda8ae86ea/nanobind-populate-install.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/dec3a03f16b0b65121a23ccda8ae86ea/nanobind-populate-mkdir.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/dec3a03f16b0b65121a23ccda8ae86ea/nanobind-populate-patch.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/dec3a03f16b0b65121a23ccda8ae86ea/nanobind-populate-test.rule"
+		},
+		{
+			"file" : "D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-subbuild/CMakeFiles/dec3a03f16b0b65121a23ccda8ae86ea/nanobind-populate-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"nanobind-populate"
+		],
+		"name" : "nanobind-populate"
+	}
+}

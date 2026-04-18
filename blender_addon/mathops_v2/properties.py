@@ -2,6 +2,7 @@ import bpy
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty, PointerProperty, StringProperty
 
 from . import runtime
+from .render import matcap
 
 
 PRIMITIVE_ITEMS = (
@@ -20,6 +21,11 @@ def _tag_redraw(_self=None, context=None):
 
 def _poll_tree(_self, tree):
     return getattr(tree, "bl_idname", "") == runtime.TREE_IDNAME
+
+
+def _update_custom_matcap(self, context):
+    matcap.sync_viewport_matcap(context, getattr(self, "custom_matcap", ""))
+    _tag_redraw(self, context)
 
 
 class MathOPSV2ObjectSettings(bpy.types.PropertyGroup):
@@ -53,6 +59,14 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
     max_steps: bpy.props.IntProperty(name="Max Steps", default=96, min=8, max=512, update=_tag_redraw)
     max_distance: FloatProperty(name="Max Distance", default=200.0, min=1.0, update=_tag_redraw)
     surface_epsilon: FloatProperty(name="Surface Epsilon", default=0.0015, min=0.0001, max=0.1, precision=5, update=_tag_redraw)
+    gamma: FloatProperty(
+        name="Gamma",
+        default=1.2,
+        min=0.5,
+        max=4.0,
+        description="Display gamma applied to viewport shading",
+        update=_tag_redraw,
+    )
     light_direction: FloatVectorProperty(
         name="Light Direction",
         size=3,
@@ -68,9 +82,9 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
     )
     pruning_grid_level: bpy.props.IntProperty(
         name="Pruning Grid Level",
-        default=4,
+        default=8,
         min=2,
-        max=10,
+        max=8,
         description="Even grid exponent used by the pruning hierarchy (4 = 16^3 cells)",
         update=_tag_redraw,
     )
@@ -91,6 +105,12 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
         max=64,
         description="Upper range for heatmap shading",
         update=_tag_redraw,
+    )
+    custom_matcap: EnumProperty(
+        name="Matcap",
+        description="Viewport matcap used by MathOPS UI",
+        items=matcap.get_matcaps_enum,
+        update=_update_custom_matcap,
     )
 
 

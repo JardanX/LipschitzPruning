@@ -1,0 +1,8 @@
+D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/CMakeFiles/mathops_matcap_native.dir
+D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/CMakeFiles/nanobind-static.dir
+D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/CMakeFiles/stage_blender_addon.dir
+D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/CMakeFiles/ALL_BUILD.dir
+D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/CMakeFiles/ZERO_CHECK.dir
+D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/cli11-build/CMakeFiles/ALL_BUILD.dir
+D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/cli11-build/src/CMakeFiles/CLI11.dir
+D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check/_deps/nanobind-build/CMakeFiles/ALL_BUILD.dir

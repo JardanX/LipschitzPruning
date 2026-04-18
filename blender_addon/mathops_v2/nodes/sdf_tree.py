@@ -12,6 +12,9 @@ from .. import runtime
 
 
 NODE_CATEGORY_ID = "MATHOPS_V2_SDF_NODES"
+TRANSFORM_SOCKET_IDNAME = "MathOPSV2TransformSocket"
+TRANSFORM_NODE_IDNAME = "MathOPSV2TransformNode"
+BREAK_TRANSFORM_NODE_IDNAME = "MathOPSV2BreakTransformNode"
 
 _PRIMITIVE_TYPE_TO_ID = {
     "sphere": 0.0,
@@ -36,6 +39,10 @@ _NODE_PRIMITIVE_ITEMS = (
 _NODE_PRIMITIVE_LABELS = {
     identifier: label for identifier, label, _description in _NODE_PRIMITIVE_ITEMS
 }
+
+_IDENTITY_LOCATION = (0.0, 0.0, 0.0)
+_IDENTITY_ROTATION = (0.0, 0.0, 0.0)
+_IDENTITY_SCALE = (1.0, 1.0, 1.0)
 
 _object_node_updates_suppressed = 0
 
@@ -88,8 +95,19 @@ def _mark_tree_dirty(tree, static=False, context=None):
 def _update_object_node_transform(self, context):
     if _object_node_updates_suppressed > 0:
         return
+    _ensure_object_node_sockets(self)
     ensure_object_node_id(self)
-    sync_node_to_proxy(self)
+    transform_source = transform_source_node(self)
+    _write_transform_to_node_source(
+        self,
+        tuple(float(component) for component in self.sdf_location),
+        tuple(float(component) for component in self.sdf_rotation),
+        tuple(float(component) for component in self.sdf_scale),
+    )
+    if transform_source is not None:
+        _sync_tree_proxy_transforms(getattr(self, "id_data", None), source_node=transform_source)
+    else:
+        sync_node_to_proxy(self)
     _mark_tree_dirty(getattr(self, "id_data", None), static=False, context=context)
     _tag_redraw(self, context)
 
@@ -97,6 +115,7 @@ def _update_object_node_transform(self, context):
 def _update_object_node_payload(self, context):
     if _object_node_updates_suppressed > 0:
         return
+    _ensure_object_node_sockets(self)
     ensure_object_node_id(self)
     sync_node_to_proxy(self)
     _mark_tree_dirty(getattr(self, "id_data", None), static=True, context=context)
@@ -107,6 +126,7 @@ def _update_object_node_target(self, context):
     if _object_node_updates_suppressed > 0:
         return
     self.use_proxy = self.target is not None
+    _ensure_object_node_sockets(self)
     ensure_object_node_id(self)
     sync_node_to_proxy(self)
     _mark_tree_dirty(getattr(self, "id_data", None), static=True, context=context)
@@ -115,6 +135,15 @@ def _update_object_node_target(self, context):
 
 def _update_csg_node_data(self, context):
     _mark_tree_dirty(getattr(self, "id_data", None), static=True, context=context)
+    _tag_redraw(self, context)
+
+
+def _update_transform_node_data(self, context):
+    if _object_node_updates_suppressed > 0:
+        return
+    tree = getattr(self, "id_data", None)
+    _sync_tree_proxy_transforms(tree, source_node=self)
+    _mark_tree_dirty(tree, static=False, context=context)
     _tag_redraw(self, context)
 
 
@@ -129,6 +158,17 @@ class MathOPSV2SDFSocket(NodeSocket):
         return (0.45, 0.65, 1.0, 1.0)
 
 
+class MathOPSV2TransformSocket(NodeSocket):
+    bl_idname = TRANSFORM_SOCKET_IDNAME
+    bl_label = "Transform"
+
+    def draw(self, _context, layout, _node, text):
+        layout.label(text=text or self.name)
+
+    def draw_color(self, _context, _node):
+        return (0.66, 0.46, 0.92, 1.0)
+
+
 class MathOPSV2NodeTree(NodeTree):
     bl_idname = runtime.TREE_IDNAME
     bl_label = "MathOPS SDF"
@@ -138,6 +178,7 @@ class MathOPSV2NodeTree(NodeTree):
         if Node.bl_rna_get_subclass_py(runtime.OUTPUT_NODE_IDNAME, None) is None:
             return
         ensure_graph_output(self)
+        _sync_tree_proxy_transforms(self)
         _mark_tree_dirty(self, static=True)
         runtime.note_interaction()
         runtime.tag_redraw()
@@ -224,6 +265,7 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
     minor_radius: FloatProperty(name="Minor Radius", default=0.25, min=0.001, update=_update_object_node_payload)
 
     def init(self, _context):
+        self.inputs.new(MathOPSV2TransformSocket.bl_idname, "Transform")
         self.outputs.new(MathOPSV2SDFSocket.bl_idname, "SDF")
         ensure_object_node_id(self)
 
@@ -234,6 +276,7 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
             self.use_proxy = False
 
     def draw_buttons(self, _context, layout):
+        _ensure_object_node_sockets(self)
         if self.target is None:
             row = layout.row(align=True)
             row.label(text="No viewport handle")
@@ -247,6 +290,9 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
 
         transform_box = layout.box()
         transform_box.label(text="Transform")
+        transform_source = transform_source_node(self)
+        if transform_source is not None:
+            transform_box.label(text=f"Driven by: {transform_source.name}", icon="CONSTRAINT")
         transform_box.prop(self, "sdf_location")
         transform_box.prop(self, "sdf_rotation", text="Rotation")
         transform_box.prop(self, "sdf_scale")
@@ -277,6 +323,93 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
     def draw_label(self):
         primitive_name = _NODE_PRIMITIVE_LABELS.get(self.primitive_type, "SDF")
         return f"{primitive_name} Initializer"
+
+
+class MathOPSV2TransformNode(_MathOPSV2NodeBase):
+    bl_idname = TRANSFORM_NODE_IDNAME
+    bl_label = "Transform"
+    bl_width_default = 220
+
+    transform_location: FloatVectorProperty(
+        name="Location",
+        size=3,
+        default=_IDENTITY_LOCATION,
+        subtype="XYZ",
+        update=_update_transform_node_data,
+    )
+    transform_rotation: FloatVectorProperty(
+        name="Rotation",
+        size=3,
+        default=_IDENTITY_ROTATION,
+        subtype="EULER",
+        update=_update_transform_node_data,
+    )
+    transform_scale: FloatVectorProperty(
+        name="Scale",
+        size=3,
+        default=_IDENTITY_SCALE,
+        min=0.001,
+        subtype="XYZ",
+        update=_update_transform_node_data,
+    )
+
+    def init(self, _context):
+        self.outputs.new(MathOPSV2TransformSocket.bl_idname, "Transform")
+
+    def draw_buttons(self, _context, layout):
+        layout.prop(self, "transform_location")
+        layout.prop(self, "transform_rotation", text="Rotation")
+        layout.prop(self, "transform_scale")
+
+
+class MathOPSV2BreakTransformNode(_MathOPSV2NodeBase):
+    bl_idname = BREAK_TRANSFORM_NODE_IDNAME
+    bl_label = "Break Transform"
+    bl_width_default = 220
+
+    override_location: BoolProperty(name="Position", default=False, update=_update_transform_node_data)
+    override_rotation: BoolProperty(name="Rotation", default=False, update=_update_transform_node_data)
+    override_scale: BoolProperty(name="Scale", default=False, update=_update_transform_node_data)
+    break_location: FloatVectorProperty(
+        name="Location",
+        size=3,
+        default=_IDENTITY_LOCATION,
+        subtype="XYZ",
+        update=_update_transform_node_data,
+    )
+    break_rotation: FloatVectorProperty(
+        name="Rotation",
+        size=3,
+        default=_IDENTITY_ROTATION,
+        subtype="EULER",
+        update=_update_transform_node_data,
+    )
+    break_scale: FloatVectorProperty(
+        name="Scale",
+        size=3,
+        default=_IDENTITY_SCALE,
+        min=0.001,
+        subtype="XYZ",
+        update=_update_transform_node_data,
+    )
+
+    def init(self, _context):
+        self.inputs.new(MathOPSV2TransformSocket.bl_idname, "Transform")
+        self.outputs.new(MathOPSV2TransformSocket.bl_idname, "Transform")
+
+    def draw_buttons(self, _context, layout):
+        layout.prop(self, "override_location")
+        location_col = layout.column()
+        location_col.enabled = self.override_location
+        location_col.prop(self, "break_location")
+        layout.prop(self, "override_rotation")
+        rotation_col = layout.column()
+        rotation_col.enabled = self.override_rotation
+        rotation_col.prop(self, "break_rotation", text="Rotation")
+        layout.prop(self, "override_scale")
+        scale_col = layout.column()
+        scale_col.enabled = self.override_scale
+        scale_col.prop(self, "break_scale")
 
 
 class MathOPSV2CSGNode(_MathOPSV2NodeBase):
@@ -366,9 +499,251 @@ def _linked_source_node(socket):
 
 
 def _surface_output_socket(node):
-    if not getattr(node, "outputs", None):
+    for socket in getattr(node, "outputs", ()):
+        if getattr(socket, "bl_idname", "") == MathOPSV2SDFSocket.bl_idname:
+            return socket
+    return None
+
+
+def _transform_input_socket(node):
+    for socket in getattr(node, "inputs", ()):
+        if getattr(socket, "bl_idname", "") == TRANSFORM_SOCKET_IDNAME:
+            return socket
+    return None
+
+
+def _ensure_object_node_sockets(node):
+    if getattr(node, "bl_idname", "") != runtime.OBJECT_NODE_IDNAME:
+        return node
+    if _transform_input_socket(node) is None:
+        node.inputs.new(MathOPSV2TransformSocket.bl_idname, "Transform")
+    if _surface_output_socket(node) is None:
+        node.outputs.new(MathOPSV2SDFSocket.bl_idname, "SDF")
+    return node
+
+
+def transform_source_node(node):
+    socket = _transform_input_socket(node)
+    if socket is None:
         return None
-    return node.outputs[0]
+    return _linked_source_node(socket)
+
+
+def _sanitized_location(values):
+    return tuple(float(component) for component in values)
+
+
+def _sanitized_rotation(values):
+    return tuple(float(component) for component in values)
+
+
+def _sanitized_scale(values):
+    return tuple(max(0.001, abs(float(component))) for component in values)
+
+
+def _identity_transform_values():
+    return (_IDENTITY_LOCATION, _IDENTITY_ROTATION, _IDENTITY_SCALE)
+
+
+def _transform_node_values(node):
+    return (
+        _sanitized_location(node.transform_location),
+        _sanitized_rotation(node.transform_rotation),
+        _sanitized_scale(node.transform_scale),
+    )
+
+
+def _break_transform_values(node, visiting=None):
+    source = transform_source_node(node)
+    if source is None:
+        location, rotation, scale = _identity_transform_values()
+    else:
+        location, rotation, scale = _resolved_transform_values(source, visiting=visiting)
+    if bool(getattr(node, "override_location", False)):
+        location = _sanitized_location(node.break_location)
+    if bool(getattr(node, "override_rotation", False)):
+        rotation = _sanitized_rotation(node.break_rotation)
+    if bool(getattr(node, "override_scale", False)):
+        scale = _sanitized_scale(node.break_scale)
+    return location, rotation, scale
+
+
+def _resolved_transform_values(node, visiting=None, prefer_proxy=True):
+    if node is None:
+        return _identity_transform_values()
+    if visiting is None:
+        visiting = set()
+    node_key = int(node.as_pointer())
+    if node_key in visiting:
+        raise RuntimeError(f"Cycle detected at node '{node.name}'")
+
+    visiting.add(node_key)
+    try:
+        node_idname = getattr(node, "bl_idname", "")
+        if node_idname == runtime.OBJECT_NODE_IDNAME:
+            _ensure_object_node_sockets(node)
+            source = transform_source_node(node)
+            if source is not None:
+                return _resolved_transform_values(source, visiting=visiting, prefer_proxy=prefer_proxy)
+            target = getattr(node, "target", None)
+            if prefer_proxy and runtime.is_sdf_proxy(target):
+                return (
+                    _sanitized_location(target.location),
+                    _sanitized_rotation(target.rotation_euler),
+                    _sanitized_scale(target.scale),
+                )
+            return (
+                _sanitized_location(node.sdf_location),
+                _sanitized_rotation(node.sdf_rotation),
+                _sanitized_scale(node.sdf_scale),
+            )
+        if node_idname == TRANSFORM_NODE_IDNAME:
+            return _transform_node_values(node)
+        if node_idname == BREAK_TRANSFORM_NODE_IDNAME:
+            return _break_transform_values(node, visiting=visiting)
+    finally:
+        visiting.remove(node_key)
+
+    return _identity_transform_values()
+
+
+def _set_break_transform_override(node, override_attr, value_attr, values):
+    changed = False
+    if not bool(getattr(node, override_attr)):
+        setattr(node, override_attr, True)
+        changed = True
+    current = tuple(float(component) for component in getattr(node, value_attr))
+    target = tuple(float(component) for component in values)
+    if _float_seq_changed(current, target):
+        setattr(node, value_attr, target)
+        changed = True
+    return changed
+
+
+def _write_transform_values(node, location=None, rotation=None, scale=None, visiting=None):
+    if node is None:
+        return False
+    if visiting is None:
+        visiting = set()
+    node_key = int(node.as_pointer())
+    if node_key in visiting:
+        return False
+
+    visiting.add(node_key)
+    try:
+        node_idname = getattr(node, "bl_idname", "")
+        changed = False
+        if node_idname == TRANSFORM_NODE_IDNAME:
+            if location is not None and _float_seq_changed(tuple(node.transform_location), location):
+                node.transform_location = location
+                changed = True
+            if rotation is not None and _float_seq_changed(tuple(node.transform_rotation), rotation):
+                node.transform_rotation = rotation
+                changed = True
+            if scale is not None and _float_seq_changed(tuple(node.transform_scale), scale):
+                node.transform_scale = scale
+                changed = True
+            return changed
+
+        if node_idname == BREAK_TRANSFORM_NODE_IDNAME:
+            source = transform_source_node(node)
+            if location is not None:
+                if bool(getattr(node, "override_location", False)) or source is None:
+                    changed = _set_break_transform_override(node, "override_location", "break_location", location) or changed
+                    location = None
+            if rotation is not None:
+                if bool(getattr(node, "override_rotation", False)) or source is None:
+                    changed = _set_break_transform_override(node, "override_rotation", "break_rotation", rotation) or changed
+                    rotation = None
+            if scale is not None:
+                sanitized_scale = _sanitized_scale(scale)
+                if bool(getattr(node, "override_scale", False)) or source is None:
+                    changed = _set_break_transform_override(node, "override_scale", "break_scale", sanitized_scale) or changed
+                    scale = None
+                else:
+                    scale = sanitized_scale
+            if source is None:
+                return changed
+            return _write_transform_values(source, location=location, rotation=rotation, scale=scale, visiting=visiting) or changed
+
+        if node_idname == runtime.OBJECT_NODE_IDNAME:
+            _ensure_object_node_sockets(node)
+            if location is not None and _float_seq_changed(tuple(node.sdf_location), location):
+                node.sdf_location = location
+                changed = True
+            if rotation is not None and _float_seq_changed(tuple(node.sdf_rotation), rotation):
+                node.sdf_rotation = rotation
+                changed = True
+            if scale is not None and _float_seq_changed(tuple(node.sdf_scale), scale):
+                node.sdf_scale = scale
+                changed = True
+            return changed
+        return False
+    finally:
+        visiting.remove(node_key)
+
+
+def _write_transform_to_node_source(node, location, rotation, scale):
+    source = transform_source_node(node)
+    if source is None:
+        return False
+    with suppress_object_node_updates():
+        return _write_transform_values(
+            source,
+            location=_sanitized_location(location),
+            rotation=_sanitized_rotation(rotation),
+            scale=_sanitized_scale(scale),
+        )
+
+
+def _sync_resolved_transform_to_node(node):
+    location, rotation, scale = _resolved_transform_values(node)
+    changed = False
+    with suppress_object_node_updates():
+        if _float_seq_changed(tuple(node.sdf_location), location):
+            node.sdf_location = location
+            changed = True
+        if _float_seq_changed(tuple(node.sdf_rotation), rotation):
+            node.sdf_rotation = rotation
+            changed = True
+        if _float_seq_changed(tuple(node.sdf_scale), scale):
+            node.sdf_scale = scale
+            changed = True
+    return changed
+
+
+def _transform_chain_contains(node, source_key, visiting=None):
+    if node is None:
+        return False
+    if visiting is None:
+        visiting = set()
+    node_key = int(node.as_pointer())
+    if node_key in visiting:
+        return False
+    if node_key == source_key:
+        return True
+    visiting.add(node_key)
+    try:
+        source = transform_source_node(node)
+        if source is None:
+            return False
+        return _transform_chain_contains(source, source_key, visiting=visiting)
+    finally:
+        visiting.remove(node_key)
+
+
+def _sync_tree_proxy_transforms(tree, source_node=None):
+    if tree is None:
+        return False
+    changed = False
+    source_key = 0 if source_node is None else int(source_node.as_pointer())
+    for node in initializer_nodes(tree):
+        _ensure_object_node_sockets(node)
+        if source_key and not _transform_chain_contains(node, source_key):
+            continue
+        changed = _sync_resolved_transform_to_node(node) or changed
+        changed = bool(sync_node_to_proxy(node) or changed)
+    return changed
 
 
 def get_scene_tree(scene, create=False):
@@ -544,18 +919,8 @@ def _set_float_attr(owner, attribute, value, epsilon=1.0e-6):
 
 
 def _node_transform_values(node):
-    target = getattr(node, "target", None)
-    if runtime.is_sdf_proxy(target):
-        return (
-            tuple(float(component) for component in target.location),
-            tuple(float(component) for component in target.rotation_euler),
-            tuple(abs(float(component)) for component in target.scale),
-        )
-    return (
-        tuple(float(component) for component in node.sdf_location),
-        tuple(float(component) for component in node.sdf_rotation),
-        tuple(abs(float(component)) for component in node.sdf_scale),
-    )
+    _ensure_object_node_sockets(node)
+    return _resolved_transform_values(node)
 
 
 def _configure_proxy_display(obj):
@@ -604,13 +969,15 @@ def sync_node_to_proxy(node, include_transform=True):
     if target is None or not runtime.is_sdf_proxy(target):
         return None
 
+    _ensure_object_node_sockets(node)
     ensure_object_node_id(node)
     _configure_proxy_display(target)
     _mirror_node_to_proxy_settings(node, target)
     if include_transform:
-        _set_float_vector_attr(target, "location", node.sdf_location)
-        _set_float_vector_attr(target, "rotation_euler", node.sdf_rotation)
-        _set_float_vector_attr(target, "scale", node.sdf_scale)
+        location, rotation, scale = _resolved_transform_values(node, prefer_proxy=False)
+        _set_float_vector_attr(target, "location", location)
+        _set_float_vector_attr(target, "rotation_euler", rotation)
+        _set_float_vector_attr(target, "scale", scale)
     return target
 
 
@@ -619,7 +986,13 @@ def sync_proxy_to_node(node):
     if target is None or not runtime.is_sdf_proxy(target):
         return False
 
+    _ensure_object_node_sockets(node)
     changed = False
+    transform_source = transform_source_node(node)
+    target_location = tuple(float(component) for component in target.location)
+    target_rotation = tuple(float(component) for component in target.rotation_euler)
+    target_scale = tuple(abs(float(component)) for component in target.scale)
+    changed = _write_transform_to_node_source(node, target_location, target_rotation, target_scale) or changed
     with suppress_object_node_updates():
         if not bool(getattr(node, "use_proxy", False)):
             node.use_proxy = True
@@ -628,9 +1001,6 @@ def sync_proxy_to_node(node):
         if proxy_id and str(getattr(node, "proxy_id", "") or "") != proxy_id:
             node.proxy_id = proxy_id
             changed = True
-        target_location = tuple(float(component) for component in target.location)
-        target_rotation = tuple(float(component) for component in target.rotation_euler)
-        target_scale = tuple(abs(float(component)) for component in target.scale)
         if _float_seq_changed(tuple(node.sdf_location), target_location):
             node.sdf_location = target_location
             changed = True
@@ -640,6 +1010,8 @@ def sync_proxy_to_node(node):
         if _float_seq_changed(tuple(node.sdf_scale), target_scale):
             node.sdf_scale = target_scale
             changed = True
+    if changed and transform_source is not None:
+        _sync_tree_proxy_transforms(getattr(node, "id_data", None), source_node=transform_source)
     return changed
 
 
@@ -665,6 +1037,7 @@ def _adopt_proxy_data(node, obj):
 
 
 def attach_proxy_to_node(node, obj, adopt_proxy=False):
+    _ensure_object_node_sockets(node)
     if adopt_proxy:
         _adopt_proxy_data(node, obj)
         sync_node_to_proxy(node, include_transform=True)
@@ -1140,13 +1513,21 @@ node_categories = [
         "CSG",
         items=[NodeItem(runtime.CSG_NODE_IDNAME)],
     ),
+    _MathOPSV2NodeCategory(
+        "MATHOPS_V2_UTILS",
+        "Utilities",
+        items=[NodeItem(TRANSFORM_NODE_IDNAME), NodeItem(BREAK_TRANSFORM_NODE_IDNAME)],
+    ),
 ]
 
 
 classes = (
     MathOPSV2SDFSocket,
+    MathOPSV2TransformSocket,
     MathOPSV2OutputNode,
     MathOPSV2ObjectNode,
+    MathOPSV2TransformNode,
+    MathOPSV2BreakTransformNode,
     MathOPSV2CSGNode,
     MathOPSV2NodeTree,
 )
