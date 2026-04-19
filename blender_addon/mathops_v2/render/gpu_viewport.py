@@ -217,6 +217,7 @@ class MathOPSV2GPUViewport:
         shader_info.push_constant("VEC4", "aabbMax")
         shader_info.push_constant("INT", "totalNumNodes")
         shader_info.push_constant("INT", "primitiveCount")
+        shader_info.push_constant("INT", "warpRowCount")
         shader_info.push_constant("INT", "currentGridSize")
         shader_info.push_constant("INT", "firstLevel")
         shader_info.push_constant("INT", "activeCounterIndex")
@@ -336,6 +337,7 @@ class MathOPSV2GPUViewport:
         bounds_min,
         bounds_max,
         primitive_count,
+        warp_row_count,
         total_nodes,
         current_grid_size,
         first_level,
@@ -348,6 +350,7 @@ class MathOPSV2GPUViewport:
         shader.uniform_float("aabbMax", (*bounds_max, 0.0))
         shader.uniform_int("totalNumNodes", [int(total_nodes)])
         shader.uniform_int("primitiveCount", [int(primitive_count)])
+        shader.uniform_int("warpRowCount", [int(warp_row_count)])
         shader.uniform_int("currentGridSize", [int(current_grid_size)])
         shader.uniform_int("firstLevel", [1 if first_level else 0])
         shader.uniform_int("activeCounterIndex", [_COUNTERS_ACTIVE_BASE + int(round(math.log(current_grid_size, 2)))])
@@ -408,6 +411,7 @@ class MathOPSV2GPUViewport:
         bounds_min, bounds_max = pruning.normalized_bounds(compiled)
         total_nodes = int(compiled["instruction_count"])
         primitive_count = int(compiled["primitive_count"])
+        warp_row_count = int(compiled.get("warp_row_count", 0))
         grid_level = pruning.grid_level(settings)
 
         while True:
@@ -426,6 +430,7 @@ class MathOPSV2GPUViewport:
                     bounds_min,
                     bounds_max,
                     primitive_count,
+                    warp_row_count,
                     total_nodes,
                     current_grid_size,
                     first_level,
@@ -465,13 +470,14 @@ class MathOPSV2GPUViewport:
         bounds_min, bounds_max = pruning.normalized_bounds(compiled)
         grid_size = float(pruning.final_grid_size(settings)) if pruning_enabled else 0.0
         view_matrix = region_data.view_matrix
+        is_orthographic = not bool(region_data.is_perspective)
 
         viz_max = float(max(int(getattr(settings, "colormap_max", 25)), 1))
         data = [
             float(camera_position[0]),
             float(camera_position[1]),
             float(camera_position[2]),
-            1.0,
+            1.0 if is_orthographic else 0.0,
             float(settings.surface_epsilon),
             float(settings.max_distance),
             float(settings.max_steps),
@@ -480,6 +486,10 @@ class MathOPSV2GPUViewport:
             float(pruning.debug_mode_value(settings)),
             viz_max,
             1.0 if show_specular else 0.0,
+            float(compiled.get("warp_row_count", 0)),
+            0.0,
+            0.0,
+            0.0,
             float(bounds_min[0]),
             float(bounds_min[1]),
             float(bounds_min[2]),

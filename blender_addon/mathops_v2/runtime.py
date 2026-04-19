@@ -133,13 +133,13 @@ def tag_redraw(context=None) -> None:
                 area.tag_redraw()
 
 
-def hash_compiled_rows(primitive_rows, instruction_rows) -> str:
+def hash_compiled_rows(*row_blocks) -> str:
     digest = hashlib.sha1()
-    digest.update(struct.pack("<II", len(primitive_rows), len(instruction_rows)))
-    for row in primitive_rows:
-        digest.update(struct.pack("<4f", *[float(value) for value in row]))
-    for row in instruction_rows:
-        digest.update(struct.pack("<4f", *[float(value) for value in row]))
+    digest.update(struct.pack("<I", len(row_blocks)))
+    for rows in row_blocks:
+        digest.update(struct.pack("<I", len(rows)))
+        for row in rows:
+            digest.update(struct.pack("<4f", *[float(value) for value in row]))
     return digest.hexdigest()
 
 

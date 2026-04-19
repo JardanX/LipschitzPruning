@@ -6,6 +6,7 @@ struct MathOPSV2ViewParams {
   vec4 cameraPosition;
   vec4 surfaceDistanceCounts;
   vec4 instructionDebugSpecular;
+  vec4 sceneLayout;
   vec4 pruningBoundsMinGridSize;
   vec4 pruningBoundsMaxEnabled;
   vec4 viewRow0;
@@ -28,6 +29,7 @@ void main()
 FRAGMENT_SOURCE = """\
 #define PRIMITIVE_STRIDE %d
 #define MAX_STACK %d
+#define MIRROR_WARP_PACK_SCALE 256
 
 vec4 loadRow(int row)
 {
@@ -88,6 +90,16 @@ int instructionCountValue()
   return int(mathops.instructionDebugSpecular.x + 0.5);
 }
 
+int warpRowCountValue()
+{
+  return int(mathops.sceneLayout.x + 0.5);
+}
+
+int instructionBaseValue()
+{
+  return primitiveCountValue() * PRIMITIVE_STRIDE + warpRowCountValue();
+}
+
 int pruningGridSizeValue()
 {
   return int(mathops.pruningBoundsMinGridSize.w + 0.5);
@@ -128,10 +140,52 @@ float gammaValue()
   return max(0.001, mathops.viewRow3.w);
 }
 
+float sabs(float x, float k)
+{
+  if (k <= 0.0001) {
+    return abs(x);
+  }
+  float ax = abs(x);
+  if (ax >= k) {
+    return ax;
+  }
+  float t = ax / k;
+  float t2 = t * t;
+  float t3 = t2 * t;
+  float t4 = t2 * t2;
+  return k * (0.25 + 1.5 * t2 - t3 + 0.25 * t4);
+}
+
+bool orthographicViewValue()
+{
+  return mathops.cameraPosition.w > 0.5;
+}
+
 vec3 toLocalPoint(int primitiveIndex, vec3 worldPoint)
 {
   int baseRow = primitiveIndex * PRIMITIVE_STRIDE;
-  vec4 world = vec4(worldPoint, 1.0);
+  int packedWarpInfo = int(loadRow(baseRow + 4).w + 0.5);
+  int warpBase = primitiveCountValue() * PRIMITIVE_STRIDE;
+  int warpOffset = packedWarpInfo / MIRROR_WARP_PACK_SCALE;
+  int warpCount = packedWarpInfo - warpOffset * MIRROR_WARP_PACK_SCALE;
+  vec3 warpedPoint = worldPoint;
+  for (int index = 0; index < warpCount; index++) {
+    vec4 warpHeader = loadRow(warpBase + warpOffset + index * 2);
+    vec4 warpTail = loadRow(warpBase + warpOffset + index * 2 + 1);
+    int flags = int(warpHeader.x + 0.5);
+    float blend = max(warpHeader.y, 0.0);
+    vec3 origin = vec3(warpHeader.z, warpHeader.w, warpTail.x);
+    if ((flags & 1) != 0) {
+      warpedPoint.x = origin.x + sabs(warpedPoint.x - origin.x, blend);
+    }
+    if ((flags & 2) != 0) {
+      warpedPoint.y = origin.y + sabs(warpedPoint.y - origin.y, blend);
+    }
+    if ((flags & 4) != 0) {
+      warpedPoint.z = origin.z + sabs(warpedPoint.z - origin.z, blend);
+    }
+  }
+  vec4 world = vec4(warpedPoint, 1.0);
   vec4 row0 = loadRow(baseRow + 1);
   vec4 row1 = loadRow(baseRow + 2);
   vec4 row2 = loadRow(baseRow + 3);
@@ -153,7 +207,7 @@ float sdBox(vec3 p, vec3 b)
 
 float sdCylinder(vec3 p, float r, float halfHeight)
 {
-  vec2 d = abs(vec2(length(p.xz), p.y)) - vec2(r, halfHeight);
+  vec2 d = abs(vec2(length(p.xy), p.z)) - vec2(r, halfHeight);
   return min(max(d.x, d.y), 0.0) + length(max(d, vec2(0.0)));
 }
 
@@ -248,8 +302,8 @@ float evalPrimitive(int primitiveIndex, vec3 worldPoint)
     return sdBox(localPoint, meta.yzw * scale);
   }
   if (primitiveType == 2) {
-    float radialScale = max(0.5 * (scale.x + scale.z), 1e-6);
-    return sdCylinder(localPoint, meta.y * radialScale, meta.z * scale.y);
+    float radialScale = max(0.5 * (scale.x + scale.y), 1e-6);
+    return sdCylinder(localPoint, meta.y * radialScale, meta.z * scale.z);
   }
   if (primitiveType == 3) {
     float radialScale = max(0.5 * (scale.x + scale.z), 1e-6);
@@ -324,16 +378,32 @@ int pruningCellIndex(vec3 worldPoint)
 
 bool bboxIntersect(vec3 boxMin, vec3 boxMax, vec3 rayOrigin, vec3 rayDirection, out float travel)
 {
-  vec3 tbot = (boxMin - rayOrigin) / rayDirection;
-  vec3 ttop = (boxMax - rayOrigin) / rayDirection;
-  vec3 tmin = min(ttop, tbot);
-  vec3 tmax = max(ttop, tbot);
-  vec2 t0v = max(tmin.xx, tmin.yz);
-  float t0 = max(t0v.x, t0v.y);
-  vec2 t1v = min(tmax.xx, tmax.yz);
-  float t1 = min(t1v.x, t1v.y);
-  travel = max(t0, 0.0);
-  return t1 > max(t0, 0.0);
+  float t0 = 0.0;
+  float t1 = 1e30;
+  for (int axis = 0; axis < 3; axis++) {
+    float origin = rayOrigin[axis];
+    float direction = rayDirection[axis];
+    float axisMin = boxMin[axis];
+    float axisMax = boxMax[axis];
+    if (abs(direction) < 1e-8) {
+      if (origin < axisMin || origin > axisMax) {
+        travel = 0.0;
+        return false;
+      }
+      continue;
+    }
+    float invDirection = 1.0 / direction;
+    float axisT0 = (axisMin - origin) * invDirection;
+    float axisT1 = (axisMax - origin) * invDirection;
+    t0 = max(t0, min(axisT0, axisT1));
+    t1 = min(t1, max(axisT0, axisT1));
+    if (t1 <= t0) {
+      travel = 0.0;
+      return false;
+    }
+  }
+  travel = t0;
+  return true;
 }
 
 float evalActiveScene(vec3 worldPoint, out bool nearField, out int activeCount, out float cellValue)
@@ -362,7 +432,7 @@ float evalActiveScene(vec3 worldPoint, out bool nearField, out int activeCount, 
   float stack[MAX_STACK];
   int stackPointer = 0;
   int cellOffset = int(loadScalar(pruneCellOffsets, cellIndex) + 0.5);
-  int instructionBase = primitiveCountValue() * PRIMITIVE_STRIDE;
+  int instructionBase = instructionBaseValue();
   for (int index = 0; index < activeCount; index++) {
     float activeNode = loadScalar(pruneActiveNodes, cellOffset + index);
     int instructionIndex = activeNodeIndex(activeNode);
@@ -407,7 +477,7 @@ float evalActiveSceneForCell(vec3 worldPoint, int cellIndex, out bool nearField)
   float stack[MAX_STACK];
   int stackPointer = 0;
   int cellOffset = int(loadScalar(pruneCellOffsets, cellIndex) + 0.5);
-  int instructionBase = primitiveCountValue() * PRIMITIVE_STRIDE;
+  int instructionBase = instructionBaseValue();
   for (int index = 0; index < activeCount; index++) {
     float activeNode = loadScalar(pruneActiveNodes, cellOffset + index);
     int instructionIndex = activeNodeIndex(activeNode);
@@ -453,7 +523,7 @@ float evalScene(vec3 worldPoint)
       }
     }
   }
-  int instructionBase = primitiveCountValue() * PRIMITIVE_STRIDE;
+  int instructionBase = instructionBaseValue();
   return evalInstructionRange(worldPoint, instructionBase, instructionCountValue());
 }
 
@@ -502,25 +572,19 @@ vec2 matcapUV(vec3 normalView, vec3 viewDirView)
   return clamp(uv * 0.496 + 0.5, vec2(0.0), vec2(1.0));
 }
 
-vec3 shadeSurface(vec3 normal, vec3 hitPos)
+vec3 shadeSurface(vec3 normal, vec3 rayDirection)
 {
-  vec4 hitWorld = vec4(hitPos, 1.0);
   vec3 normalView = normalize(vec3(
     dot(mathops.viewRow0.xyz, normal),
     dot(mathops.viewRow1.xyz, normal),
     dot(mathops.viewRow2.xyz, normal)
   ));
-  vec3 hitViewPos = vec3(
-    dot(mathops.viewRow0, hitWorld),
-    dot(mathops.viewRow1, hitWorld),
-    dot(mathops.viewRow2, hitWorld)
-  );
-  vec3 incident = vec3(0.0, 0.0, 1.0);
-  float hitViewLenSq = dot(hitViewPos, hitViewPos);
-  if (hitViewLenSq > 1e-12) {
-    incident = normalize(-hitViewPos);
-  }
-  vec2 uv = matcapUV(normalView, incident);
+  vec3 viewDirView = normalize(vec3(
+    -dot(mathops.viewRow0.xyz, rayDirection),
+    -dot(mathops.viewRow1.xyz, rayDirection),
+    -dot(mathops.viewRow2.xyz, rayDirection)
+  ));
+  vec2 uv = matcapUV(normalView, viewDirView);
   vec3 color = texture(matcapDiffuse, uv).rgb;
   if (showSpecularValue()) {
     color += texture(matcapSpecular, uv).rgb;
@@ -550,20 +614,22 @@ vec3 pruningDebugColor(vec3 worldPoint, vec3 fallbackColor)
   return fallbackColor;
 }
 
-vec3 computeRayDirection(vec2 uv)
+void computeRay(vec2 uv, out vec3 rayOrigin, out vec3 rayDirection)
 {
   vec2 ndc = uv * 2.0 - 1.0;
   vec4 nearPoint = invViewProjectionMatrix * vec4(ndc, -1.0, 1.0);
   vec4 farPoint = invViewProjectionMatrix * vec4(ndc, 1.0, 1.0);
   nearPoint.xyz /= nearPoint.w;
   farPoint.xyz /= farPoint.w;
-  return normalize(farPoint.xyz - nearPoint.xyz);
+  rayDirection = normalize(farPoint.xyz - nearPoint.xyz);
+  rayOrigin = orthographicViewValue() ? nearPoint.xyz : mathops.cameraPosition.xyz;
 }
 
 void main()
 {
-  vec3 rayOrigin = mathops.cameraPosition.xyz;
-  vec3 rayDirection = computeRayDirection(uvInterp);
+  vec3 rayOrigin;
+  vec3 rayDirection;
+  computeRay(uvInterp, rayOrigin, rayDirection);
   if (primitiveCountValue() <= 0 || instructionCountValue() <= 0) {
     FragColor = vec4(pow(backgroundColor(rayDirection), vec3(gammaValue())), 1.0);
     return;
@@ -577,6 +643,7 @@ void main()
     return;
   }
   travel += 1e-4;
+  float marchDistance = 0.0;
   bool hit = false;
   vec3 worldPoint = rayOrigin;
   int hitCellIndex = -1;
@@ -598,8 +665,10 @@ void main()
       }
       break;
     }
-    travel += abs(dist);
-    if (travel > maxDistanceValue()) {
+    float stepDistance = abs(dist);
+    travel += stepDistance;
+    marchDistance += stepDistance;
+    if (marchDistance > maxDistanceValue()) {
       break;
     }
   }
@@ -610,7 +679,7 @@ void main()
   }
 
   vec3 normal = (pruningEnabledValue() && hitCellIndex >= 0) ? estimateNormalActive(worldPoint, hitCellIndex) : estimateNormal(worldPoint);
-  vec3 color = shadeSurface(normal, worldPoint);
+  vec3 color = shadeSurface(normal, rayDirection);
   if (debugModeValue() != 0) {
     color = pruningDebugColor(worldPoint, color);
     FragColor = vec4(pow(color, vec3(gammaValue())), 1.0);

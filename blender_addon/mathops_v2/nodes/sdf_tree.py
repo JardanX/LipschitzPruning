@@ -15,6 +15,7 @@ NODE_CATEGORY_ID = "MATHOPS_V2_SDF_NODES"
 TRANSFORM_SOCKET_IDNAME = "MathOPSV2TransformSocket"
 TRANSFORM_NODE_IDNAME = "MathOPSV2TransformNode"
 BREAK_TRANSFORM_NODE_IDNAME = "MathOPSV2BreakTransformNode"
+MIRROR_NODE_IDNAME = "MathOPSV2MirrorNode"
 
 _PRIMITIVE_TYPE_TO_ID = {
     "sphere": 0.0,
@@ -43,6 +44,22 @@ _NODE_PRIMITIVE_LABELS = {
 _IDENTITY_LOCATION = (0.0, 0.0, 0.0)
 _IDENTITY_ROTATION = (0.0, 0.0, 0.0)
 _IDENTITY_SCALE = (1.0, 1.0, 1.0)
+
+_MIRROR_AXIS_X = 1
+_MIRROR_AXIS_Y = 2
+_MIRROR_AXIS_Z = 4
+_MIRROR_WARP_PACK_SCALE = 256
+
+_SOCKET_TRANSFORM = "Transform"
+_SOCKET_LOCATION = "Location"
+_SOCKET_ROTATION = "Rotation"
+_SOCKET_SCALE = "Scale"
+_SOCKET_RADIUS = "Radius"
+_SOCKET_HALF_SIZE = "Half Size"
+_SOCKET_HEIGHT = "Height"
+_SOCKET_MAJOR_RADIUS = "Major Radius"
+_SOCKET_MINOR_RADIUS = "Minor Radius"
+_SOCKET_BLEND = "Blend"
 
 _object_node_updates_suppressed = 0
 
@@ -134,6 +151,13 @@ def _update_object_node_target(self, context):
 
 
 def _update_csg_node_data(self, context):
+    _ensure_csg_node_sockets(self)
+    _mark_tree_dirty(getattr(self, "id_data", None), static=True, context=context)
+    _tag_redraw(self, context)
+
+
+def _update_mirror_node_data(self, context):
+    _ensure_mirror_node_sockets(self)
     _mark_tree_dirty(getattr(self, "id_data", None), static=True, context=context)
     _tag_redraw(self, context)
 
@@ -141,10 +165,31 @@ def _update_csg_node_data(self, context):
 def _update_transform_node_data(self, context):
     if _object_node_updates_suppressed > 0:
         return
+    _ensure_transform_node_sockets(self)
     tree = getattr(self, "id_data", None)
     _sync_tree_proxy_transforms(tree, source_node=self)
     _mark_tree_dirty(tree, static=False, context=context)
     _tag_redraw(self, context)
+
+
+def _update_socket_value(self, context):
+    if _object_node_updates_suppressed > 0:
+        return
+    node = getattr(self, "node", None)
+    if node is None:
+        return
+    node_idname = getattr(node, "bl_idname", "")
+    if node_idname == runtime.OBJECT_NODE_IDNAME:
+        _update_object_node_payload(node, context)
+        return
+    if node_idname == TRANSFORM_NODE_IDNAME:
+        _update_transform_node_data(node, context)
+        return
+    if node_idname == runtime.CSG_NODE_IDNAME:
+        _update_csg_node_data(node, context)
+        return
+    if node_idname == MIRROR_NODE_IDNAME:
+        _update_mirror_node_data(node, context)
 
 
 class MathOPSV2SDFSocket(NodeSocket):
@@ -169,6 +214,64 @@ class MathOPSV2TransformSocket(NodeSocket):
         return (0.66, 0.46, 0.92, 1.0)
 
 
+class MathOPSV2FloatSocket(NodeSocket):
+    bl_idname = "MathOPSV2FloatSocket"
+    bl_label = "Float"
+
+    default_value: FloatProperty(default=0.0, update=_update_socket_value)
+
+    def draw(self, _context, layout, _node, text):
+        if self.is_output or self.is_linked:
+            layout.label(text=text or self.name)
+            return
+        layout.prop(self, "default_value", text=text or self.name)
+
+    def draw_color(self, _context, _node):
+        return (0.84, 0.72, 0.32, 1.0)
+
+
+class MathOPSV2VectorSocket(NodeSocket):
+    bl_idname = "MathOPSV2VectorSocket"
+    bl_label = "Vector"
+
+    default_value: FloatVectorProperty(
+        size=3,
+        default=_IDENTITY_LOCATION,
+        subtype="XYZ",
+        update=_update_socket_value,
+    )
+
+    def draw(self, _context, layout, _node, text):
+        if self.is_output or self.is_linked:
+            layout.label(text=text or self.name)
+            return
+        layout.prop(self, "default_value", text=text or self.name)
+
+    def draw_color(self, _context, _node):
+        return (0.36, 0.74, 0.74, 1.0)
+
+
+class MathOPSV2EulerSocket(NodeSocket):
+    bl_idname = "MathOPSV2EulerSocket"
+    bl_label = "Rotation"
+
+    default_value: FloatVectorProperty(
+        size=3,
+        default=_IDENTITY_ROTATION,
+        subtype="EULER",
+        update=_update_socket_value,
+    )
+
+    def draw(self, _context, layout, _node, text):
+        if self.is_output or self.is_linked:
+            layout.label(text=text or self.name)
+            return
+        layout.prop(self, "default_value", text=text or self.name)
+
+    def draw_color(self, _context, _node):
+        return (0.54, 0.64, 0.92, 1.0)
+
+
 class MathOPSV2NodeTree(NodeTree):
     bl_idname = runtime.TREE_IDNAME
     bl_label = "MathOPS SDF"
@@ -177,6 +280,8 @@ class MathOPSV2NodeTree(NodeTree):
     def update(self):
         if Node.bl_rna_get_subclass_py(runtime.OUTPUT_NODE_IDNAME, None) is None:
             return
+        for node in self.nodes:
+            _ensure_node_sockets(node)
         ensure_graph_output(self)
         _sync_tree_proxy_transforms(self)
         _mark_tree_dirty(self, static=True)
@@ -265,8 +370,7 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
     minor_radius: FloatProperty(name="Minor Radius", default=0.25, min=0.001, update=_update_object_node_payload)
 
     def init(self, _context):
-        self.inputs.new(MathOPSV2TransformSocket.bl_idname, "Transform")
-        self.outputs.new(MathOPSV2SDFSocket.bl_idname, "SDF")
+        _ensure_object_node_sockets(self)
         ensure_object_node_id(self)
 
     def copy(self, _node):
@@ -276,7 +380,7 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
             self.use_proxy = False
 
     def draw_buttons(self, _context, layout):
-        _ensure_object_node_sockets(self)
+        layout.prop(self, "primitive_type", text="Type")
         if self.target is None:
             row = layout.row(align=True)
             row.label(text="No viewport handle")
@@ -287,38 +391,9 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
         else:
             row = layout.row(align=True)
             row.label(text=f"Handle: {self.target.name}")
-
-        transform_box = layout.box()
-        transform_box.label(text="Transform")
         transform_source = transform_source_node(self)
         if transform_source is not None:
-            transform_box.label(text=f"Driven by: {transform_source.name}", icon="CONSTRAINT")
-        transform_box.prop(self, "sdf_location")
-        transform_box.prop(self, "sdf_rotation", text="Rotation")
-        transform_box.prop(self, "sdf_scale")
-
-        primitive_box = layout.box()
-        primitive_box.label(text="Primitive")
-        primitive_box.prop(self, "primitive_type", text="Type")
-        primitive_type = str(self.primitive_type or "sphere")
-        if primitive_type == "sphere":
-            primitive_box.prop(self, "radius")
-        elif primitive_type == "box":
-            primitive_box.prop(self, "size")
-        elif primitive_type == "cylinder":
-            primitive_box.prop(self, "radius")
-            primitive_box.prop(self, "height")
-        elif primitive_type == "torus":
-            primitive_box.prop(self, "major_radius")
-            primitive_box.prop(self, "minor_radius")
-
-        meta_box = layout.box()
-        meta_box.label(text="Viewport Handle")
-        if self.target is None:
-            meta_box.label(text="No proxy handle assigned")
-        else:
-            meta_box.prop(self.target, "name", text="Name")
-        meta_box.prop(self, "proxy_id", text="ID")
+            layout.label(text=f"Transform: {transform_source.name}", icon="CONSTRAINT")
 
     def draw_label(self):
         primitive_name = _NODE_PRIMITIVE_LABELS.get(self.primitive_type, "SDF")
@@ -327,7 +402,7 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
 
 class MathOPSV2TransformNode(_MathOPSV2NodeBase):
     bl_idname = TRANSFORM_NODE_IDNAME
-    bl_label = "Transform"
+    bl_label = "Make Transform"
     bl_width_default = 220
 
     transform_location: FloatVectorProperty(
@@ -354,12 +429,10 @@ class MathOPSV2TransformNode(_MathOPSV2NodeBase):
     )
 
     def init(self, _context):
-        self.outputs.new(MathOPSV2TransformSocket.bl_idname, "Transform")
+        _ensure_transform_node_sockets(self)
 
     def draw_buttons(self, _context, layout):
-        layout.prop(self, "transform_location")
-        layout.prop(self, "transform_rotation", text="Rotation")
-        layout.prop(self, "transform_scale")
+        pass
 
 
 class MathOPSV2BreakTransformNode(_MathOPSV2NodeBase):
@@ -394,22 +467,10 @@ class MathOPSV2BreakTransformNode(_MathOPSV2NodeBase):
     )
 
     def init(self, _context):
-        self.inputs.new(MathOPSV2TransformSocket.bl_idname, "Transform")
-        self.outputs.new(MathOPSV2TransformSocket.bl_idname, "Transform")
+        _ensure_break_transform_node_sockets(self)
 
     def draw_buttons(self, _context, layout):
-        layout.prop(self, "override_location")
-        location_col = layout.column()
-        location_col.enabled = self.override_location
-        location_col.prop(self, "break_location")
-        layout.prop(self, "override_rotation")
-        rotation_col = layout.column()
-        rotation_col.enabled = self.override_rotation
-        rotation_col.prop(self, "break_rotation", text="Rotation")
-        layout.prop(self, "override_scale")
-        scale_col = layout.column()
-        scale_col.enabled = self.override_scale
-        scale_col.prop(self, "break_scale")
+        layout.label(text="Split transform into vectors")
 
 
 class MathOPSV2CSGNode(_MathOPSV2NodeBase):
@@ -437,13 +498,40 @@ class MathOPSV2CSGNode(_MathOPSV2NodeBase):
     )
 
     def init(self, _context):
-        self.inputs.new(MathOPSV2SDFSocket.bl_idname, "A")
-        self.inputs.new(MathOPSV2SDFSocket.bl_idname, "B")
-        self.outputs.new(MathOPSV2SDFSocket.bl_idname, "SDF")
+        _ensure_csg_node_sockets(self)
 
     def draw_buttons(self, _context, layout):
         layout.prop(self, "operation", text="")
-        layout.prop(self, "blend")
+
+
+class MathOPSV2MirrorNode(_MathOPSV2NodeBase):
+    bl_idname = MIRROR_NODE_IDNAME
+    bl_label = "Mirror"
+    bl_width_default = 220
+
+    mirror_x: BoolProperty(name="X", default=True, update=_update_mirror_node_data)
+    mirror_y: BoolProperty(name="Y", default=False, update=_update_mirror_node_data)
+    mirror_z: BoolProperty(name="Z", default=False, update=_update_mirror_node_data)
+    blend: FloatProperty(
+        name="Blend",
+        default=0.0,
+        min=0.0,
+        max=100.0,
+        description="Blend radius for smooth mirror",
+        update=_update_mirror_node_data,
+    )
+    origin_object: PointerProperty(type=bpy.types.Object, update=_update_mirror_node_data)
+
+    def init(self, _context):
+        _ensure_mirror_node_sockets(self)
+
+    def draw_buttons(self, _context, layout):
+        row = layout.row(align=True)
+        row.prop(self, "mirror_x", toggle=True)
+        row.prop(self, "mirror_y", toggle=True)
+        row.prop(self, "mirror_z", toggle=True)
+        layout.prop(self, "blend", text="Blend")
+        layout.prop(self, "origin_object", text="Origin")
 
 
 def _find_output_node(tree):
@@ -456,8 +544,18 @@ def _find_output_node(tree):
 def _candidate_root_nodes(tree):
     candidates = []
     for node in tree.nodes:
-        if getattr(node, "bl_idname", "") == runtime.OUTPUT_NODE_IDNAME:
+        node_idname = getattr(node, "bl_idname", "")
+        if node_idname == runtime.OUTPUT_NODE_IDNAME:
             continue
+        if node_idname == MIRROR_NODE_IDNAME:
+            source_socket = _input_socket(node, "SDF", MathOPSV2SDFSocket.bl_idname)
+            if source_socket is None or not source_socket.is_linked:
+                continue
+        if node_idname == runtime.CSG_NODE_IDNAME:
+            left = _input_socket(node, "A", MathOPSV2SDFSocket.bl_idname)
+            right = _input_socket(node, "B", MathOPSV2SDFSocket.bl_idname)
+            if left is None or right is None or not left.is_linked or not right.is_linked:
+                continue
         socket = _surface_output_socket(node)
         if socket is None:
             continue
@@ -498,6 +596,12 @@ def _linked_source_node(socket):
     return socket.links[0].from_node
 
 
+def _linked_source_socket(socket):
+    if socket is None or not socket.is_linked or not socket.links:
+        return None
+    return socket.links[0].from_socket
+
+
 def _surface_output_socket(node):
     for socket in getattr(node, "outputs", ()):
         if getattr(socket, "bl_idname", "") == MathOPSV2SDFSocket.bl_idname:
@@ -505,20 +609,172 @@ def _surface_output_socket(node):
     return None
 
 
-def _transform_input_socket(node):
-    for socket in getattr(node, "inputs", ()):
-        if getattr(socket, "bl_idname", "") == TRANSFORM_SOCKET_IDNAME:
-            return socket
+def _socket_by_name(sockets, name, bl_idname=""):
+    for socket in sockets:
+        if socket.name != name:
+            continue
+        if bl_idname and getattr(socket, "bl_idname", "") != bl_idname:
+            continue
+        return socket
     return None
+
+
+def _transform_input_socket(node):
+    return _socket_by_name(getattr(node, "inputs", ()), _SOCKET_TRANSFORM, TRANSFORM_SOCKET_IDNAME)
+
+
+def _input_socket(node, name, bl_idname=""):
+    return _socket_by_name(getattr(node, "inputs", ()), name, bl_idname)
+
+
+def _output_socket(node, name, bl_idname=""):
+    return _socket_by_name(getattr(node, "outputs", ()), name, bl_idname)
+
+
+def _ensure_named_input_socket(node, bl_idname, name):
+    socket = _socket_by_name(getattr(node, "inputs", ()), name, bl_idname)
+    created = False
+    if socket is None:
+        socket = node.inputs.new(bl_idname, name)
+        created = True
+    return socket, created
+
+
+def _ensure_named_output_socket(node, bl_idname, name):
+    socket = _socket_by_name(getattr(node, "outputs", ()), name, bl_idname)
+    created = False
+    if socket is None:
+        socket = node.outputs.new(bl_idname, name)
+        created = True
+    return socket, created
+
+
+def _set_socket_float_default(socket, value, epsilon=1.0e-6):
+    if socket is None:
+        return False
+    current = float(getattr(socket, "default_value", 0.0))
+    target = float(value)
+    if abs(current - target) <= epsilon:
+        return False
+    socket.default_value = target
+    return True
+
+
+def _set_socket_vector_default(socket, value, epsilon=1.0e-6):
+    if socket is None:
+        return False
+    current = tuple(float(component) for component in getattr(socket, "default_value", (0.0, 0.0, 0.0)))
+    target = tuple(float(component) for component in value)
+    if not _float_seq_changed(current, target, epsilon):
+        return False
+    socket.default_value = target
+    return True
+
+
+def _sync_object_node_socket_visibility(node):
+    primitive_type = str(getattr(node, "primitive_type", "sphere") or "sphere").strip().lower()
+    visibility = {
+        _SOCKET_RADIUS: primitive_type in {"sphere", "cylinder"},
+        _SOCKET_HALF_SIZE: primitive_type == "box",
+        _SOCKET_HEIGHT: primitive_type == "cylinder",
+        _SOCKET_MAJOR_RADIUS: primitive_type == "torus",
+        _SOCKET_MINOR_RADIUS: primitive_type == "torus",
+    }
+    for name, shown in visibility.items():
+        socket = _socket_by_name(getattr(node, "inputs", ()), name)
+        if socket is None:
+            continue
+        if bool(getattr(socket, "hide", False)) != (not shown):
+            socket.hide = not shown
+    return node
+
+
+def _ensure_transform_node_sockets(node):
+    if getattr(node, "bl_idname", "") != TRANSFORM_NODE_IDNAME:
+        return node
+    location_socket, location_created = _ensure_named_input_socket(node, MathOPSV2VectorSocket.bl_idname, _SOCKET_LOCATION)
+    rotation_socket, rotation_created = _ensure_named_input_socket(node, MathOPSV2EulerSocket.bl_idname, _SOCKET_ROTATION)
+    scale_socket, scale_created = _ensure_named_input_socket(node, MathOPSV2VectorSocket.bl_idname, _SOCKET_SCALE)
+    _ensure_named_output_socket(node, MathOPSV2TransformSocket.bl_idname, _SOCKET_TRANSFORM)
+    with suppress_object_node_updates():
+        if location_created:
+            _set_socket_vector_default(location_socket, getattr(node, "transform_location", _IDENTITY_LOCATION))
+        if rotation_created:
+            _set_socket_vector_default(rotation_socket, getattr(node, "transform_rotation", _IDENTITY_ROTATION))
+        if scale_created:
+            _set_socket_vector_default(scale_socket, getattr(node, "transform_scale", _IDENTITY_SCALE))
+    return node
+
+
+def _ensure_break_transform_node_sockets(node):
+    if getattr(node, "bl_idname", "") != BREAK_TRANSFORM_NODE_IDNAME:
+        return node
+    _ensure_named_input_socket(node, MathOPSV2TransformSocket.bl_idname, _SOCKET_TRANSFORM)
+    _ensure_named_output_socket(node, MathOPSV2VectorSocket.bl_idname, _SOCKET_LOCATION)
+    _ensure_named_output_socket(node, MathOPSV2EulerSocket.bl_idname, _SOCKET_ROTATION)
+    _ensure_named_output_socket(node, MathOPSV2VectorSocket.bl_idname, _SOCKET_SCALE)
+    return node
+
+
+def _ensure_csg_node_sockets(node):
+    if getattr(node, "bl_idname", "") != runtime.CSG_NODE_IDNAME:
+        return node
+    _ensure_named_input_socket(node, MathOPSV2SDFSocket.bl_idname, "A")
+    _ensure_named_input_socket(node, MathOPSV2SDFSocket.bl_idname, "B")
+    blend_socket, created = _ensure_named_input_socket(node, MathOPSV2FloatSocket.bl_idname, _SOCKET_BLEND)
+    _ensure_named_output_socket(node, MathOPSV2SDFSocket.bl_idname, "SDF")
+    if created:
+        with suppress_object_node_updates():
+            _set_socket_float_default(blend_socket, getattr(node, "blend", 0.0))
+    return node
+
+
+def _ensure_mirror_node_sockets(node):
+    if getattr(node, "bl_idname", "") != MIRROR_NODE_IDNAME:
+        return node
+    _ensure_named_input_socket(node, MathOPSV2SDFSocket.bl_idname, "SDF")
+    _ensure_named_output_socket(node, MathOPSV2SDFSocket.bl_idname, "SDF")
+    _ensure_named_output_socket(node, MathOPSV2TransformSocket.bl_idname, _SOCKET_TRANSFORM)
+    return node
 
 
 def _ensure_object_node_sockets(node):
     if getattr(node, "bl_idname", "") != runtime.OBJECT_NODE_IDNAME:
         return node
-    if _transform_input_socket(node) is None:
-        node.inputs.new(MathOPSV2TransformSocket.bl_idname, "Transform")
-    if _surface_output_socket(node) is None:
-        node.outputs.new(MathOPSV2SDFSocket.bl_idname, "SDF")
+    _ensure_named_input_socket(node, MathOPSV2TransformSocket.bl_idname, _SOCKET_TRANSFORM)
+    radius_socket, radius_created = _ensure_named_input_socket(node, MathOPSV2FloatSocket.bl_idname, _SOCKET_RADIUS)
+    size_socket, size_created = _ensure_named_input_socket(node, MathOPSV2VectorSocket.bl_idname, _SOCKET_HALF_SIZE)
+    height_socket, height_created = _ensure_named_input_socket(node, MathOPSV2FloatSocket.bl_idname, _SOCKET_HEIGHT)
+    major_socket, major_created = _ensure_named_input_socket(node, MathOPSV2FloatSocket.bl_idname, _SOCKET_MAJOR_RADIUS)
+    minor_socket, minor_created = _ensure_named_input_socket(node, MathOPSV2FloatSocket.bl_idname, _SOCKET_MINOR_RADIUS)
+    _ensure_named_output_socket(node, MathOPSV2SDFSocket.bl_idname, "SDF")
+    with suppress_object_node_updates():
+        if radius_created:
+            _set_socket_float_default(radius_socket, getattr(node, "radius", 0.5))
+        if size_created:
+            _set_socket_vector_default(size_socket, getattr(node, "size", (0.5, 0.5, 0.5)))
+        if height_created:
+            _set_socket_float_default(height_socket, getattr(node, "height", 1.0))
+        if major_created:
+            _set_socket_float_default(major_socket, getattr(node, "major_radius", 0.75))
+        if minor_created:
+            _set_socket_float_default(minor_socket, getattr(node, "minor_radius", 0.25))
+    _sync_object_node_socket_visibility(node)
+    return node
+
+
+def _ensure_node_sockets(node):
+    node_idname = getattr(node, "bl_idname", "")
+    if node_idname == runtime.OBJECT_NODE_IDNAME:
+        return _ensure_object_node_sockets(node)
+    if node_idname == TRANSFORM_NODE_IDNAME:
+        return _ensure_transform_node_sockets(node)
+    if node_idname == BREAK_TRANSFORM_NODE_IDNAME:
+        return _ensure_break_transform_node_sockets(node)
+    if node_idname == runtime.CSG_NODE_IDNAME:
+        return _ensure_csg_node_sockets(node)
+    if node_idname == MIRROR_NODE_IDNAME:
+        return _ensure_mirror_node_sockets(node)
     return node
 
 
@@ -545,27 +801,94 @@ def _identity_transform_values():
     return (_IDENTITY_LOCATION, _IDENTITY_ROTATION, _IDENTITY_SCALE)
 
 
-def _transform_node_values(node):
+def _resolve_vector_input_socket(socket, fallback, sanitizer, visiting=None):
+    if socket is not None:
+        source_socket = _linked_source_socket(socket)
+        if source_socket is not None:
+            resolved = _resolve_vector_output_socket(source_socket, visiting=visiting)
+            if resolved is not None:
+                return sanitizer(resolved)
+    return sanitizer(getattr(socket, "default_value", fallback) if socket is not None else fallback)
+
+
+def _break_transform_components(node, visiting=None):
+    source = transform_source_node(node)
+    if source is None:
+        return _identity_transform_values()
+    return _resolved_transform_values(source, visiting=visiting)
+
+
+def break_transform_values(node):
+    return _break_transform_components(node)
+
+
+def _resolve_vector_output_socket(socket, visiting=None):
+    node = getattr(socket, "node", None)
+    node_idname = getattr(node, "bl_idname", "")
+    if node_idname != BREAK_TRANSFORM_NODE_IDNAME:
+        return None
+    location, rotation, scale = _break_transform_components(node, visiting=visiting)
+    if socket.name == _SOCKET_LOCATION:
+        return location
+    if socket.name == _SOCKET_ROTATION:
+        return rotation
+    if socket.name == _SOCKET_SCALE:
+        return scale
+    return None
+
+
+def _transform_node_values(node, visiting=None):
+    _ensure_transform_node_sockets(node)
     return (
-        _sanitized_location(node.transform_location),
-        _sanitized_rotation(node.transform_rotation),
-        _sanitized_scale(node.transform_scale),
+        _resolve_vector_input_socket(_input_socket(node, _SOCKET_LOCATION), getattr(node, "transform_location", _IDENTITY_LOCATION), _sanitized_location, visiting=visiting),
+        _resolve_vector_input_socket(_input_socket(node, _SOCKET_ROTATION), getattr(node, "transform_rotation", _IDENTITY_ROTATION), _sanitized_rotation, visiting=visiting),
+        _resolve_vector_input_socket(_input_socket(node, _SOCKET_SCALE), getattr(node, "transform_scale", _IDENTITY_SCALE), _sanitized_scale, visiting=visiting),
     )
 
 
-def _break_transform_values(node, visiting=None):
+def _mirror_transform_values(node):
+    origin_object = getattr(node, "origin_object", None)
+    try:
+        if origin_object is None:
+            return _identity_transform_values()
+        return (
+            _sanitized_location(origin_object.location),
+            _sanitized_rotation(origin_object.rotation_euler),
+            _sanitized_scale(origin_object.scale),
+        )
+    except ReferenceError:
+        return _identity_transform_values()
+
+
+def _write_vector_input_socket(socket, values, sanitizer, visiting=None):
+    if socket is None:
+        return False
+    source_socket = _linked_source_socket(socket)
+    if source_socket is not None:
+        return _write_vector_output_socket(source_socket, values, sanitizer, visiting=visiting)
+    target = sanitizer(values)
+    current = sanitizer(getattr(socket, "default_value", target))
+    if not _float_seq_changed(current, target):
+        return False
+    socket.default_value = target
+    return True
+
+
+def _write_vector_output_socket(socket, values, sanitizer, visiting=None):
+    node = getattr(socket, "node", None)
+    if getattr(node, "bl_idname", "") != BREAK_TRANSFORM_NODE_IDNAME:
+        return False
     source = transform_source_node(node)
     if source is None:
-        location, rotation, scale = _identity_transform_values()
-    else:
-        location, rotation, scale = _resolved_transform_values(source, visiting=visiting)
-    if bool(getattr(node, "override_location", False)):
-        location = _sanitized_location(node.break_location)
-    if bool(getattr(node, "override_rotation", False)):
-        rotation = _sanitized_rotation(node.break_rotation)
-    if bool(getattr(node, "override_scale", False)):
-        scale = _sanitized_scale(node.break_scale)
-    return location, rotation, scale
+        return False
+    target = sanitizer(values)
+    if socket.name == _SOCKET_LOCATION:
+        return _write_transform_values(source, location=target, visiting=visiting)
+    if socket.name == _SOCKET_ROTATION:
+        return _write_transform_values(source, rotation=target, visiting=visiting)
+    if socket.name == _SOCKET_SCALE:
+        return _write_transform_values(source, scale=target, visiting=visiting)
+    return False
 
 
 def _resolved_transform_values(node, visiting=None, prefer_proxy=True):
@@ -598,26 +921,13 @@ def _resolved_transform_values(node, visiting=None, prefer_proxy=True):
                 _sanitized_scale(node.sdf_scale),
             )
         if node_idname == TRANSFORM_NODE_IDNAME:
-            return _transform_node_values(node)
-        if node_idname == BREAK_TRANSFORM_NODE_IDNAME:
-            return _break_transform_values(node, visiting=visiting)
+            return _transform_node_values(node, visiting=visiting)
+        if node_idname == MIRROR_NODE_IDNAME:
+            return _mirror_transform_values(node)
     finally:
         visiting.remove(node_key)
 
     return _identity_transform_values()
-
-
-def _set_break_transform_override(node, override_attr, value_attr, values):
-    changed = False
-    if not bool(getattr(node, override_attr)):
-        setattr(node, override_attr, True)
-        changed = True
-    current = tuple(float(component) for component in getattr(node, value_attr))
-    target = tuple(float(component) for component in values)
-    if _float_seq_changed(current, target):
-        setattr(node, value_attr, target)
-        changed = True
-    return changed
 
 
 def _write_transform_values(node, location=None, rotation=None, scale=None, visiting=None):
@@ -634,37 +944,14 @@ def _write_transform_values(node, location=None, rotation=None, scale=None, visi
         node_idname = getattr(node, "bl_idname", "")
         changed = False
         if node_idname == TRANSFORM_NODE_IDNAME:
-            if location is not None and _float_seq_changed(tuple(node.transform_location), location):
-                node.transform_location = location
-                changed = True
-            if rotation is not None and _float_seq_changed(tuple(node.transform_rotation), rotation):
-                node.transform_rotation = rotation
-                changed = True
-            if scale is not None and _float_seq_changed(tuple(node.transform_scale), scale):
-                node.transform_scale = scale
-                changed = True
-            return changed
-
-        if node_idname == BREAK_TRANSFORM_NODE_IDNAME:
-            source = transform_source_node(node)
+            _ensure_transform_node_sockets(node)
             if location is not None:
-                if bool(getattr(node, "override_location", False)) or source is None:
-                    changed = _set_break_transform_override(node, "override_location", "break_location", location) or changed
-                    location = None
+                changed = _write_vector_input_socket(_input_socket(node, _SOCKET_LOCATION), location, _sanitized_location, visiting=visiting) or changed
             if rotation is not None:
-                if bool(getattr(node, "override_rotation", False)) or source is None:
-                    changed = _set_break_transform_override(node, "override_rotation", "break_rotation", rotation) or changed
-                    rotation = None
+                changed = _write_vector_input_socket(_input_socket(node, _SOCKET_ROTATION), rotation, _sanitized_rotation, visiting=visiting) or changed
             if scale is not None:
-                sanitized_scale = _sanitized_scale(scale)
-                if bool(getattr(node, "override_scale", False)) or source is None:
-                    changed = _set_break_transform_override(node, "override_scale", "break_scale", sanitized_scale) or changed
-                    scale = None
-                else:
-                    scale = sanitized_scale
-            if source is None:
-                return changed
-            return _write_transform_values(source, location=location, rotation=rotation, scale=scale, visiting=visiting) or changed
+                changed = _write_vector_input_socket(_input_socket(node, _SOCKET_SCALE), scale, _sanitized_scale, visiting=visiting) or changed
+            return changed
 
         if node_idname == runtime.OBJECT_NODE_IDNAME:
             _ensure_object_node_sockets(node)
@@ -874,6 +1161,18 @@ def initializer_nodes(tree):
     return [node for node in tree.nodes if getattr(node, "bl_idname", "") == runtime.OBJECT_NODE_IDNAME]
 
 
+def mirror_origin_referenced(tree, obj):
+    object_pointer = runtime.safe_pointer(obj)
+    if tree is None or object_pointer == 0:
+        return False
+    for node in tree.nodes:
+        if getattr(node, "bl_idname", "") != MIRROR_NODE_IDNAME:
+            continue
+        if runtime.safe_pointer(getattr(node, "origin_object", None)) == object_pointer:
+            return True
+    return False
+
+
 def ensure_object_node_id(node):
     proxy_id = str(getattr(node, "proxy_id", "") or "")
     if proxy_id:
@@ -893,6 +1192,62 @@ def find_initializer_node(tree, obj=None, proxy_id=""):
         if proxy_id and str(getattr(node, "proxy_id", "") or "") == proxy_id:
             return node
     return None
+
+
+def node_input_socket(node, name):
+    return _input_socket(node, name)
+
+
+def node_output_socket(node, name):
+    return _output_socket(node, name)
+
+
+def _append_unique_node(nodes, seen, node):
+    node_key = runtime.safe_pointer(node)
+    if node_key == 0 or node_key in seen:
+        return False
+    seen.add(node_key)
+    nodes.append(node)
+    return True
+
+
+def _collect_transform_related_nodes(node, nodes, seen):
+    if node is None:
+        return
+    _append_unique_node(nodes, seen, node)
+    node_idname = getattr(node, "bl_idname", "")
+    if node_idname == TRANSFORM_NODE_IDNAME:
+        for socket_name in (_SOCKET_LOCATION, _SOCKET_ROTATION, _SOCKET_SCALE):
+            source_socket = _linked_source_socket(_input_socket(node, socket_name))
+            source_node = None if source_socket is None else getattr(source_socket, "node", None)
+            if source_node is not None:
+                _collect_transform_related_nodes(source_node, nodes, seen)
+        return
+    if node_idname == BREAK_TRANSFORM_NODE_IDNAME:
+        _collect_transform_related_nodes(transform_source_node(node), nodes, seen)
+
+
+def _collect_downstream_nodes(node, nodes, seen):
+    output_socket = _surface_output_socket(node)
+    if output_socket is None:
+        return
+    for link in list(output_socket.links):
+        downstream = getattr(link, "to_node", None)
+        if downstream is None or getattr(downstream, "bl_idname", "") == runtime.OUTPUT_NODE_IDNAME:
+            continue
+        _append_unique_node(nodes, seen, downstream)
+        _collect_downstream_nodes(downstream, nodes, seen)
+
+
+def inspector_related_nodes(node):
+    if node is None:
+        return []
+    nodes = []
+    seen = set()
+    _append_unique_node(nodes, seen, node)
+    _collect_transform_related_nodes(transform_source_node(node), nodes, seen)
+    _collect_downstream_nodes(node, nodes, seen)
+    return nodes
 
 
 def _float_seq_changed(lhs, rhs, epsilon=1.0e-6):
@@ -916,6 +1271,42 @@ def _set_float_attr(owner, attribute, value, epsilon=1.0e-6):
     target = float(value)
     if abs(current - target) > epsilon:
         setattr(owner, attribute, target)
+
+
+def _float_socket_value(socket, fallback, min_value=0.0):
+    value = fallback if socket is None else getattr(socket, "default_value", fallback)
+    return max(float(min_value), float(value))
+
+
+def _vector_socket_value(socket, fallback, sanitizer, visiting=None):
+    return _resolve_vector_input_socket(socket, fallback, sanitizer, visiting=visiting)
+
+
+def _node_socket_float(node, socket_name, attribute, fallback, min_value=0.0):
+    socket = _input_socket(node, socket_name, MathOPSV2FloatSocket.bl_idname) if getattr(node, "bl_idname", "") else None
+    if socket is not None:
+        return _float_socket_value(socket, getattr(node, attribute, fallback), min_value=min_value)
+    return max(float(min_value), float(getattr(node, attribute, fallback)))
+
+
+def _node_socket_vector(node, socket_name, attribute, fallback, sanitizer, visiting=None):
+    socket = _input_socket(node, socket_name) if getattr(node, "bl_idname", "") else None
+    if socket is not None:
+        return _vector_socket_value(socket, getattr(node, attribute, fallback), sanitizer, visiting=visiting)
+    return sanitizer(getattr(node, attribute, fallback))
+
+
+def object_parameter_socket_names(node):
+    primitive_type = str(getattr(node, "primitive_type", "sphere") or "sphere").strip().lower()
+    if primitive_type == "sphere":
+        return (_SOCKET_RADIUS,)
+    if primitive_type == "box":
+        return (_SOCKET_HALF_SIZE,)
+    if primitive_type == "cylinder":
+        return (_SOCKET_RADIUS, _SOCKET_HEIGHT)
+    if primitive_type == "torus":
+        return (_SOCKET_MAJOR_RADIUS, _SOCKET_MINOR_RADIUS)
+    return ()
 
 
 def _node_transform_values(node):
@@ -956,11 +1347,11 @@ def _mirror_node_to_proxy_settings(node, obj):
     primitive_type = str(node.primitive_type or "sphere")
     if str(settings.primitive_type or "") != primitive_type:
         settings.primitive_type = primitive_type
-    _set_float_attr(settings, "radius", node.radius)
-    _set_float_vector_attr(settings, "size", node.size)
-    _set_float_attr(settings, "height", node.height)
-    _set_float_attr(settings, "major_radius", node.major_radius)
-    _set_float_attr(settings, "minor_radius", node.minor_radius)
+    _set_float_attr(settings, "radius", _node_socket_float(node, _SOCKET_RADIUS, "radius", 0.5, min_value=0.001))
+    _set_float_vector_attr(settings, "size", _node_socket_vector(node, _SOCKET_HALF_SIZE, "size", (0.5, 0.5, 0.5), _sanitized_scale))
+    _set_float_attr(settings, "height", _node_socket_float(node, _SOCKET_HEIGHT, "height", 1.0, min_value=0.001))
+    _set_float_attr(settings, "major_radius", _node_socket_float(node, _SOCKET_MAJOR_RADIUS, "major_radius", 0.75, min_value=0.001))
+    _set_float_attr(settings, "minor_radius", _node_socket_float(node, _SOCKET_MINOR_RADIUS, "minor_radius", 0.25, min_value=0.001))
     return settings
 
 
@@ -1027,6 +1418,11 @@ def _adopt_proxy_data(node, obj):
             node.height = float(settings.height)
             node.major_radius = float(settings.major_radius)
             node.minor_radius = float(settings.minor_radius)
+            _set_socket_float_default(_input_socket(node, _SOCKET_RADIUS, MathOPSV2FloatSocket.bl_idname), settings.radius)
+            _set_socket_vector_default(_input_socket(node, _SOCKET_HALF_SIZE, MathOPSV2VectorSocket.bl_idname), settings.size)
+            _set_socket_float_default(_input_socket(node, _SOCKET_HEIGHT, MathOPSV2FloatSocket.bl_idname), settings.height)
+            _set_socket_float_default(_input_socket(node, _SOCKET_MAJOR_RADIUS, MathOPSV2FloatSocket.bl_idname), settings.major_radius)
+            _set_socket_float_default(_input_socket(node, _SOCKET_MINOR_RADIUS, MathOPSV2FloatSocket.bl_idname), settings.minor_radius)
         else:
             ensure_object_node_id(node)
         node.sdf_location = tuple(float(component) for component in obj.location)
@@ -1034,6 +1430,7 @@ def _adopt_proxy_data(node, obj):
         node.sdf_scale = tuple(float(component) for component in obj.scale)
         node.use_proxy = True
         node.target = obj
+    _sync_object_node_socket_visibility(node)
 
 
 def attach_proxy_to_node(node, obj, adopt_proxy=False):
@@ -1094,17 +1491,18 @@ def _primitive_parameters_from_node(node):
     meta = [0.0, 0.0, 0.0, 0.0]
     meta[0] = _PRIMITIVE_TYPE_TO_ID.get(primitive_type, 0.0)
     if primitive_type == "sphere":
-        meta[1] = float(node.radius)
+        meta[1] = _node_socket_float(node, _SOCKET_RADIUS, "radius", 0.5, min_value=0.001)
     elif primitive_type == "box":
-        meta[1] = float(node.size[0])
-        meta[2] = float(node.size[1])
-        meta[3] = float(node.size[2])
+        size = _node_socket_vector(node, _SOCKET_HALF_SIZE, "size", (0.5, 0.5, 0.5), _sanitized_scale)
+        meta[1] = float(size[0])
+        meta[2] = float(size[1])
+        meta[3] = float(size[2])
     elif primitive_type == "cylinder":
-        meta[1] = float(node.radius)
-        meta[2] = float(node.height) * 0.5
+        meta[1] = _node_socket_float(node, _SOCKET_RADIUS, "radius", 0.5, min_value=0.001)
+        meta[2] = _node_socket_float(node, _SOCKET_HEIGHT, "height", 1.0, min_value=0.001) * 0.5
     elif primitive_type == "torus":
-        meta[1] = float(node.major_radius)
-        meta[2] = float(node.minor_radius)
+        meta[1] = _node_socket_float(node, _SOCKET_MAJOR_RADIUS, "major_radius", 0.75, min_value=0.001)
+        meta[2] = _node_socket_float(node, _SOCKET_MINOR_RADIUS, "minor_radius", 0.25, min_value=0.001)
     else:
         raise RuntimeError(f"Unsupported primitive type '{primitive_type}'")
     _location, _rotation, scale = _node_transform_values(node)
@@ -1117,8 +1515,8 @@ def _primitive_local_extents(primitive_type, meta, scale):
     if primitive_type == "box":
         return Vector((meta[1] * scale[0], meta[2] * scale[1], meta[3] * scale[2]))
     if primitive_type == "cylinder":
-        radial_scale = max(0.5 * (scale[0] + scale[2]), 1.0e-6)
-        return Vector((meta[1] * radial_scale, meta[2] * scale[1], meta[1] * radial_scale))
+        radial_scale = max(0.5 * (scale[0] + scale[1]), 1.0e-6)
+        return Vector((meta[1] * radial_scale, meta[1] * radial_scale, meta[2] * scale[2]))
     if primitive_type == "torus":
         radial_scale = max(0.5 * (scale[0] + scale[2]), 1.0e-6)
         minor_scale = max(min(radial_scale, scale[1]), 1.0e-6)
@@ -1135,7 +1533,87 @@ def _primitive_lipschitz(primitive_type, scale):
     return 1.0
 
 
-def _primitive_spec_from_node(node, primitive_index):
+def _mirror_axis_flags(node):
+    flags = 0
+    if bool(getattr(node, "mirror_x", False)):
+        flags |= _MIRROR_AXIS_X
+    if bool(getattr(node, "mirror_y", False)):
+        flags |= _MIRROR_AXIS_Y
+    if bool(getattr(node, "mirror_z", False)):
+        flags |= _MIRROR_AXIS_Z
+    return flags
+
+
+def _mirror_origin_world(origin_object):
+    try:
+        if origin_object is None:
+            return _IDENTITY_LOCATION
+        return _sanitized_location(origin_object.matrix_world.translation)
+    except ReferenceError:
+        return _IDENTITY_LOCATION
+
+
+def _mirror_warp_descriptor(node):
+    flags = _mirror_axis_flags(node)
+    if flags == 0:
+        return None
+    blend = max(0.0, float(getattr(node, "blend", 0.0)))
+    return (int(flags), getattr(node, "origin_object", None), blend)
+
+
+def _warp_signature(warps):
+    return tuple(
+        (int(flags), runtime.safe_pointer(origin_object), round(float(blend), 6))
+        for flags, origin_object, blend in warps
+    )
+
+
+def _apply_mirror_warp_to_bounds(bounds_min, bounds_max, flags, origin):
+    mins = [float(value) for value in bounds_min]
+    maxs = [float(value) for value in bounds_max]
+    for axis, mask in enumerate((_MIRROR_AXIS_X, _MIRROR_AXIS_Y, _MIRROR_AXIS_Z)):
+        if (flags & mask) == 0:
+            continue
+        center = float(origin[axis])
+        extent = max(abs(mins[axis] - center), abs(maxs[axis] - center))
+        mins[axis] = center - extent
+        maxs[axis] = center + extent
+    return tuple(mins), tuple(maxs)
+
+
+def _apply_warp_stack_to_bounds(bounds_min, bounds_max, warps):
+    current_min = tuple(bounds_min)
+    current_max = tuple(bounds_max)
+    for flags, origin_object, _blend in warps:
+        current_min, current_max = _apply_mirror_warp_to_bounds(
+            current_min,
+            current_max,
+            int(flags),
+            _mirror_origin_world(origin_object),
+        )
+    return current_min, current_max
+
+
+def _append_warp_rows(warps, warp_rows):
+    if warp_rows is None or not warps:
+        return 0, 0
+    warp_offset = len(warp_rows)
+    for flags, origin_object, blend in warps:
+        origin = _mirror_origin_world(origin_object)
+        warp_rows.append((float(flags), float(blend), float(origin[0]), float(origin[1])))
+        warp_rows.append((float(origin[2]), 0.0, 0.0, 0.0))
+    return warp_offset, len(warps)
+
+
+def _pack_mirror_warp_info(warp_offset, warp_count):
+    offset = max(0, int(warp_offset))
+    count = max(0, int(warp_count))
+    if count >= _MIRROR_WARP_PACK_SCALE:
+        raise RuntimeError("Mirror stack exceeds shader packing limit")
+    return float(offset * _MIRROR_WARP_PACK_SCALE + count)
+
+
+def _primitive_spec_from_node(node, primitive_index, warps=()):
     location, _rotation, _scale = _node_transform_values(node)
     primitive_type, meta, scale = _primitive_parameters_from_node(node)
     transform = _node_transform_matrix(node)
@@ -1151,6 +1629,7 @@ def _primitive_spec_from_node(node, primitive_index):
     ))
     bounds_min = tuple(center[axis] - float(world_extents[axis]) for axis in range(3))
     bounds_max = tuple(center[axis] + float(world_extents[axis]) for axis in range(3))
+    bounds_min, bounds_max = _apply_warp_stack_to_bounds(bounds_min, bounds_max, warps)
     return {
         "primitive_index": int(primitive_index),
         "primitive_type": primitive_type,
@@ -1184,11 +1663,18 @@ def _scene_bounds_from_specs(primitive_specs):
     )
 
 
-def _primitive_rows_from_node(node):
+def _primitive_rows_from_node(node, warps=(), warp_rows=None):
     _primitive_type, meta, scale = _primitive_parameters_from_node(node)
     transform = _node_transform_matrix(node).inverted_safe()
     rows = [tuple(float(value) for value in transform[index]) for index in range(3)]
-    return [tuple(meta), rows[0], rows[1], rows[2], (scale[0], scale[1], scale[2], 0.0)]
+    warp_offset, warp_count = _append_warp_rows(warps, warp_rows)
+    return [
+        tuple(meta),
+        rows[0],
+        rows[1],
+        rows[2],
+        (scale[0], scale[1], scale[2], _pack_mirror_warp_info(warp_offset, warp_count)),
+    ]
 
 
 def _node_key(node):
@@ -1220,7 +1706,7 @@ def _stack_usage(instructions):
     return max_depth
 
 
-def _emit_node(node, primitive_rows, instructions, primitive_map, primitive_specs, primitive_nodes, visiting):
+def _emit_node(node, primitive_rows, warp_rows, instructions, primitive_map, primitive_specs, primitive_entries, visiting, warps=()):
     node_key = node.as_pointer()
     if node_key in visiting:
         raise RuntimeError(f"Cycle detected at node '{node.name}'")
@@ -1230,14 +1716,14 @@ def _emit_node(node, primitive_rows, instructions, primitive_map, primitive_spec
         node_idname = getattr(node, "bl_idname", "")
         if node_idname == runtime.OBJECT_NODE_IDNAME:
             ensure_object_node_id(node)
-            proxy_key = _node_key(node)
+            proxy_key = (_node_key(node), _warp_signature(warps))
             primitive_index = primitive_map.get(proxy_key)
             if primitive_index is None:
-                primitive_index = len(primitive_map)
+                primitive_index = len(primitive_entries)
                 primitive_map[proxy_key] = primitive_index
-                primitive_rows.extend(_primitive_rows_from_node(node))
-                primitive_specs.append(_primitive_spec_from_node(node, primitive_index))
-                primitive_nodes.append(node)
+                primitive_rows.extend(_primitive_rows_from_node(node, warps=warps, warp_rows=warp_rows))
+                primitive_specs.append(_primitive_spec_from_node(node, primitive_index, warps=warps))
+                primitive_entries.append({"node": node, "warps": tuple(warps), "object": getattr(node, "target", None)})
             instruction_index = len(instructions)
             _append_instruction(instructions, (0.0, float(primitive_index), 0.0, 0.0))
             return {
@@ -1246,15 +1732,55 @@ def _emit_node(node, primitive_rows, instructions, primitive_map, primitive_spec
                 "instruction_index": int(instruction_index),
             }
 
+        if node_idname == MIRROR_NODE_IDNAME:
+            _ensure_mirror_node_sockets(node)
+            source = _linked_source_node(_input_socket(node, "SDF", MathOPSV2SDFSocket.bl_idname))
+            if source is None:
+                raise RuntimeError(f"Node '{node.name}' needs its SDF input connected")
+            mirror_warp = _mirror_warp_descriptor(node)
+            next_warps = warps if mirror_warp is None else (tuple(warps) + (mirror_warp,))
+            return _emit_node(
+                source,
+                primitive_rows,
+                warp_rows,
+                instructions,
+                primitive_map,
+                primitive_specs,
+                primitive_entries,
+                visiting,
+                warps=next_warps,
+            )
+
         if node_idname == runtime.CSG_NODE_IDNAME:
-            left = _linked_source_node(node.inputs[0])
-            right = _linked_source_node(node.inputs[1])
+            _ensure_csg_node_sockets(node)
+            left = _linked_source_node(_input_socket(node, "A", MathOPSV2SDFSocket.bl_idname))
+            right = _linked_source_node(_input_socket(node, "B", MathOPSV2SDFSocket.bl_idname))
             if left is None or right is None:
                 raise RuntimeError(f"Node '{node.name}' needs both inputs connected")
-            left_compiled = _emit_node(left, primitive_rows, instructions, primitive_map, primitive_specs, primitive_nodes, visiting)
-            right_compiled = _emit_node(right, primitive_rows, instructions, primitive_map, primitive_specs, primitive_nodes, visiting)
+            left_compiled = _emit_node(
+                left,
+                primitive_rows,
+                warp_rows,
+                instructions,
+                primitive_map,
+                primitive_specs,
+                primitive_entries,
+                visiting,
+                warps=warps,
+            )
+            right_compiled = _emit_node(
+                right,
+                primitive_rows,
+                warp_rows,
+                instructions,
+                primitive_map,
+                primitive_specs,
+                primitive_entries,
+                visiting,
+                warps=warps,
+            )
             operation = _CSG_OPERATION_TO_ID.get(getattr(node, "operation", "UNION"), 1.0)
-            blend = float(getattr(node, "blend", 0.0))
+            blend = _node_socket_float(node, _SOCKET_BLEND, "blend", 0.0, min_value=0.0)
             instruction_index = len(instructions)
             _append_instruction(
                 instructions,
@@ -1288,28 +1814,30 @@ def _compile_tree(tree):
         raise RuntimeError(f"Tree '{tree.name}' needs the Scene Output connected")
 
     primitive_rows = []
+    warp_rows = []
     instructions = []
     primitive_map = {}
     primitive_specs = []
-    primitive_nodes = []
-    root_node = _emit_node(root, primitive_rows, instructions, primitive_map, primitive_specs, primitive_nodes, set())
-    return primitive_rows, instructions, primitive_specs, primitive_nodes, root_node
+    primitive_entries = []
+    root_node = _emit_node(root, primitive_rows, warp_rows, instructions, primitive_map, primitive_specs, primitive_entries, set())
+    return primitive_rows, warp_rows, instructions, primitive_specs, primitive_entries, root_node
 
 
 def _compile_scene_union(scene):
     primitive_rows = []
+    warp_rows = []
     instructions = []
     primitive_specs = []
-    primitive_nodes = []
+    primitive_entries = []
     root_node = None
     proxies = list_proxy_objects(scene)
     tree = get_scene_tree(scene, create=False)
     for primitive_index, obj in enumerate(proxies):
         node = find_initializer_node(tree, obj=obj)
         if node is not None:
-            primitive_rows.extend(_primitive_rows_from_node(node))
+            primitive_rows.extend(_primitive_rows_from_node(node, warp_rows=warp_rows))
             primitive_specs.append(_primitive_spec_from_node(node, primitive_index))
-            primitive_nodes.append(node)
+            primitive_entries.append({"node": node, "warps": (), "object": getattr(node, "target", None)})
         else:
             temp_node = type("_TempNode", (), {})()
             settings = runtime.object_settings(obj)
@@ -1322,9 +1850,9 @@ def _compile_scene_union(scene):
             temp_node.sdf_location = tuple(float(component) for component in obj.location)
             temp_node.sdf_rotation = tuple(float(component) for component in obj.rotation_euler)
             temp_node.sdf_scale = tuple(float(component) for component in obj.scale)
-            primitive_rows.extend(_primitive_rows_from_node(temp_node))
+            primitive_rows.extend(_primitive_rows_from_node(temp_node, warp_rows=warp_rows))
             primitive_specs.append(_primitive_spec_from_node(temp_node, primitive_index))
-            primitive_nodes.append(temp_node)
+            primitive_entries.append({"node": temp_node, "warps": (), "object": obj})
         primitive_instruction_index = len(instructions)
         _append_instruction(instructions, (0.0, float(primitive_index), 0.0, 0.0))
         primitive_node = {
@@ -1346,32 +1874,44 @@ def _compile_scene_union(scene):
             }
         if primitive_index > 0:
             _append_instruction(instructions, (1.0, 0.0, 0.0, 0.0))
-    return primitive_rows, instructions, primitive_specs, primitive_nodes, root_node
+    return primitive_rows, warp_rows, instructions, primitive_specs, primitive_entries, root_node
 
 
 def refresh_compiled_scene_dynamic(compiled):
-    primitive_nodes = list(compiled.get("primitive_nodes", ()))
-    if not primitive_nodes:
+    primitive_entries = list(compiled.get("primitive_entries", ()))
+    if not primitive_entries:
+        primitive_entries = [{"node": node, "warps": (), "object": getattr(node, "target", None)} for node in compiled.get("primitive_nodes", ())]
+    if not primitive_entries:
         return compiled
 
     primitive_rows = []
+    warp_rows = []
     primitive_specs = []
-    for primitive_index, node in enumerate(primitive_nodes):
-        primitive_rows.extend(_primitive_rows_from_node(node))
-        primitive_specs.append(_primitive_spec_from_node(node, primitive_index))
+    primitive_nodes = []
+    for primitive_index, entry in enumerate(primitive_entries):
+        node = entry["node"]
+        warps = tuple(entry.get("warps", ()))
+        primitive_rows.extend(_primitive_rows_from_node(node, warps=warps, warp_rows=warp_rows))
+        primitive_specs.append(_primitive_spec_from_node(node, primitive_index, warps=warps))
+        primitive_nodes.append(node)
 
     scene_bounds = _scene_bounds_from_specs(primitive_specs)
     instruction_rows = list(compiled.get("instruction_rows", ()))
-    rows = primitive_rows + instruction_rows
+    rows = primitive_rows + warp_rows + instruction_rows
     refreshed = dict(compiled)
     refreshed.update(
         {
             "primitive_rows": primitive_rows,
+            "warp_rows": warp_rows,
             "primitive_specs": primitive_specs,
-            "primitive_count": len(primitive_rows) // runtime.PRIMITIVE_TEXELS,
+            "primitive_entries": primitive_entries,
+            "primitive_nodes": primitive_nodes,
+            "primitive_count": len(primitive_entries),
+            "warp_row_count": len(warp_rows),
+            "instruction_base": len(primitive_rows) + len(warp_rows),
             "scene_bounds": scene_bounds,
             "rows": rows,
-            "hash": runtime.hash_compiled_rows(primitive_rows, instruction_rows),
+            "hash": runtime.hash_compiled_rows(primitive_rows, warp_rows, instruction_rows),
         }
     )
     return refreshed
@@ -1409,38 +1949,6 @@ def prune_tree(tree, valid_target_pointers=None):
         tree.nodes.remove(node)
         changed = True
 
-    simplified = True
-    while simplified:
-        simplified = False
-        for node in list(tree.nodes):
-            if getattr(node, "bl_idname", "") != runtime.CSG_NODE_IDNAME:
-                continue
-            left = _linked_source_node(node.inputs[0])
-            right = _linked_source_node(node.inputs[1])
-            replacement_socket = None
-            if left is None and right is None:
-                replacement_socket = None
-            elif left is None:
-                replacement_socket = _surface_output_socket(right)
-            elif right is None:
-                replacement_socket = _surface_output_socket(left)
-            else:
-                continue
-
-            output_socket = _surface_output_socket(node)
-            consumers = [link.to_socket for link in list(output_socket.links)]
-            for link in list(output_socket.links):
-                tree.links.remove(link)
-            if replacement_socket is not None:
-                for to_socket in consumers:
-                    for link in list(to_socket.links):
-                        tree.links.remove(link)
-                    tree.links.new(replacement_socket, to_socket)
-            tree.nodes.remove(node)
-            changed = True
-            simplified = True
-            break
-
     ensure_graph_output(tree)
     if changed:
         scene = _scene_for_tree(tree)
@@ -1451,23 +1959,23 @@ def prune_tree(tree, valid_target_pointers=None):
 
 def compile_scene(scene):
     primitive_rows = []
+    warp_rows = []
     instructions = []
     primitive_specs = []
+    primitive_entries = []
     root_node = None
     message = ""
     settings = runtime.scene_settings(scene)
     tree = None if settings is None else getattr(settings, "node_tree", None)
     if tree is not None and getattr(tree, "bl_idname", "") == runtime.TREE_IDNAME:
         try:
-            primitive_rows, instructions, primitive_specs, primitive_nodes, root_node = _compile_tree(tree)
+            primitive_rows, warp_rows, instructions, primitive_specs, primitive_entries, root_node = _compile_tree(tree)
         except RuntimeError as exc:
             message = f"Graph fallback: {exc}"
-            primitive_nodes = []
-    else:
-        primitive_nodes = []
+            primitive_entries = []
 
     if not instructions:
-        primitive_rows, instructions, primitive_specs, primitive_nodes, root_node = _compile_scene_union(scene)
+        primitive_rows, warp_rows, instructions, primitive_specs, primitive_entries, root_node = _compile_scene_union(scene)
 
     stack_depth = _stack_usage(instructions)
     if stack_depth > runtime.MAX_STACK:
@@ -1476,19 +1984,24 @@ def compile_scene(scene):
         )
 
     scene_bounds = _scene_bounds_from_specs(primitive_specs)
-    scene_hash = runtime.hash_compiled_rows(primitive_rows, instructions)
+    scene_hash = runtime.hash_compiled_rows(primitive_rows, warp_rows, instructions)
     topology_hash = runtime.hash_instruction_rows(instructions)
+    primitive_nodes = [entry["node"] for entry in primitive_entries]
     return {
         "primitive_rows": primitive_rows,
+        "warp_rows": warp_rows,
         "instruction_rows": instructions,
         "primitive_specs": primitive_specs,
+        "primitive_entries": primitive_entries,
         "primitive_nodes": primitive_nodes,
         "root_node": root_node,
-        "primitive_count": len(primitive_rows) // runtime.PRIMITIVE_TEXELS,
+        "primitive_count": len(primitive_entries),
+        "warp_row_count": len(warp_rows),
         "instruction_count": len(instructions),
+        "instruction_base": len(primitive_rows) + len(warp_rows),
         "stack_depth": stack_depth,
         "scene_bounds": scene_bounds,
-        "rows": primitive_rows + instructions,
+        "rows": primitive_rows + warp_rows + instructions,
         "hash": scene_hash,
         "topology_hash": topology_hash,
         "message": message,
@@ -1514,6 +2027,11 @@ node_categories = [
         items=[NodeItem(runtime.CSG_NODE_IDNAME)],
     ),
     _MathOPSV2NodeCategory(
+        "MATHOPS_V2_MODIFIERS",
+        "Modifiers",
+        items=[NodeItem(MIRROR_NODE_IDNAME)],
+    ),
+    _MathOPSV2NodeCategory(
         "MATHOPS_V2_UTILS",
         "Utilities",
         items=[NodeItem(TRANSFORM_NODE_IDNAME), NodeItem(BREAK_TRANSFORM_NODE_IDNAME)],
@@ -1524,11 +2042,15 @@ node_categories = [
 classes = (
     MathOPSV2SDFSocket,
     MathOPSV2TransformSocket,
+    MathOPSV2FloatSocket,
+    MathOPSV2VectorSocket,
+    MathOPSV2EulerSocket,
     MathOPSV2OutputNode,
     MathOPSV2ObjectNode,
     MathOPSV2TransformNode,
     MathOPSV2BreakTransformNode,
     MathOPSV2CSGNode,
+    MathOPSV2MirrorNode,
     MathOPSV2NodeTree,
 )
 

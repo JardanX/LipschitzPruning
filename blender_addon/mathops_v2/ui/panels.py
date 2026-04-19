@@ -1,7 +1,7 @@
 import bpy
 from bpy.types import Panel
 
-from .. import runtime
+from .. import properties, runtime
 from ..nodes import sdf_tree
 from ..operators.scene import MATHOPS_V2_OT_edit_sdf_graph, MATHOPS_V2_OT_new_sdf_graph
 
@@ -19,57 +19,151 @@ def _rendered_shading(context):
 
 
 def _ensure_scene_tree(context):
-    return sdf_tree.ensure_scene_tree(context.scene)
+    properties.ensure_scene_defaults(context.scene, context)
+    settings = runtime.scene_settings(context.scene)
+    return None if settings is None else getattr(settings, "node_tree", None)
+
+
+def _linked_socket_text(socket):
+    if socket is None or not socket.is_linked or not socket.links:
+        return ""
+    link = socket.links[0]
+    source_socket = getattr(link, "from_socket", None)
+    source_node = getattr(link, "from_node", None)
+    if source_node is None:
+        return ""
+    source_name = source_node.name
+    socket_name = "" if source_socket is None else str(getattr(source_socket, "name", "") or "")
+    return source_name if not socket_name else f"{source_name} · {socket_name}"
+
+
+def _draw_socket_input(layout, socket, text=None):
+    if socket is None:
+        return
+    label = text or socket.name
+    if socket.is_linked:
+        row = layout.row(align=True)
+        row.label(text=label)
+        row.label(text=_linked_socket_text(socket), icon="LINKED")
+        return
+    if hasattr(socket, "default_value"):
+        layout.prop(socket, "default_value", text=label)
+        return
+    layout.label(text=label)
+
+
+def _format_vec(values):
+    return ", ".join(f"{float(component):.3f}" for component in values)
+
+
+def _draw_object_node(layout, node):
+    box = layout.box()
+    box.label(text="Initializer", icon="OBJECT_DATA")
+    box.prop(node, "name", text="Node")
+    box.prop(node, "primitive_type", text="Type")
+    transform_socket = sdf_tree.node_input_socket(node, "Transform")
+    if transform_socket is not None and transform_socket.is_linked:
+        _draw_socket_input(box, transform_socket)
+    else:
+        box.label(text="Transform: viewport handle")
+    for socket_name in sdf_tree.object_parameter_socket_names(node):
+        _draw_socket_input(box, sdf_tree.node_input_socket(node, socket_name))
+    if getattr(node, "target", None) is not None:
+        box.prop(node.target, "name", text="Handle")
+    box.prop(node, "proxy_id", text="Proxy ID")
+
+
+def _draw_make_transform_node(layout, node):
+    box = layout.box()
+    box.label(text="Make Transform", icon="CONSTRAINT")
+    box.prop(node, "name", text="Node")
+    _draw_socket_input(box, sdf_tree.node_input_socket(node, "Location"))
+    _draw_socket_input(box, sdf_tree.node_input_socket(node, "Rotation"))
+    _draw_socket_input(box, sdf_tree.node_input_socket(node, "Scale"))
+
+
+def _draw_break_transform_node(layout, node):
+    box = layout.box()
+    box.label(text="Break Transform", icon="DRIVER")
+    box.prop(node, "name", text="Node")
+    transform_socket = sdf_tree.node_input_socket(node, "Transform")
+    if transform_socket is not None and transform_socket.is_linked:
+        _draw_socket_input(box, transform_socket)
+    else:
+        box.label(text="Transform input not connected", icon="INFO")
+    location, rotation, scale = sdf_tree.break_transform_values(node)
+    preview = box.column()
+    preview.enabled = False
+    preview.label(text=f"Location: {_format_vec(location)}")
+    preview.label(text=f"Rotation: {_format_vec(rotation)}")
+    preview.label(text=f"Scale: {_format_vec(scale)}")
+
+
+def _draw_csg_node(layout, node):
+    box = layout.box()
+    box.label(text="CSG", icon="MOD_BOOLEAN")
+    box.prop(node, "name", text="Node")
+    box.prop(node, "operation", text="Operation")
+    _draw_socket_input(box, sdf_tree.node_input_socket(node, "Blend"))
+
+
+def _draw_mirror_node(layout, node):
+    box = layout.box()
+    box.label(text="Mirror", icon="MOD_MIRROR")
+    box.prop(node, "name", text="Node")
+    _draw_socket_input(box, sdf_tree.node_input_socket(node, "SDF"))
+    row = box.row(align=True)
+    row.prop(node, "mirror_x", toggle=True)
+    row.prop(node, "mirror_y", toggle=True)
+    row.prop(node, "mirror_z", toggle=True)
+    box.prop(node, "blend", text="Blend")
+    box.prop(node, "origin_object", text="Origin")
+
+
+def _draw_inspector_node(layout, node):
+    node_idname = getattr(node, "bl_idname", "")
+    if node_idname == runtime.OBJECT_NODE_IDNAME:
+        _draw_object_node(layout, node)
+        return
+    if node_idname == sdf_tree.TRANSFORM_NODE_IDNAME:
+        _draw_make_transform_node(layout, node)
+        return
+    if node_idname == sdf_tree.BREAK_TRANSFORM_NODE_IDNAME:
+        _draw_break_transform_node(layout, node)
+        return
+    if node_idname == runtime.CSG_NODE_IDNAME:
+        _draw_csg_node(layout, node)
+        return
+    if node_idname == sdf_tree.MIRROR_NODE_IDNAME:
+        _draw_mirror_node(layout, node)
+
+
+def _draw_node_sections(layout, nodes):
+    for node in nodes:
+        _draw_inspector_node(layout, node)
 
 
 def _draw_proxy_inspection(layout, context):
     obj = context.object
     settings = obj.mathops_v2_sdf
-    scene_settings = context.scene.mathops_v2
     tree = _ensure_scene_tree(context)
     node = sdf_tree.find_initializer_node(tree, obj=obj, proxy_id=str(settings.proxy_id or ""))
 
-    layout.label(text="Initializer node owns this SDF")
-    info_box = layout.box()
-    info_col = info_box.column()
-    info_col.enabled = False
-    info_col.prop(settings, "source_tree_name", text="Graph")
-    info_col.prop(settings, "source_node_name", text="Node")
-    info_col.prop(settings, "proxy_id", text="Proxy ID")
+    header = layout.box()
+    header.label(text="Node Inspector", icon="NODETREE")
 
     if node is None:
-        layout.label(text="Waiting for graph sync", icon="INFO")
+        header.label(text="Waiting for graph sync", icon="INFO")
+        source_tree_name = str(settings.source_tree_name or "")
+        source_node_name = str(settings.source_node_name or "")
+        if source_tree_name:
+            header.label(text=f"Graph: {source_tree_name}")
+        if source_node_name:
+            header.label(text=f"Node: {source_node_name}")
     else:
-        layout.label(text=f"Graph: {node.id_data.name}", icon="NODETREE")
-        layout.label(text=f"Node: {node.name}")
-        transform_source = sdf_tree.transform_source_node(node)
-        if transform_source is not None:
-            layout.label(text=f"Transform: {transform_source.name}", icon="CONSTRAINT")
-        column = layout.column()
-        column.enabled = False
-        column.prop(node, "primitive_type")
-        primitive_type = str(node.primitive_type or "sphere")
-        if primitive_type == "sphere":
-            column.prop(node, "radius")
-        elif primitive_type == "box":
-            column.prop(node, "size")
-        elif primitive_type == "cylinder":
-            column.prop(node, "radius")
-            column.prop(node, "height")
-        elif primitive_type == "torus":
-            column.prop(node, "major_radius")
-            column.prop(node, "minor_radius")
-        column.prop(node, "sdf_location")
-        column.prop(node, "sdf_rotation", text="Rotation")
-        column.prop(node, "sdf_scale")
-
-    layout.separator()
-    shading_box = layout.box()
-    shading_box.label(text="Viewport Shading")
-    shading_box.template_icon_view(scene_settings, "custom_matcap", show_labels=False, scale=4.0, scale_popup=3.0)
-
-    layout.separator()
-    layout.operator(MATHOPS_V2_OT_edit_sdf_graph.bl_idname, icon="NODETREE")
+        header.label(text=f"Graph: {node.id_data.name}")
+        header.label(text=f"Root: {node.name}")
+        _draw_node_sections(layout, sdf_tree.inspector_related_nodes(node))
 
 
 class MATHOPS_V2_PT_render_settings(Panel):
@@ -120,7 +214,7 @@ class MATHOPS_V2_PT_render_settings(Panel):
 
 
 class MATHOPS_V2_PT_object_proxy(Panel):
-    bl_label = "MathOPS SDF Proxy"
+    bl_label = "Node Inspector"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
     bl_context = "object"
@@ -134,7 +228,7 @@ class MATHOPS_V2_PT_object_proxy(Panel):
 
 
 class MATHOPS_V2_PT_object_proxy_data(Panel):
-    bl_label = "MathOPS SDF Proxy"
+    bl_label = "Node Inspector"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
     bl_context = "data"
@@ -168,16 +262,13 @@ class MATHOPS_V2_PT_graph_sidebar(Panel):
         row.prop(settings, "node_tree", text="Scene Graph")
         row.operator(MATHOPS_V2_OT_new_sdf_graph.bl_idname, text="", icon="ADD")
 
-        if active_node is not None and getattr(active_node, "bl_idname", "") == runtime.OBJECT_NODE_IDNAME:
+        if active_node is not None:
             layout.separator()
-            layout.label(text="Active Initializer")
-            layout.prop(active_node, "primitive_type", text="Type")
-            transform_source = sdf_tree.transform_source_node(active_node)
-            if transform_source is not None:
-                layout.label(text=f"Transform: {transform_source.name}", icon="CONSTRAINT")
-            layout.prop(active_node, "sdf_location")
-            layout.prop(active_node, "sdf_rotation", text="Rotation")
-            layout.prop(active_node, "sdf_scale")
+            layout.label(text="Active Node")
+            if getattr(active_node, "bl_idname", "") == runtime.OBJECT_NODE_IDNAME:
+                _draw_node_sections(layout, sdf_tree.inspector_related_nodes(active_node))
+            else:
+                _draw_node_sections(layout, (active_node,))
 
         if runtime.last_error_message:
             layout.separator()
@@ -188,6 +279,7 @@ def draw_shading_popover(self, context):
     if not _using_engine(context):
         return
 
+    properties.ensure_scene_defaults(context.scene, context)
     shading = _rendered_shading(context)
     if shading is None:
         return

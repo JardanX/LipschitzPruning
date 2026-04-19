@@ -10,6 +10,7 @@ COMPUTE_SOURCE = """\
 
 #define PRIMITIVE_STRIDE %d
 #define STACK_DEPTH %d
+#define MIRROR_WARP_PACK_SCALE 256
 
 ivec2 linearCoord(ivec2 size, int index)
 {
@@ -144,10 +145,47 @@ vec3 primitiveScale(int primitiveIndex)
   return max(loadSceneRow(baseRow + 4).xyz, vec3(1e-6));
 }
 
+float sabs(float x, float k)
+{
+  if (k <= 0.0001) {
+    return abs(x);
+  }
+  float ax = abs(x);
+  if (ax >= k) {
+    return ax;
+  }
+  float t = ax / k;
+  float t2 = t * t;
+  float t3 = t2 * t;
+  float t4 = t2 * t2;
+  return k * (0.25 + 1.5 * t2 - t3 + 0.25 * t4);
+}
+
 vec3 toLocalPoint(int primitiveIndex, vec3 worldPoint)
 {
   int baseRow = primitiveIndex * PRIMITIVE_STRIDE;
-  vec4 world = vec4(worldPoint, 1.0);
+  int packedWarpInfo = int(loadSceneRow(baseRow + 4).w + 0.5);
+  int warpBase = primitiveCount * PRIMITIVE_STRIDE;
+  int warpOffset = packedWarpInfo / MIRROR_WARP_PACK_SCALE;
+  int warpCount = packedWarpInfo - warpOffset * MIRROR_WARP_PACK_SCALE;
+  vec3 warpedPoint = worldPoint;
+  for (int index = 0; index < warpCount; index++) {
+    vec4 warpHeader = loadSceneRow(warpBase + warpOffset + index * 2);
+    vec4 warpTail = loadSceneRow(warpBase + warpOffset + index * 2 + 1);
+    int flags = int(warpHeader.x + 0.5);
+    float blend = max(warpHeader.y, 0.0);
+    vec3 origin = vec3(warpHeader.z, warpHeader.w, warpTail.x);
+    if ((flags & 1) != 0) {
+      warpedPoint.x = origin.x + sabs(warpedPoint.x - origin.x, blend);
+    }
+    if ((flags & 2) != 0) {
+      warpedPoint.y = origin.y + sabs(warpedPoint.y - origin.y, blend);
+    }
+    if ((flags & 4) != 0) {
+      warpedPoint.z = origin.z + sabs(warpedPoint.z - origin.z, blend);
+    }
+  }
+  vec4 world = vec4(warpedPoint, 1.0);
   vec4 row0 = loadSceneRow(baseRow + 1);
   vec4 row1 = loadSceneRow(baseRow + 2);
   vec4 row2 = loadSceneRow(baseRow + 3);
@@ -169,7 +207,7 @@ float sdBox(vec3 p, vec3 b)
 
 float sdCylinder(vec3 p, float r, float halfHeight)
 {
-  vec2 d = abs(vec2(length(p.xz), p.y)) - vec2(r, halfHeight);
+  vec2 d = abs(vec2(length(p.xy), p.z)) - vec2(r, halfHeight);
   return min(max(d.x, d.y), 0.0) + length(max(d, vec2(0.0)));
 }
 
@@ -193,8 +231,8 @@ float evalPrimitive(int primitiveIndex, vec3 worldPoint)
     return sdBox(localPoint, meta.yzw * scale);
   }
   if (primitiveType == 2) {
-    float radialScale = max(0.5 * (scale.x + scale.z), 1e-6);
-    return sdCylinder(localPoint, meta.y * radialScale, meta.z * scale.y);
+    float radialScale = max(0.5 * (scale.x + scale.y), 1e-6);
+    return sdCylinder(localPoint, meta.y * radialScale, meta.z * scale.z);
   }
   if (primitiveType == 3) {
     float radialScale = max(0.5 * (scale.x + scale.z), 1e-6);
@@ -328,7 +366,7 @@ void computePruning(vec3 cellCenter, vec3 cellSize, int cellIndex)
   for (int index = 0; index < numNodes; index++) {
     float activeNode = loadInputActiveNode(parentOffset, index);
     int instructionIndex = activeNodeIndex(activeNode);
-    int instructionRow = (primitiveCount * PRIMITIVE_STRIDE) + instructionIndex;
+    int instructionRow = (primitiveCount * PRIMITIVE_STRIDE) + warpRowCount + instructionIndex;
     vec4 instruction = loadSceneRow(instructionRow);
     int kind = int(instruction.x + 0.5);
     float distanceValue;

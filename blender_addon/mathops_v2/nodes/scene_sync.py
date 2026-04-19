@@ -48,18 +48,21 @@ def _sync_proxy_transform_updates(scene, depsgraph):
         return False
 
     proxy_updates = []
+    mirror_origin_updates = []
+    fallback_required = False
     for update in getattr(depsgraph, "updates", ()):
         id_data = getattr(update, "id", None)
         if isinstance(id_data, bpy.types.Object):
-            if not runtime.is_sdf_proxy(id_data):
-                return False
-            proxy_updates.append(id_data)
+            if runtime.is_sdf_proxy(id_data):
+                proxy_updates.append(id_data)
+            elif sdf_tree.mirror_origin_referenced(tree, id_data):
+                mirror_origin_updates.append(id_data)
             continue
         if id_data is scene:
             continue
-        return False
+        fallback_required = True
 
-    if not proxy_updates:
+    if not proxy_updates and not mirror_origin_updates:
         return False
 
     changed = False
@@ -72,11 +75,11 @@ def _sync_proxy_transform_updates(scene, depsgraph):
         changed = sdf_tree.sync_proxy_to_node(node) or changed
         sdf_tree.sync_node_to_proxy(node, include_transform=False)
 
-    if changed:
+    if changed or mirror_origin_updates:
         runtime.mark_scene_transform_dirty(scene)
         runtime.note_interaction()
         runtime.tag_redraw()
-    return True
+    return not fallback_required
 
 
 def ensure_scene_graph(scene):
