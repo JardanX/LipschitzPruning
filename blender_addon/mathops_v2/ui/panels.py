@@ -3,7 +3,20 @@ from bpy.types import Panel
 
 from .. import properties, runtime
 from ..nodes import sdf_tree
-from ..operators.scene import MATHOPS_V2_OT_edit_sdf_graph, MATHOPS_V2_OT_new_sdf_graph
+from ..operators.node_arrange import MATHOPS_V2_OT_arrange_graph
+from ..operators.scene import (
+    MATHOPS_V2_OT_edit_sdf_graph,
+    MATHOPS_V2_OT_extract_dual_contour_mesh,
+    MATHOPS_V2_OT_move_sdf_branch,
+    MATHOPS_V2_OT_new_sdf_graph,
+)
+
+
+_BRANCH_OPERATION_LABELS = {
+    "UNION": "Union",
+    "SUBTRACT": "Subtract",
+    "INTERSECT": "Intersect",
+}
 
 
 def _using_engine(context):
@@ -165,6 +178,40 @@ def _draw_node_sections(layout, nodes):
         _draw_inspector_node(layout, node)
 
 
+def _draw_branch_order(layout, tree, active_node):
+    entries = sdf_tree.branch_order_entries(tree)
+    if len(entries) < 2:
+        return
+
+    active_index = sdf_tree.branch_entry_index(tree, active_node)
+    box = layout.box()
+    header = box.row(align=True)
+    header.label(text="Branch Order", icon="NODETREE")
+    header.operator(MATHOPS_V2_OT_arrange_graph.bl_idname, text="Arrange")
+
+    for index, entry in enumerate(entries):
+        row = box.row(align=True)
+        row.label(text="", icon="RADIOBUT_ON" if index == active_index else "RADIOBUT_OFF")
+        operation = entry["operation"]
+        row.label(text="Base" if index == 0 else _BRANCH_OPERATION_LABELS.get(operation, str(operation or "Step")))
+        branch_root = entry["branch_root"]
+        row.label(text="" if branch_root is None else str(getattr(branch_root, "name", "") or "Branch"))
+
+        move_up = row.row(align=True)
+        move_up.enabled = index > 1
+        operator = move_up.operator(MATHOPS_V2_OT_move_sdf_branch.bl_idname, text="", icon="TRIA_UP")
+        operator.tree_name = tree.name
+        operator.branch_root_name = "" if branch_root is None else branch_root.name
+        operator.direction = "UP"
+
+        move_down = row.row(align=True)
+        move_down.enabled = 0 < index < (len(entries) - 1)
+        operator = move_down.operator(MATHOPS_V2_OT_move_sdf_branch.bl_idname, text="", icon="TRIA_DOWN")
+        operator.tree_name = tree.name
+        operator.branch_root_name = "" if branch_root is None else branch_root.name
+        operator.direction = "DOWN"
+
+
 def _draw_proxy_inspection(layout, context):
     obj = context.object
     settings = obj.mathops_v2_sdf
@@ -220,21 +267,17 @@ class MATHOPS_V2_PT_render_settings(Panel):
         layout.prop(settings, "max_steps")
         layout.prop(settings, "max_distance")
         layout.prop(settings, "surface_epsilon")
+        layout.separator()
+        layout.prop(settings, "mesh_algorithm")
+        layout.prop(settings, "mesh_resolution")
+        layout.prop(settings, "mesh_smooth_shading")
+        layout.operator(MATHOPS_V2_OT_extract_dual_contour_mesh.bl_idname, icon="MESH_GRID")
         layout.prop(settings, "disable_surface_shading")
         layout.separator()
         layout.prop(settings, "culling_enabled")
         pruning_col = layout.column()
         pruning_col.enabled = settings.culling_enabled
         pruning_col.prop(settings, "pruning_grid_level")
-
-        cone_toggle_col = layout.column()
-        cone_toggle_col.enabled = settings.culling_enabled
-        cone_toggle_col.prop(settings, "cone_prepass_enabled")
-        if settings.cone_prepass_enabled:
-            cone_col = layout.column()
-            cone_col.enabled = settings.culling_enabled
-            cone_col.prop(settings, "cone_aperture")
-            cone_col.prop(settings, "cone_steps")
 
         layout.prop(settings, "debug_shading")
         if settings.debug_shading in {"PRUNING_ACTIVE", "PRUNING_FIELD"}:
@@ -287,7 +330,9 @@ class MATHOPS_V2_PT_graph_sidebar(Panel):
     def draw(self, context):
         layout = self.layout
         settings = context.scene.mathops_v2
-        _ensure_scene_tree(context)
+        tree = getattr(getattr(context, "space_data", None), "edit_tree", None)
+        if tree is None or getattr(tree, "bl_idname", "") != runtime.TREE_IDNAME:
+            tree = _ensure_scene_tree(context)
         active_node = getattr(context, "active_node", None)
 
         row = layout.row(align=True)
@@ -301,6 +346,10 @@ class MATHOPS_V2_PT_graph_sidebar(Panel):
                 _draw_node_sections(layout, sdf_tree.inspector_related_nodes(active_node))
             else:
                 _draw_node_sections(layout, (active_node,))
+
+        if tree is not None:
+            layout.separator()
+            _draw_branch_order(layout, tree, active_node)
 
         if runtime.last_error_message:
             layout.separator()

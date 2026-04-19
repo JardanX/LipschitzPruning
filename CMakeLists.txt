@@ -35,8 +35,8 @@ endif()
 
 set(_BLENDER_PYTHON_DEFAULT "")
 foreach(_blender_python_candidate IN ITEMS
-    "D:/Blender/Blender/versions/blender-5.1.0-windows-x64/5.1/python"
     "D:/Blender/Blender/versions/blender-5.0.1-windows-x64/5.0/python"
+    "D:/Blender/Blender/versions/blender-5.1.0-windows-x64/5.1/python"
 )
     if (EXISTS "${_blender_python_candidate}")
         set(_BLENDER_PYTHON_DEFAULT "${_blender_python_candidate}")
@@ -55,6 +55,8 @@ find_package(OpenEXR CONFIG QUIET)
 
 include(FetchContent)
 
+option(MATHOPS_BUILD_MATCAP_NATIVE "Build the native EXR matcap helper module" OFF)
+
 FetchContent_Declare(
     CLI11
     GIT_REPOSITORY "https://github.com/CLIUtils/CLI11"
@@ -62,12 +64,16 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(CLI11)
 
-FetchContent_Declare(
-    nanobind
-    GIT_REPOSITORY "https://github.com/wjakob/nanobind.git"
-    GIT_TAG "v2.12.0"
-)
-FetchContent_MakeAvailable(nanobind)
+set(MATHOPS_NEEDS_NANOBIND OFF)
+if (MATHOPS_HAS_CORE OR MATHOPS_BUILD_MATCAP_NATIVE)
+    set(MATHOPS_NEEDS_NANOBIND ON)
+    FetchContent_Declare(
+        nanobind
+        GIT_REPOSITORY "https://github.com/wjakob/nanobind.git"
+        GIT_TAG "v2.12.0"
+    )
+    FetchContent_MakeAvailable(nanobind)
+endif()
 
 if (MATHOPS_HAS_CORE)
     find_package(glfw3)
@@ -168,9 +174,11 @@ if (MATHOPS_HAS_CORE)
     target_link_libraries(LipschitzPruning PRIVATE lipschitz_core CLI11::CLI11)
     add_dependencies(LipschitzPruning lipschitz_shaders)
 
-    nanobind_add_module(lipschitz_pruning_native src/nanobind_module.cpp)
-    target_link_libraries(lipschitz_pruning_native PRIVATE lipschitz_core)
-    add_dependencies(lipschitz_pruning_native lipschitz_shaders)
+    if (MATHOPS_NEEDS_NANOBIND)
+        nanobind_add_module(lipschitz_pruning_native src/nanobind_module.cpp)
+        target_link_libraries(lipschitz_pruning_native PRIVATE lipschitz_core)
+        add_dependencies(lipschitz_pruning_native lipschitz_shaders)
+    endif()
 endif()
 
 set(MATHOPS_WITH_OPENEXR OFF)
@@ -181,9 +189,15 @@ else()
     message(STATUS "Matcap EXR support disabled")
 endif()
 
-if (MATHOPS_WITH_OPENEXR AND EXISTS "${CMAKE_SOURCE_DIR}/src/matcap_exr_module.cpp")
+if (MATHOPS_BUILD_MATCAP_NATIVE AND MATHOPS_WITH_OPENEXR AND MATHOPS_NEEDS_NANOBIND AND EXISTS "${CMAKE_SOURCE_DIR}/src/matcap_exr_module.cpp")
     nanobind_add_module(mathops_matcap_native src/matcap_exr_module.cpp)
     target_link_libraries(mathops_matcap_native PRIVATE OpenEXR::OpenEXR)
+endif()
+
+if (EXISTS "${CMAKE_SOURCE_DIR}/src/mathops_meshing_module.cpp")
+    Python_add_library(mathops_meshing_native MODULE WITH_SOABI src/mathops_meshing_module.cpp)
+    target_link_libraries(mathops_meshing_native PRIVATE Python::Module)
+    set_target_properties(mathops_meshing_native PROPERTIES PREFIX "")
 endif()
 
 if (TARGET lipschitz_pruning_native)
@@ -201,6 +215,19 @@ endif()
 
 if (TARGET mathops_matcap_native)
     set_target_properties(mathops_matcap_native PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${BLENDER_ADDON_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY "${BLENDER_ADDON_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY_RELEASE "${BLENDER_ADDON_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_RELEASE "${BLENDER_ADDON_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY_RELWITHDEBINFO "${BLENDER_ADDON_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${BLENDER_ADDON_DIR}"
+        LIBRARY_OUTPUT_DIRECTORY_DEBUG "${BLENDER_ADDON_DIR}"
+        RUNTIME_OUTPUT_DIRECTORY_DEBUG "${BLENDER_ADDON_DIR}"
+    )
+endif()
+
+if (TARGET mathops_meshing_native)
+    set_target_properties(mathops_meshing_native PROPERTIES
         LIBRARY_OUTPUT_DIRECTORY "${BLENDER_ADDON_DIR}"
         RUNTIME_OUTPUT_DIRECTORY "${BLENDER_ADDON_DIR}"
         LIBRARY_OUTPUT_DIRECTORY_RELEASE "${BLENDER_ADDON_DIR}"
@@ -242,6 +269,12 @@ if (TARGET mathops_matcap_native)
     )
 endif()
 
+if (TARGET mathops_meshing_native)
+    list(APPEND ADDON_COPY_COMMANDS
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:mathops_meshing_native>" "${BLENDER_ADDON_DIR}/$<TARGET_FILE_NAME:mathops_meshing_native>"
+    )
+endif()
+
 set(STAGE_DEPENDS)
 if (TARGET lipschitz_pruning_native)
     list(APPEND STAGE_DEPENDS lipschitz_pruning_native)
@@ -251,6 +284,9 @@ if (TARGET lipschitz_shaders)
 endif()
 if (TARGET mathops_matcap_native)
     list(APPEND STAGE_DEPENDS mathops_matcap_native)
+endif()
+if (TARGET mathops_meshing_native)
+    list(APPEND STAGE_DEPENDS mathops_meshing_native)
 endif()
 
 add_custom_target(stage_blender_addon ALL

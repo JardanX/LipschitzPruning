@@ -98,8 +98,6 @@ def debug_mode_value(settings) -> int:
         return 1
     if mode == "PRUNING_FIELD":
         return 2
-    if mode == "CONE_HEATMAP":
-        return 3
     if mode == "STEP_COUNT":
-        return 4
+        return 3
     return 0

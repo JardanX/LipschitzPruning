@@ -305,6 +305,9 @@ LipschitzPruning_SOURCE_DIR:STATIC=D:/Projects/GitHub/MathOPS-v2
 //Blender dependency bundle used for native extras
 MATHOPS_BLENDER_LIB_ROOT:PATH=D:/Projects/GitHub/MathOPS-v2/../blender-sdf/lib/windows_x64
 
+//Build the native EXR matcap helper module
+MATHOPS_BUILD_MATCAP_NATIVE:BOOL=OFF
+
 //Create installation rules
 NB_CREATE_INSTALL_RULES:BOOL=OFF
 
@@ -455,7 +458,7 @@ CMAKE_MODULE_LINKER_FLAGS_RELWITHDEBINFO-ADVANCED:INTERNAL=1
 //ADVANCED property for variable: CMAKE_MT
 CMAKE_MT-ADVANCED:INTERNAL=1
 //number of local generators
-CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=6
+CMAKE_NUMBER_OF_MAKEFILES:INTERNAL=5
 //Platform information initialized
 CMAKE_PLATFORM_INFO_INITIALIZED:INTERNAL=1
 //noop for ranlib
@@ -529,6 +532,8 @@ _Python_INCLUDE_DIR:INTERNAL=C:/Users/bysta/AppData/Local/Programs/Python/Python
 //Python Properties
 _Python_INTERPRETER_PROPERTIES:INTERNAL=Python;3;11;13;64;<none>;cp311-win_amd64;;D:\Blender\Blender\versions\blender-5.0.1-windows-x64\5.0\python\Lib;D:\Blender\Blender\versions\blender-5.0.1-windows-x64\5.0\python\Lib;D:\Blender\Blender\versions\blender-5.0.1-windows-x64\5.0\python\Lib\site-packages;D:\Blender\Blender\versions\blender-5.0.1-windows-x64\5.0\python\Lib\site-packages
 _Python_INTERPRETER_SIGNATURE:INTERNAL=0fa64d3add9514e3a3ab7a6b815598c9
+//Interpreter reason failure
+_Python_Interpreter_REASON_FAILURE:INTERNAL=
 //Path to a library.
 _Python_LIBRARY_DEBUG:INTERNAL=_Python_LIBRARY_DEBUG-NOTFOUND
 //Path to a library.

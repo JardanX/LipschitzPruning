@@ -1,7 +1,7 @@
 import math
 
 from bpy_extras import view3d_utils
-from mathutils import Vector
+from mathutils import Euler, Matrix, Vector
 
 from .. import runtime
 from ..nodes import sdf_tree
@@ -61,14 +61,41 @@ def _mirror_origin(origin_object):
         return Vector((0.0, 0.0, 0.0))
 
 
-def _array_origin(origin_object, primitive_center):
+def _array_field_origin(frame_node=None):
+    if frame_node is not None and bool(getattr(frame_node, "use_array_transform", False)):
+        location = getattr(frame_node, "array_location", (0.0, 0.0, 0.0))
+        return Vector((float(location[0]), float(location[1]), float(location[2])))
+    return Vector((0.0, 0.0, 0.0))
+
+
+def _array_rotation(_origin_object=None, frame_node=None):
+    if frame_node is not None and bool(getattr(frame_node, "use_array_transform", False)):
+        rotation = getattr(frame_node, "array_rotation", (0.0, 0.0, 0.0))
+        return Matrix.LocRotScale(Vector((0.0, 0.0, 0.0)), Euler((float(rotation[0]), float(rotation[1]), float(rotation[2])), "XYZ"), None).to_quaternion()
+    return Matrix.Identity(3).to_quaternion()
+
+
+def _array_repeat_origin(origin_object, primitive_center, frame_node=None):
     try:
+        origin_object = runtime.object_identity(origin_object)
         if origin_object is None:
             return Vector((float(primitive_center[0]), float(primitive_center[1]), float(primitive_center[2])))
         translation = origin_object.matrix_world.translation
-        return Vector((float(translation[0]), float(translation[1]), float(translation[2])))
+        field_origin = _array_field_origin(frame_node)
+        rotation = _array_rotation(None, frame_node)
+        return rotation.inverted() @ (Vector((float(translation[0]), float(translation[1]), float(translation[2]))) - field_origin)
     except ReferenceError:
         return Vector((float(primitive_center[0]), float(primitive_center[1]), float(primitive_center[2])))
+
+
+def _world_to_array_local(origin, rotation, world_point):
+    point = Vector((float(world_point[0]), float(world_point[1]), float(world_point[2])))
+    return rotation.inverted() @ (point - origin)
+
+
+def _array_local_to_world(origin, rotation, local_point):
+    point = Vector((float(local_point[0]), float(local_point[1]), float(local_point[2])))
+    return origin + (rotation @ point)
 
 
 def _fold_finite_grid_axis(axis_value, origin, primitive_center, spacing, count, blend):
@@ -153,23 +180,24 @@ def _apply_warps(world_point, primitive_center, rows, warps):
                 warped_point.z = origin.z + side * _sabs(side * (warped_point.z - origin.z), blend)
             continue
         if kind == "grid":
-            _kind, count_x, count_y, count_z, spacing, origin_object, blend = warp
+            _kind, count_x, count_y, count_z, spacing, _origin_object, frame_node, blend = warp
             blend = max(float(blend), 0.0)
-            local_point = _world_to_local(rows, warped_point)
-            local_origin = _world_to_local(rows, _array_origin(origin_object, primitive_center))
-            local_center = _world_to_local(rows, primitive_center)
-            local_point.x = _fold_finite_grid_axis(local_point.x, local_origin.x, local_center.x, abs(float(spacing[0])), int(count_x), blend)
-            local_point.y = _fold_finite_grid_axis(local_point.y, local_origin.y, local_center.y, abs(float(spacing[1])), int(count_y), blend)
-            local_point.z = _fold_finite_grid_axis(local_point.z, local_origin.z, local_center.z, abs(float(spacing[2])), int(count_z), blend)
-            warped_point = _local_to_world(rows, local_point)
+            field_origin = _array_field_origin(frame_node)
+            rotation = _array_rotation(None, frame_node)
+            array_point = _world_to_array_local(field_origin, rotation, warped_point)
+            array_point.x = _fold_finite_grid_axis(array_point.x, float(primitive_center[0]), float(primitive_center[0]), abs(float(spacing[0])), int(count_x), blend)
+            array_point.y = _fold_finite_grid_axis(array_point.y, float(primitive_center[1]), float(primitive_center[1]), abs(float(spacing[1])), int(count_y), blend)
+            array_point.z = _fold_finite_grid_axis(array_point.z, float(primitive_center[2]), float(primitive_center[2]), abs(float(spacing[2])), int(count_z), blend)
+            warped_point = _array_local_to_world(field_origin, rotation, array_point)
             continue
         if kind == "radial":
-            _kind, count, radius, origin_object, blend = warp
-            local_point = _world_to_local(rows, warped_point)
-            local_origin = _world_to_local(rows, _array_origin(origin_object, primitive_center))
-            local_center = _world_to_local(rows, primitive_center)
-            local_point = _apply_radial_array(local_point, local_origin, local_center, float(radius), int(count), max(float(blend), 0.0))
-            warped_point = _local_to_world(rows, local_point)
+            _kind, count, radius, origin_object, frame_node, blend = warp
+            field_origin = _array_field_origin(frame_node)
+            rotation = _array_rotation(None, frame_node)
+            repeat_origin = _array_repeat_origin(origin_object, primitive_center, frame_node)
+            array_point = _world_to_array_local(field_origin, rotation, warped_point)
+            array_point = _apply_radial_array(array_point, repeat_origin, primitive_center, float(radius), int(count), max(float(blend), 0.0))
+            warped_point = _array_local_to_world(field_origin, rotation, array_point)
     return warped_point
 
 

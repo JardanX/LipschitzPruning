@@ -13,6 +13,21 @@ _proxy_selection_signature = None
 _scene_proxy_signatures = {}
 
 
+def _reset_cached_sync_state():
+    global _node_selection_signature, _proxy_selection_signature
+    _node_selection_signature = None
+    _proxy_selection_signature = None
+    _scene_proxy_signatures.clear()
+
+
+def _invalidate_scene_caches():
+    scenes = getattr(bpy.data, "scenes", None)
+    if scenes is None:
+        return
+    for scene in scenes:
+        runtime.mark_scene_static_dirty(scene)
+
+
 def _proxy_settings(obj):
     return runtime.object_settings(obj)
 
@@ -507,7 +522,17 @@ def _deferred_ensure_all_scene_graphs():
 
 @persistent
 def _on_load_post(_dummy):
+    _reset_cached_sync_state()
     ensure_all_scene_graphs()
+    _invalidate_scene_caches()
+
+
+@persistent
+def _on_undo_redo_post(_dummy):
+    _reset_cached_sync_state()
+    _invalidate_scene_caches()
+    runtime.note_interaction()
+    runtime.tag_redraw()
 
 
 @persistent
@@ -527,6 +552,10 @@ def _on_depsgraph_update_post(scene, depsgraph):
 def register():
     if _on_load_post not in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.append(_on_load_post)
+    if _on_undo_redo_post not in bpy.app.handlers.undo_post:
+        bpy.app.handlers.undo_post.append(_on_undo_redo_post)
+    if _on_undo_redo_post not in bpy.app.handlers.redo_post:
+        bpy.app.handlers.redo_post.append(_on_undo_redo_post)
     if _on_depsgraph_update_post not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(_on_depsgraph_update_post)
     bpy.app.timers.register(_deferred_ensure_all_scene_graphs, first_interval=0.0)
@@ -535,9 +564,13 @@ def register():
 
 
 def unregister():
-    _scene_proxy_signatures.clear()
+    _reset_cached_sync_state()
     if _on_depsgraph_update_post in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(_on_depsgraph_update_post)
+    if _on_undo_redo_post in bpy.app.handlers.undo_post:
+        bpy.app.handlers.undo_post.remove(_on_undo_redo_post)
+    if _on_undo_redo_post in bpy.app.handlers.redo_post:
+        bpy.app.handlers.redo_post.remove(_on_undo_redo_post)
     if _on_load_post in bpy.app.handlers.load_post:
         bpy.app.handlers.load_post.remove(_on_load_post)
     try:

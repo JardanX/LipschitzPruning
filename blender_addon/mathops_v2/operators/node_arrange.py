@@ -500,6 +500,21 @@ def _apply_targets(groups):
     return moved
 
 
+def arrange_tree(tree, context=None):
+    if tree is None or getattr(tree, "bl_idname", "") != runtime.TREE_IDNAME:
+        return False
+    active_context = bpy.context if context is None else context
+    groups, edge_weights = _build_groups(tree, _ui_scale(active_context))
+    if not groups:
+        return False
+
+    columns = _compute_columns(groups)
+    layout_items, layout_columns = _build_layout(columns, groups, edge_weights)
+    _reduce_crossings(layout_items, layout_columns)
+    _assign_targets(groups, layout_items, layout_columns)
+    return _apply_targets(groups)
+
+
 class MATHOPS_V2_OT_arrange_graph(Operator):
     bl_idname = "mathops_v2.arrange_graph"
     bl_label = "Arrange Graph"
@@ -516,16 +531,10 @@ class MATHOPS_V2_OT_arrange_graph(Operator):
             self.report({"WARNING"}, "Open a MathOPS node tree in the Node Editor")
             return {"CANCELLED"}
 
-        groups, edge_weights = _build_groups(tree, _ui_scale(context))
-        if not groups:
+        moved = arrange_tree(tree, context=context)
+        if not moved and not any(getattr(node, "bl_idname", "") != runtime.OUTPUT_NODE_IDNAME for node in tree.nodes):
             self.report({"WARNING"}, "No nodes to arrange")
             return {"CANCELLED"}
-
-        columns = _compute_columns(groups)
-        layout_items, layout_columns = _build_layout(columns, groups, edge_weights)
-        _reduce_crossings(layout_items, layout_columns)
-        _assign_targets(groups, layout_items, layout_columns)
-        moved = _apply_targets(groups)
         runtime.note_interaction()
         runtime.tag_redraw(context)
         if not moved:

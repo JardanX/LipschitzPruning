@@ -4,7 +4,7 @@ import bpy
 from bpy.props import EnumProperty, StringProperty
 from bpy.types import Menu, Operator
 
-from .. import properties, runtime
+from .. import meshing, properties, runtime
 from ..nodes import sdf_tree
 from ..render import picking
 
@@ -110,6 +110,27 @@ def _select_proxy_object(context, obj, extend=False):
     return True
 
 
+def _generated_mesh_name(scene):
+    return f"{scene.name} MathOPS Mesh"
+
+
+def _ensure_generated_mesh_object(context):
+    name = _generated_mesh_name(context.scene)
+    obj = bpy.data.objects.get(name)
+    if obj is not None and obj.type == "MESH":
+        return obj
+
+    mesh = bpy.data.meshes.new(name)
+    obj = bpy.data.objects.new(name, mesh)
+    obj["mathops_v2_generated_mesh"] = True
+    collection = getattr(context, "collection", None)
+    if collection is None:
+        collection = context.scene.collection
+    if collection.objects.get(obj.name) is None:
+        collection.objects.link(obj)
+    return obj
+
+
 class MATHOPS_V2_OT_add_sdf_proxy(Operator):
     bl_idname = "mathops_v2.add_sdf_proxy"
     bl_label = "Add SDF Proxy"
@@ -149,6 +170,122 @@ class MATHOPS_V2_OT_edit_sdf_graph(Operator):
     def execute(self, context):
         if not sdf_tree.focus_scene_tree(context, create=True):
             self.report({"INFO"}, "Open a Node Editor and switch it to MathOPS SDF")
+        return {"FINISHED"}
+
+
+class MATHOPS_V2_OT_extract_dual_contour_mesh(Operator):
+    bl_idname = "mathops_v2.extract_dual_contour_mesh"
+    bl_label = "Extract CPU Mesh"
+    bl_description = "Build a Blender mesh from the current MathOPS SDF graph using CPU dual contouring"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        settings = runtime.scene_settings(context.scene)
+        if settings is None:
+            self.report({"ERROR"}, "MathOPS scene settings are unavailable")
+            return {"CANCELLED"}
+
+        try:
+            compiled = sdf_tree.compile_scene(context.scene)
+            algorithm = str(getattr(settings, "mesh_algorithm", "DUAL_CONTOURING") or "DUAL_CONTOURING")
+            resolution = getattr(settings, "mesh_resolution", 48)
+            if algorithm == "ISO_SIMPLEX":
+                result = meshing.extract_iso_simplex_mesh(compiled, resolution)
+            else:
+                result = meshing.extract_dual_contour_mesh(compiled, resolution)
+        except Exception as exc:
+            runtime.set_error(str(exc))
+            self.report({"ERROR"}, str(exc))
+            runtime.tag_redraw(context)
+            return {"CANCELLED"}
+
+        vertices = list(result.get("vertices", ()))
+        triangles = list(result.get("triangles", ()))
+        if not vertices or not triangles:
+            message = "No surface generated for the current SDF graph"
+            runtime.set_error(message)
+            self.report({"WARNING"}, message)
+            runtime.tag_redraw(context)
+            return {"CANCELLED"}
+
+        obj = _ensure_generated_mesh_object(context)
+        old_mesh = getattr(obj, "data", None)
+        mesh_name = getattr(old_mesh, "name", _generated_mesh_name(context.scene))
+        smooth_shading = bool(getattr(settings, "mesh_smooth_shading", True))
+        mesh = bpy.data.meshes.new(mesh_name)
+        mesh.from_pydata(vertices, [], triangles)
+        mesh.update()
+        for polygon in mesh.polygons:
+            polygon.use_smooth = smooth_shading
+        obj.data = mesh
+        if old_mesh is not None and old_mesh.users == 0:
+            bpy.data.meshes.remove(old_mesh)
+
+        for selected in context.selected_objects:
+            if selected != obj:
+                selected.select_set(False)
+        obj.select_set(True)
+        context.view_layer.objects.active = obj
+
+        runtime.clear_error()
+        runtime.note_interaction()
+        runtime.tag_redraw(context)
+        self.report(
+            {"INFO"},
+            f"{algorithm.replace('_', ' ').title()}: {len(vertices)} verts, {len(triangles)} tris | grid {tuple(result.get('grid_dimensions', (0, 0, 0)))} | active {int(result.get('active_cells', 0))}",
+        )
+        return {"FINISHED"}
+
+
+class MATHOPS_V2_OT_move_sdf_branch(Operator):
+    bl_idname = "mathops_v2.move_sdf_branch"
+    bl_label = "Move SDF Branch"
+    bl_description = "Move this CSG branch up or down in the main scene chain"
+    bl_options = {"REGISTER", "UNDO"}
+
+    tree_name: StringProperty(default="")
+    branch_root_name: StringProperty(default="")
+    direction: EnumProperty(
+        name="Direction",
+        items=(
+            ("UP", "Up", "Move this branch earlier in the chain"),
+            ("DOWN", "Down", "Move this branch later in the chain"),
+        ),
+        default="UP",
+    )
+
+    @classmethod
+    def poll(cls, context):
+        space = getattr(context, "space_data", None)
+        if space is None or getattr(space, "type", "") != "NODE_EDITOR":
+            return False
+        tree = getattr(space, "edit_tree", None)
+        return tree is not None and getattr(tree, "bl_idname", "") == runtime.TREE_IDNAME
+
+    def execute(self, context):
+        space = getattr(context, "space_data", None)
+        tree = None if space is None else getattr(space, "edit_tree", None)
+        if tree is None or getattr(tree, "bl_idname", "") != runtime.TREE_IDNAME:
+            tree = bpy.data.node_groups.get(self.tree_name)
+        if tree is None or getattr(tree, "bl_idname", "") != runtime.TREE_IDNAME:
+            self.report({"ERROR"}, "SDF node tree not found")
+            return {"CANCELLED"}
+
+        branch_root_name = str(self.branch_root_name or "")
+        if not branch_root_name:
+            branch_root_name = sdf_tree.branch_root_name_for_node(tree, getattr(context, "active_node", None))
+        if not branch_root_name:
+            self.report({"INFO"}, "Select a branch node or branch frame")
+            return {"CANCELLED"}
+
+        moved_root = sdf_tree.move_branch_entry(tree, branch_root_name, self.direction)
+        if moved_root is None:
+            self.report({"INFO"}, "Branch can't move further in that direction")
+            return {"CANCELLED"}
+
+        sdf_tree.select_node_in_editor(context, moved_root, reveal=False)
+        runtime.clear_error()
+        runtime.tag_redraw(context)
         return {"FINISHED"}
 
 
@@ -239,6 +376,8 @@ classes = (
     MATHOPS_V2_OT_add_sdf_proxy,
     MATHOPS_V2_OT_new_sdf_graph,
     MATHOPS_V2_OT_edit_sdf_graph,
+    MATHOPS_V2_OT_extract_dual_contour_mesh,
+    MATHOPS_V2_OT_move_sdf_branch,
     MATHOPS_V2_OT_create_node_proxy,
     MATHOPS_V2_OT_pick_sdf,
     VIEW3D_MT_mathops_v2_add,
@@ -258,6 +397,27 @@ def register():
 
     keymap = keyconfig.keymaps.new(name="3D View", space_type="VIEW_3D")
     keymap_item = keymap.keymap_items.new(MATHOPS_V2_OT_pick_sdf.bl_idname, type="LEFTMOUSE", value="CLICK", head=True)
+    _addon_keymaps.append((keymap, keymap_item))
+
+    keymap = keyconfig.keymaps.new(name="Node Editor", space_type="NODE_EDITOR")
+    keymap_item = keymap.keymap_items.new(
+        MATHOPS_V2_OT_move_sdf_branch.bl_idname,
+        type="A",
+        value="PRESS",
+        ctrl=True,
+        head=True,
+    )
+    keymap_item.properties.direction = "UP"
+    _addon_keymaps.append((keymap, keymap_item))
+
+    keymap_item = keymap.keymap_items.new(
+        MATHOPS_V2_OT_move_sdf_branch.bl_idname,
+        type="D",
+        value="PRESS",
+        ctrl=True,
+        head=True,
+    )
+    keymap_item.properties.direction = "DOWN"
     _addon_keymaps.append((keymap, keymap_item))
 
 

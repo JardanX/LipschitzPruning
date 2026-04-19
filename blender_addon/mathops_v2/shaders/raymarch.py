@@ -7,6 +7,8 @@ struct MathOPSV2ViewParams {
   vec4 surfaceDistanceCounts;
   vec4 instructionDebugSpecular;
   vec4 sceneLayout;
+  vec4 renderBoundsMin;
+  vec4 renderBoundsMax;
   vec4 pruningBoundsMinGridSize;
   vec4 pruningBoundsMaxEnabled;
   vec4 viewRow0;
@@ -131,6 +133,16 @@ vec3 pruningBoundsMaxValue()
   return mathops.pruningBoundsMaxEnabled.xyz;
 }
 
+vec3 renderBoundsMinValue()
+{
+  return mathops.renderBoundsMin.xyz;
+}
+
+vec3 renderBoundsMaxValue()
+{
+  return mathops.renderBoundsMax.xyz;
+}
+
 int debugModeValue()
 {
   return int(mathops.instructionDebugSpecular.y + 0.5);
@@ -161,14 +173,9 @@ bool orthographicViewValue()
   return (viewFlagsValue() & 1) != 0;
 }
 
-bool conePrepassValue()
-{
-  return (viewFlagsValue() & 2) != 0;
-}
-
 bool disableSurfaceShadingValue()
 {
-  return (viewFlagsValue() & 4) != 0;
+  return (viewFlagsValue() & 2) != 0;
 }
 
 float sabs(float x, float k)
@@ -224,6 +231,30 @@ vec3 primitiveLocalToWorld(vec4 row0, vec4 row1, vec4 row2, vec3 localPoint)
   vec3 basisZ = vec3(row0.z, row1.z, row2.z);
   vec3 origin = -(basisX * row0.w + basisY * row1.w + basisZ * row2.w);
   return origin + (basisX * localPoint.x) + (basisY * localPoint.y) + (basisZ * localPoint.z);
+}
+
+vec4 unpackWarpRotation(vec3 packedXYZ)
+{
+  return normalize(vec4(packedXYZ, sqrt(max(1.0 - dot(packedXYZ, packedXYZ), 0.0))));
+}
+
+vec3 rotateByQuaternion(vec4 rotation, vec3 point)
+{
+  vec3 axis = rotation.xyz;
+  float scalar = rotation.w;
+  return (2.0 * dot(axis, point) * axis)
+       + ((scalar * scalar - dot(axis, axis)) * point)
+       + (2.0 * scalar * cross(axis, point));
+}
+
+vec3 worldToArrayLocal(vec3 worldPoint, vec3 origin, vec4 rotation)
+{
+  return rotateByQuaternion(vec4(-rotation.xyz, rotation.w), worldPoint - origin);
+}
+
+vec3 arrayLocalToWorld(vec3 localPoint, vec3 origin, vec4 rotation)
+{
+  return origin + rotateByQuaternion(rotation, localPoint);
 }
 
 vec3 applyRadialArray(vec3 worldPoint, vec3 origin, vec3 primitiveCenter, float radius, int count, float blend)
@@ -299,27 +330,30 @@ vec3 toLocalPoint(int primitiveIndex, vec3 worldPoint)
       continue;
     }
     if (warpKind == WARP_KIND_GRID) {
-      vec3 localPoint = worldToPrimitiveLocal(row0, row1, row2, warpedPoint);
       ivec3 counts = ivec3(int(warp0.y + 0.5), int(warp0.z + 0.5), int(warp0.w + 0.5));
       vec3 spacing = abs(warp1.xyz);
       float blend = max(warp1.w, 0.0);
-      vec3 origin = worldToPrimitiveLocal(row0, row1, row2, warp2.xyz);
-      vec3 primitiveCenter = worldToPrimitiveLocal(row0, row1, row2, warp3.xyz);
-      localPoint.x = foldFiniteGridAxis(localPoint.x, origin.x, primitiveCenter.x, spacing.x, counts.x, blend);
-      localPoint.y = foldFiniteGridAxis(localPoint.y, origin.y, primitiveCenter.y, spacing.y, counts.y, blend);
-      localPoint.z = foldFiniteGridAxis(localPoint.z, origin.z, primitiveCenter.z, spacing.z, counts.z, blend);
-      warpedPoint = primitiveLocalToWorld(row0, row1, row2, localPoint);
+      vec3 primitiveCenter = primitiveLocalToWorld(row0, row1, row2, vec3(0.0));
+      vec3 origin = warp2.xyz;
+      vec4 rotation = unpackWarpRotation(warp3.xyz);
+      vec3 arrayPoint = worldToArrayLocal(warpedPoint, origin, rotation);
+      arrayPoint.x = foldFiniteGridAxis(arrayPoint.x, primitiveCenter.x, primitiveCenter.x, spacing.x, counts.x, blend);
+      arrayPoint.y = foldFiniteGridAxis(arrayPoint.y, primitiveCenter.y, primitiveCenter.y, spacing.y, counts.y, blend);
+      arrayPoint.z = foldFiniteGridAxis(arrayPoint.z, primitiveCenter.z, primitiveCenter.z, spacing.z, counts.z, blend);
+      warpedPoint = arrayLocalToWorld(arrayPoint, origin, rotation);
       continue;
     }
     if (warpKind == WARP_KIND_RADIAL) {
-      vec3 localPoint = worldToPrimitiveLocal(row0, row1, row2, warpedPoint);
       int count = int(warp0.y + 0.5);
       float blend = max(warp0.z, 0.0);
       float radius = max(warp0.w, 0.0);
-      vec3 origin = worldToPrimitiveLocal(row0, row1, row2, warp1.xyz);
-      vec3 primitiveCenter = worldToPrimitiveLocal(row0, row1, row2, warp2.xyz);
-      localPoint = applyRadialArray(localPoint, origin, primitiveCenter, radius, count, blend);
-      warpedPoint = primitiveLocalToWorld(row0, row1, row2, localPoint);
+      vec3 primitiveCenter = primitiveLocalToWorld(row0, row1, row2, vec3(0.0));
+      vec3 repeatOrigin = warp1.xyz;
+      vec3 fieldOrigin = warp2.xyz;
+      vec4 rotation = unpackWarpRotation(warp3.xyz);
+      vec3 arrayPoint = worldToArrayLocal(warpedPoint, fieldOrigin, rotation);
+      arrayPoint = applyRadialArray(arrayPoint, repeatOrigin, primitiveCenter, radius, count, blend);
+      warpedPoint = arrayLocalToWorld(arrayPoint, fieldOrigin, rotation);
     }
   }
   return worldToPrimitiveLocal(row0, row1, row2, warpedPoint);
@@ -710,8 +744,6 @@ void computeRay(vec2 uv, out vec3 rayOrigin, out vec3 rayDirection)
 
 
 FRAGMENT_SOURCE = COMMON_SOURCE + """\
-const int CONE_TILE_SIZE = 8;
-
 struct SurfaceInfo {
   float distanceValue;
   float outlineId;
@@ -853,25 +885,6 @@ vec3 pruningDebugColor(vec3 worldPoint, vec3 fallbackColor)
   return fallbackColor;
 }
 
-vec4 coneTileHint()
-{
-  ivec2 size = textureSize(coneTileHits, 0);
-  ivec2 coord = clamp(ivec2(gl_FragCoord.xy) / CONE_TILE_SIZE, ivec2(0), max(size - 1, ivec2(0)));
-  return texelFetch(coneTileHits, coord, 0);
-}
-
-vec3 coneHeatmapColor(float coneSkipTarget, float tEnter, float tExit, vec4 tileHint)
-{
-  float skip = (coneSkipTarget > tEnter) ? coneSkipTarget - tEnter : 0.0;
-  float totalRange = max(tExit - tEnter, 0.0);
-  float savings = (totalRange > 0.001) ? clamp(skip / totalRange, 0.0, 1.0) : 0.0;
-  vec3 coneColor = mix(vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), savings);
-  if (!conePrepassValue() || tileHint.w < 0.0) {
-    coneColor = vec3(0.0);
-  }
-  return coneColor;
-}
-
 vec3 stepCountColor(int stepsTaken)
 {
   return inferno(min(1.0, float(stepsTaken) / 128.0));
@@ -890,27 +903,14 @@ void main()
   vec3 rayDirection;
   computeRay(uvInterp, rayOrigin, rayDirection);
   if (primitiveCountValue() <= 0 || instructionCountValue() <= 0) {
-    vec3 color = (debugModeValue() == 4) ? vec3(0.0) : backgroundColor(rayDirection);
+    vec3 color = (debugModeValue() == 3) ? vec3(0.0) : backgroundColor(rayDirection);
     FragColor = vec4(pow(color, vec3(gammaValue())), 1.0);
     gl_FragDepth = 0.99999;
     return;
   }
 
-  bool conePrepass = conePrepassValue();
-  vec4 tileHint = vec4(0.0, 0.0, 0.0, 0.0);
-  if (conePrepass) {
-    tileHint = coneTileHint();
-  }
-  bool tileEmpty = conePrepass && tileHint.w < 0.0;
-  if (tileEmpty) {
-    vec3 color = (debugModeValue() == 3 || debugModeValue() == 4) ? vec3(0.0) : backgroundColor(rayDirection);
-    FragColor = vec4(pow(color, vec3(gammaValue())), 1.0);
-    gl_FragDepth = 0.99999;
-    return;
-  }
-
-  vec3 boundsMin = pruningBoundsMinValue();
-  vec3 boundsMax = pruningBoundsMaxValue();
+  vec3 boundsMin = renderBoundsMinValue();
+  vec3 boundsMax = renderBoundsMaxValue();
   float travel = 0.0;
   float travelExit = 0.0;
   if (!bboxIntersect(boundsMin, boundsMax, rayOrigin, rayDirection, travel, travelExit)) {
@@ -920,31 +920,8 @@ void main()
     return;
   }
 
-  float tEnterBeforeCone = travel;
-  float coneSkipTarget = -1.0;
-  if (conePrepass && tileHint.w >= 0.0) {
-    float projected = dot(tileHint.xyz - rayOrigin, rayDirection);
-    if (projected > travel) {
-      coneSkipTarget = projected;
-    }
-  }
-
-  if (debugModeValue() == 3) {
-    FragColor = vec4(pow(coneHeatmapColor(coneSkipTarget, tEnterBeforeCone, travelExit, tileHint), vec3(gammaValue())), 1.0);
-    gl_FragDepth = 0.99999;
-    return;
-  }
-
-  travel = tEnterBeforeCone + 1e-4;
+  travel += 1e-4;
   float marchDistance = 0.0;
-  if (coneSkipTarget > travel) {
-    vec3 skipPos = rayOrigin + rayDirection * coneSkipTarget;
-    float skipDist = evalScene(skipPos);
-    if (skipDist > 0.0) {
-      travel = coneSkipTarget;
-      marchDistance = max(coneSkipTarget - tEnterBeforeCone, 0.0);
-    }
-  }
 
   bool hit = false;
   vec3 worldPoint = rayOrigin;
@@ -974,7 +951,7 @@ void main()
     marchDistance += stepDistance;
   }
 
-  if (debugModeValue() == 4) {
+  if (debugModeValue() == 3) {
     FragColor = vec4(pow(stepCountColor(stepsTaken), vec3(gammaValue())), 1.0);
     gl_FragDepth = 0.99999;
     return;
@@ -997,185 +974,5 @@ void main()
   }
   FragColor = vec4(pow(color, vec3(gammaValue())), 1.0);
   gl_FragDepth = surfaceDepth(worldPoint);
-}
-"""
-
-
-RESOLVE_FRAGMENT_SOURCE = """\
-vec4 loadPos(ivec2 pixel)
-{
-  ivec2 size = textureSize(positionTex, 0);
-  pixel = clamp(pixel, ivec2(0), max(size - 1, ivec2(0)));
-  return texelFetch(positionTex, pixel, 0);
-}
-
-int viewFlagsValue()
-{
-  return int(mathops.cameraPosition.w + 0.5);
-}
-
-bool orthographicViewValue()
-{
-  return (viewFlagsValue() & 1) != 0;
-}
-
-bool disableSurfaceShadingValue()
-{
-  return (viewFlagsValue() & 4) != 0;
-}
-
-int debugModeValue()
-{
-  return int(mathops.instructionDebugSpecular.y + 0.5);
-}
-
-float gammaValue()
-{
-  return max(0.001, mathops.viewRow3.w);
-}
-
-vec2 matcapUV(vec3 normalView, vec3 viewDirView)
-{
-  float a = 1.0 / max(1.0 + viewDirView.z, 0.001);
-  float b = -viewDirView.x * viewDirView.y * a;
-  vec3 basisX = vec3(
-    1.0 - viewDirView.x * viewDirView.x * a,
-    b,
-    -viewDirView.x
-  );
-  vec3 basisY = vec3(
-    b,
-    1.0 - viewDirView.y * viewDirView.y * a,
-    -viewDirView.y
-  );
-  vec2 uv = vec2(dot(basisX, normalView), dot(basisY, normalView));
-  return clamp(uv * 0.496 + 0.5, vec2(0.0), vec2(1.0));
-}
-
-void computeRay(vec2 uv, out vec3 rayOrigin, out vec3 rayDirection)
-{
-  vec2 ndc = uv * 2.0 - 1.0;
-  vec4 nearPoint = invViewProjectionMatrix * vec4(ndc, -1.0, 1.0);
-  vec4 farPoint = invViewProjectionMatrix * vec4(ndc, 1.0, 1.0);
-  nearPoint.xyz /= nearPoint.w;
-  farPoint.xyz /= farPoint.w;
-  rayDirection = normalize(farPoint.xyz - nearPoint.xyz);
-  rayOrigin = orthographicViewValue() ? nearPoint.xyz : mathops.cameraPosition.xyz;
-}
-
-vec3 reconstructNormal(ivec2 pixel, vec3 rayDirection)
-{
-  vec4 c = loadPos(pixel);
-  if (c.w < 0.5) {
-    return -rayDirection;
-  }
-
-  vec3 pc = c.xyz;
-  vec4 pl1 = loadPos(pixel + ivec2(-1, 0));
-  vec4 pr1 = loadPos(pixel + ivec2(1, 0));
-  vec4 pd1 = loadPos(pixel + ivec2(0, -1));
-  vec4 pu1 = loadPos(pixel + ivec2(0, 1));
-  vec4 pl2 = loadPos(pixel + ivec2(-2, 0));
-  vec4 pr2 = loadPos(pixel + ivec2(2, 0));
-  vec4 pd2 = loadPos(pixel + ivec2(0, -2));
-  vec4 pu2 = loadPos(pixel + ivec2(0, 2));
-
-  vec3 l = pc - pl1.xyz;
-  vec3 r = pr1.xyz - pc;
-  vec3 d = pc - pd1.xyz;
-  vec3 u = pu1.xyz - pc;
-
-  bool vl = pl1.w > 0.5 && pl2.w > 0.5;
-  bool vr = pr1.w > 0.5 && pr2.w > 0.5;
-  bool vd = pd1.w > 0.5 && pd2.w > 0.5;
-  bool vu = pu1.w > 0.5 && pu2.w > 0.5;
-
-  float heL = vl ? length(2.0 * pl1.xyz - pl2.xyz - pc) : 1e10;
-  float heR = vr ? length(2.0 * pr1.xyz - pr2.xyz - pc) : 1e10;
-  float veD = vd ? length(2.0 * pd1.xyz - pd2.xyz - pc) : 1e10;
-  float veU = vu ? length(2.0 * pu1.xyz - pu2.xyz - pc) : 1e10;
-
-  vec3 hDeriv;
-  vec3 vDeriv;
-  if (vl && vr) {
-    float ratio = max(heL, heR) / max(min(heL, heR), 1e-20);
-    hDeriv = (ratio > 4.0) ? ((heL < heR) ? l : r) : ((pr1.xyz - pl1.xyz) * 0.5);
-  }
-  else if (pr1.w > 0.5) {
-    hDeriv = r;
-  }
-  else if (pl1.w > 0.5) {
-    hDeriv = l;
-  }
-  else {
-    hDeriv = vec3(1.0, 0.0, 0.0);
-  }
-
-  if (vd && vu) {
-    float ratio = max(veD, veU) / max(min(veD, veU), 1e-20);
-    vDeriv = (ratio > 4.0) ? ((veD < veU) ? d : u) : ((pu1.xyz - pd1.xyz) * 0.5);
-  }
-  else if (pu1.w > 0.5) {
-    vDeriv = u;
-  }
-  else if (pd1.w > 0.5) {
-    vDeriv = d;
-  }
-  else {
-    vDeriv = vec3(0.0, 1.0, 0.0);
-  }
-
-  vec3 normal = normalize(cross(vDeriv, hDeriv));
-  if (any(isnan(normal))) {
-    normal = vec3(0.0, 0.0, 1.0);
-  }
-  if (dot(normal, -rayDirection) < 0.0) {
-    normal = -normal;
-  }
-  return normal;
-}
-
-vec3 shadeSurface(vec3 normal, vec3 rayDirection)
-{
-  vec3 normalView = normalize(vec3(
-    dot(mathops.viewRow0.xyz, normal),
-    dot(mathops.viewRow1.xyz, normal),
-    dot(mathops.viewRow2.xyz, normal)
-  ));
-  vec3 viewDirView = normalize(vec3(
-    -dot(mathops.viewRow0.xyz, rayDirection),
-    -dot(mathops.viewRow1.xyz, rayDirection),
-    -dot(mathops.viewRow2.xyz, rayDirection)
-  ));
-  vec2 uv = matcapUV(normalView, viewDirView);
-  vec3 color = texture(matcapDiffuse, uv).rgb;
-  if (mathops.instructionDebugSpecular.w > 0.5) {
-    color += texture(matcapSpecular, uv).rgb;
-  }
-  return color;
-}
-
-void main()
-{
-  ivec2 pixel = ivec2(gl_FragCoord.xy);
-  vec4 color = texelFetch(colorTex, pixel, 0);
-  FragColor = color;
-  gl_FragDepth = texelFetch(depthTex, pixel, 0).r;
-
-  if (debugModeValue() != 0) {
-    return;
-  }
-
-  vec4 pos = loadPos(pixel);
-  if (pos.w < 0.5) {
-    return;
-  }
-
-  vec3 rayOrigin;
-  vec3 rayDirection;
-  computeRay(uvInterp, rayOrigin, rayDirection);
-  vec3 normal = disableSurfaceShadingValue() ? vec3(0.0, 0.0, 1.0) : reconstructNormal(pixel, rayDirection);
-  vec3 shaded = shadeSurface(normal, rayDirection);
-  FragColor = vec4(pow(shaded, vec3(gammaValue())), 1.0);
 }
 """

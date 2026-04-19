@@ -49,8 +49,6 @@ class MathOPSV2RenderEngine(RenderEngine):
                 stats += f" | Cull {compiled['pruning_cells']} cells {compiled.get('pruning_ms', 0.0):.2f}ms"
             elif compiled.get("pruning_pending"):
                 stats += " | Cull pending"
-            if compiled.get("cone_prepass_active"):
-                stats += f" | Cone {compiled.get('cone_tiles', 0)} tiles {compiled.get('cone_ms', 0.0):.2f}ms"
             self.update_stats(
                 "MathOPS V2",
                 stats,

@@ -119,6 +119,29 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
     max_steps: bpy.props.IntProperty(name="Max Steps", default=96, min=8, max=512, update=_tag_redraw)
     max_distance: FloatProperty(name="Max Distance", default=200.0, min=1.0, update=_tag_redraw)
     surface_epsilon: FloatProperty(name="Surface Epsilon", default=0.0015, min=0.0001, max=0.1, precision=5, update=_tag_redraw)
+    mesh_resolution: bpy.props.IntProperty(
+        name="Mesh Resolution",
+        default=48,
+        min=8,
+        max=256,
+        description="Dual contouring cells along the longest scene axis",
+        update=_tag_redraw,
+    )
+    mesh_algorithm: EnumProperty(
+        name="Mesh Algorithm",
+        items=(
+            ("DUAL_CONTOURING", "Dual Contouring", "CPU dual contouring mesh extraction"),
+            ("ISO_SIMPLEX", "Iso Simplex", "CPU simplex-based iso-surface extraction"),
+        ),
+        default="DUAL_CONTOURING",
+        update=_tag_redraw,
+    )
+    mesh_smooth_shading: BoolProperty(
+        name="Smooth Shading",
+        default=True,
+        description="Apply smooth shading to generated CPU meshes; disable for flat shading",
+        update=_tag_redraw,
+    )
     gamma: FloatProperty(
         name="Gamma",
         default=1.2,
@@ -146,28 +169,6 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
         description="Use Lipschitz pruning to accelerate the raymarch",
         update=_tag_redraw,
     )
-    cone_prepass_enabled: BoolProperty(
-        name="Cone Trace Pre-Pass",
-        default=False,
-        description="Coarse tile cone tracing after Lipschitz pruning to skip empty space before the fine raymarch",
-        update=_tag_redraw,
-    )
-    cone_aperture: FloatProperty(
-        name="Cone Aperture",
-        default=1.25,
-        min=0.1,
-        max=4.0,
-        description="Cone radius scale used by the tile pre-pass",
-        update=_tag_redraw,
-    )
-    cone_steps: bpy.props.IntProperty(
-        name="Cone Steps",
-        default=16,
-        min=1,
-        max=128,
-        description="Max cone march steps per 8x8 tile",
-        update=_tag_redraw,
-    )
     pruning_grid_level: bpy.props.IntProperty(
         name="Pruning Grid Level",
         default=8,
@@ -182,7 +183,6 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
             ("SHADED", "Shaded", "Normal shaded raymarch"),
             ("PRUNING_ACTIVE", "Pruning Active", "Visualize active node counts per cell"),
             ("PRUNING_FIELD", "Pruning Field", "Visualize the far-field cell values"),
-            ("CONE_HEATMAP", "Cone Heatmap", "Steps saved by the cone trace pre-pass (green=many, red=none)"),
             ("STEP_COUNT", "Step Count", "Number of fine march steps per pixel"),
         ),
         default="SHADED",
@@ -296,6 +296,14 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
         update=_tag_redraw,
     )
     grid_overlay_initialized: BoolProperty(default=False, options={"HIDDEN"})
+    native_overlay_initialized: BoolProperty(default=False, options={"HIDDEN"})
+    native_show_floor: BoolProperty(default=True, options={"HIDDEN"})
+    native_show_ortho_grid: BoolProperty(default=True, options={"HIDDEN"})
+    native_show_axis_x: BoolProperty(default=True, options={"HIDDEN"})
+    native_show_axis_y: BoolProperty(default=True, options={"HIDDEN"})
+    native_show_axis_z: BoolProperty(default=False, options={"HIDDEN"})
+    native_grid_scale: FloatProperty(default=1.0, min=0.001, max=1000.0, options={"HIDDEN"})
+    native_grid_subdivisions: bpy.props.IntProperty(default=1, min=1, max=100, options={"HIDDEN"})
 
 
 classes = (

@@ -53,7 +53,7 @@ _MIRROR_SIDE_X = 8
 _MIRROR_SIDE_Y = 16
 _MIRROR_SIDE_Z = 32
 _MIRROR_WARP_PACK_SCALE = 256
-_WARP_ROWS_PER_ENTRY = 4
+_WARP_ROWS_PER_ENTRY = 5
 
 _WARP_KIND_MIRROR = 1
 _WARP_KIND_GRID = 2
@@ -74,6 +74,8 @@ _SOCKET_MINOR_RADIUS = "Minor Radius"
 _SOCKET_BLEND = "Blend"
 
 _object_node_updates_suppressed = 0
+_branch_frame_sync_suppressed = 0
+_BRANCH_FRAME_TAG = "_mathops_v2_branch_frame"
 
 
 def _tag_redraw(_self=None, context=None):
@@ -90,6 +92,16 @@ def suppress_object_node_updates():
         yield
     finally:
         _object_node_updates_suppressed -= 1
+
+
+@contextmanager
+def suppress_branch_frame_sync():
+    global _branch_frame_sync_suppressed
+    _branch_frame_sync_suppressed += 1
+    try:
+        yield
+    finally:
+        _branch_frame_sync_suppressed -= 1
 
 
 def _detach_proxy_binding(node):
@@ -115,6 +127,48 @@ def _scene_for_tree(tree, context=None):
         if settings is not None and getattr(settings, "node_tree", None) == tree:
             return scene
     return None
+
+
+def _auto_arrange_tree(tree, context=None):
+    if tree is None or getattr(tree, "bl_idname", "") != runtime.TREE_IDNAME:
+        return False
+    from ..operators import node_arrange
+
+    return bool(node_arrange.arrange_tree(tree, context=context))
+
+
+def _node_absolute_location(node):
+    location = getattr(node, "location", None)
+    x = 0.0 if location is None else float(location.x)
+    y = 0.0 if location is None else float(location.y)
+    parent = getattr(node, "parent", None)
+    while parent is not None:
+        parent_location = getattr(parent, "location", None)
+        if parent_location is not None:
+            x += float(parent_location.x)
+            y += float(parent_location.y)
+        parent = getattr(parent, "parent", None)
+    return x, y
+
+
+def _set_node_parent_keep_absolute(node, parent):
+    absolute_x, absolute_y = _node_absolute_location(node)
+    parent_x, parent_y = (0.0, 0.0) if parent is None else _node_absolute_location(parent)
+    node.parent = parent
+    node.location = (absolute_x - parent_x, absolute_y - parent_y)
+
+
+def _auto_branch_frames(tree):
+    if tree is None:
+        return []
+    return [node for node in tree.nodes if getattr(node, "bl_idname", "") == "NodeFrame" and bool(node.get(_BRANCH_FRAME_TAG, False))]
+
+
+def _safe_sync_branch_frames(tree):
+    sync_branch_frames = globals().get("_sync_branch_frames")
+    if sync_branch_frames is None:
+        return False
+    return bool(sync_branch_frames(tree))
 
 
 def _mark_tree_dirty(tree, static=False, context=None):
@@ -183,6 +237,14 @@ def _update_mirror_node_data(self, context):
 def _update_array_node_data(self, context):
     _ensure_array_node_sockets(self)
     _mark_tree_dirty(getattr(self, "id_data", None), static=True, context=context)
+    _tag_redraw(self, context)
+
+
+def _update_array_node_transform(self, context):
+    if _object_node_updates_suppressed > 0:
+        return
+    _ensure_array_node_sockets(self)
+    _mark_tree_dirty(getattr(self, "id_data", None), static=False, context=context)
     _tag_redraw(self, context)
 
 
@@ -308,26 +370,11 @@ class MathOPSV2NodeTree(NodeTree):
     bl_label = "MathOPS SDF"
     bl_icon = "NODETREE"
 
-    def update(self):
-        if Node.bl_rna_get_subclass_py(runtime.OUTPUT_NODE_IDNAME, None) is None:
-            return
-        for node in self.nodes:
-            _ensure_node_sockets(node)
-        ensure_graph_output(self)
-        _sync_tree_proxy_transforms(self)
-        _mark_tree_dirty(self, static=True)
-        runtime.note_interaction()
-        runtime.tag_redraw()
-
 
 class _MathOPSV2NodeBase(Node):
     @classmethod
     def poll(cls, node_tree):
         return getattr(node_tree, "bl_idname", "") == runtime.TREE_IDNAME
-
-    def update(self):
-        runtime.note_interaction()
-        runtime.tag_redraw()
 
 
 class MathOPSV2OutputNode(_MathOPSV2NodeBase):
@@ -630,6 +677,32 @@ class MathOPSV2ArrayNode(_MathOPSV2NodeBase):
         update=_update_array_node_data,
     )
     origin_object: PointerProperty(type=bpy.types.Object, update=_update_array_node_data)
+    use_array_transform: BoolProperty(default=False, options={"HIDDEN"})
+    array_location: FloatVectorProperty(
+        name="Array Location",
+        size=3,
+        default=_IDENTITY_LOCATION,
+        subtype="XYZ",
+        options={"HIDDEN"},
+        update=_update_array_node_transform,
+    )
+    array_rotation: FloatVectorProperty(
+        name="Array Rotation",
+        size=3,
+        default=_IDENTITY_ROTATION,
+        subtype="EULER",
+        options={"HIDDEN"},
+        update=_update_array_node_transform,
+    )
+    array_scale: FloatVectorProperty(
+        name="Array Scale",
+        size=3,
+        default=_IDENTITY_SCALE,
+        min=0.001,
+        subtype="XYZ",
+        options={"HIDDEN"},
+        update=_update_array_node_transform,
+    )
 
     def init(self, _context):
         _ensure_array_node_sockets(self)
@@ -738,10 +811,13 @@ def cleanup_graph_structure(tree):
             break
 
     ensure_graph_output(tree)
+    frame_changed = _safe_sync_branch_frames(tree)
+    arranged = _auto_arrange_tree(tree)
     if changed:
         scene = _scene_for_tree(tree)
         if scene is not None:
             runtime.mark_scene_static_dirty(scene)
+    if changed or frame_changed or arranged:
         runtime.note_interaction()
         runtime.tag_redraw()
     return changed
@@ -1015,31 +1091,23 @@ def _transform_node_values(node, visiting=None):
 
 
 def _mirror_transform_values(node):
-    origin_object = getattr(node, "origin_object", None)
-    try:
-        if origin_object is None:
-            return _identity_transform_values()
-        return (
-            _sanitized_location(origin_object.location),
-            _sanitized_rotation(origin_object.rotation_euler),
-            _sanitized_scale(origin_object.scale),
-        )
-    except ReferenceError:
-        return _identity_transform_values()
+    transform = _object_transform_values(getattr(node, "origin_object", None))
+    return _identity_transform_values() if transform is None else transform
 
 
-def _array_transform_values(node):
-    origin_object = getattr(node, "origin_object", None)
-    try:
-        if origin_object is None:
-            return _identity_transform_values()
-        return (
-            _sanitized_location(origin_object.location),
-            _sanitized_rotation(origin_object.rotation_euler),
-            _sanitized_scale(origin_object.scale),
-        )
-    except ReferenceError:
-        return _identity_transform_values()
+def _array_node_transform_values(node):
+    return (
+        _sanitized_location(getattr(node, "array_location", _IDENTITY_LOCATION)),
+        _sanitized_rotation(getattr(node, "array_rotation", _IDENTITY_ROTATION)),
+        _sanitized_scale(getattr(node, "array_scale", _IDENTITY_SCALE)),
+    )
+
+
+def _array_transform_values(node, visiting=None, prefer_proxy=True):
+    _ensure_array_node_sockets(node)
+    if bool(getattr(node, "use_array_transform", False)):
+        return _array_node_transform_values(node)
+    return _identity_transform_values()
 
 
 def _write_vector_input_socket(socket, values, sanitizer, visiting=None):
@@ -1107,7 +1175,7 @@ def _resolved_transform_values(node, visiting=None, prefer_proxy=True):
         if node_idname == MIRROR_NODE_IDNAME:
             return _mirror_transform_values(node)
         if node_idname == ARRAY_NODE_IDNAME:
-            return _array_transform_values(node)
+            return _array_transform_values(node, visiting=visiting, prefer_proxy=prefer_proxy)
     finally:
         visiting.remove(node_key)
 
@@ -1135,6 +1203,30 @@ def _write_transform_values(node, location=None, rotation=None, scale=None, visi
                 changed = _write_vector_input_socket(_input_socket(node, _SOCKET_ROTATION), rotation, _sanitized_rotation, visiting=visiting) or changed
             if scale is not None:
                 changed = _write_vector_input_socket(_input_socket(node, _SOCKET_SCALE), scale, _sanitized_scale, visiting=visiting) or changed
+            return changed
+
+        if node_idname == ARRAY_NODE_IDNAME:
+            _ensure_array_node_sockets(node)
+            current_location, current_rotation, current_scale = _array_transform_values(node, visiting=visiting, prefer_proxy=False)
+            target_location = current_location if location is None else _sanitized_location(location)
+            target_rotation = current_rotation if rotation is None else _sanitized_rotation(rotation)
+            target_scale = current_scale if scale is None else _sanitized_scale(scale)
+            changed = False
+            with suppress_object_node_updates():
+                if not bool(getattr(node, "use_array_transform", False)):
+                    node.use_array_transform = True
+                    changed = True
+                if _float_seq_changed(tuple(getattr(node, "array_location", _IDENTITY_LOCATION)), target_location):
+                    node.array_location = target_location
+                    changed = True
+                if _float_seq_changed(tuple(getattr(node, "array_rotation", _IDENTITY_ROTATION)), target_rotation):
+                    node.array_rotation = target_rotation
+                    changed = True
+                if _float_seq_changed(tuple(getattr(node, "array_scale", _IDENTITY_SCALE)), target_scale):
+                    node.array_scale = target_scale
+                    changed = True
+            if changed:
+                _update_array_node_transform(node, None)
             return changed
 
         if node_idname == runtime.OBJECT_NODE_IDNAME:
@@ -1608,6 +1700,308 @@ def inspector_related_nodes(node):
     return nodes
 
 
+def _collect_branch_source_nodes(node, nodes, seen):
+    if not _append_unique_node(nodes, seen, node):
+        return
+    for socket in getattr(node, "inputs", ()):
+        source = _linked_source_node(socket)
+        if source is not None:
+            _collect_branch_source_nodes(source, nodes, seen)
+
+
+def _branch_contains_node(branch_root, node):
+    if branch_root is None or node is None:
+        return False
+    target_key = runtime.safe_pointer(node)
+    if target_key == 0:
+        return False
+    seen = set()
+    _collect_branch_source_nodes(branch_root, [], seen)
+    return target_key in seen
+
+
+def _branch_order_entries_from_root(node):
+    if node is None:
+        return []
+    if getattr(node, "bl_idname", "") == runtime.CSG_NODE_IDNAME:
+        _ensure_csg_node_sockets(node)
+        left = _linked_source_node(_input_socket(node, "A", MathOPSV2SDFSocket.bl_idname))
+        right = _linked_source_node(_input_socket(node, "B", MathOPSV2SDFSocket.bl_idname))
+        if left is not None and right is not None:
+            entries = _branch_order_entries_from_root(left)
+            entries.append({
+                "branch_root": right,
+                "csg_node": node,
+            })
+            return entries
+    return [{"branch_root": node, "csg_node": None}]
+
+
+def branch_order_entries(tree):
+    if tree is None or getattr(tree, "bl_idname", "") != runtime.TREE_IDNAME:
+        return []
+    output = _find_output_node(tree)
+    if output is None or not getattr(output, "inputs", None):
+        return []
+    root = _linked_source_node(output.inputs[0])
+    if root is None:
+        return []
+
+    entries = []
+    for index, entry in enumerate(_branch_order_entries_from_root(root)):
+        branch_root = entry["branch_root"]
+        csg_node = entry["csg_node"]
+        entries.append(
+            {
+                "index": index,
+                "branch_root": branch_root,
+                "csg_node": csg_node,
+                "operation": None if csg_node is None else str(getattr(csg_node, "operation", "UNION") or "UNION"),
+            }
+        )
+    return entries
+
+
+def branch_entry_index(tree, node):
+    if tree is None or node is None:
+        return -1
+    node_key = runtime.safe_pointer(node)
+    if node_key == 0:
+        return -1
+    entries = branch_order_entries(tree)
+    for entry in entries:
+        csg_node = entry["csg_node"]
+        if csg_node is not None and runtime.safe_pointer(csg_node) == node_key:
+            return int(entry["index"])
+    for entry in entries:
+        if _branch_contains_node(entry["branch_root"], node):
+            return int(entry["index"])
+    return -1
+
+
+def branch_root_name_for_node(tree, node):
+    if tree is None or node is None:
+        return ""
+    node_key = runtime.safe_pointer(node)
+    if node_key == 0:
+        return ""
+
+    entries = branch_order_entries(tree)
+    node_idname = getattr(node, "bl_idname", "")
+    if node_idname == "NodeFrame" and bool(node.get(_BRANCH_FRAME_TAG, False)):
+        label = str(getattr(node, "label", "") or "")
+        for entry in entries:
+            branch_root = entry["branch_root"]
+            if branch_root is not None and _branch_frame_label(branch_root) == label:
+                return str(getattr(branch_root, "name", "") or "")
+
+    for entry in entries:
+        branch_root = entry["branch_root"]
+        csg_node = entry["csg_node"]
+        if branch_root is not None and runtime.safe_pointer(branch_root) == node_key:
+            return str(getattr(branch_root, "name", "") or "")
+        if csg_node is not None and runtime.safe_pointer(csg_node) == node_key:
+            return "" if branch_root is None else str(getattr(branch_root, "name", "") or "")
+        if _branch_contains_node(branch_root, node):
+            return "" if branch_root is None else str(getattr(branch_root, "name", "") or "")
+    return ""
+
+
+def _collect_branch_graph_nodes(node, nodes, seen):
+    if not _append_unique_node(nodes, seen, node):
+        return
+    node_idname = getattr(node, "bl_idname", "")
+    if node_idname == runtime.CSG_NODE_IDNAME:
+        _ensure_csg_node_sockets(node)
+        for socket_name in ("A", "B"):
+            source = _linked_source_node(_input_socket(node, socket_name, MathOPSV2SDFSocket.bl_idname))
+            if source is not None:
+                _collect_branch_graph_nodes(source, nodes, seen)
+        return
+    if node_idname in {MIRROR_NODE_IDNAME, ARRAY_NODE_IDNAME}:
+        source = _linked_source_node(_input_socket(node, "SDF", MathOPSV2SDFSocket.bl_idname))
+        if source is not None:
+            _collect_branch_graph_nodes(source, nodes, seen)
+
+
+def _branch_graph_nodes(branch_root):
+    if branch_root is None:
+        return []
+    nodes = []
+    seen = set()
+    _collect_branch_graph_nodes(branch_root, nodes, seen)
+    return nodes
+
+
+def _branch_frame_label(branch_root):
+    for node in _branch_graph_nodes(branch_root):
+        if getattr(node, "bl_idname", "") == runtime.OBJECT_NODE_IDNAME:
+            return f"{str(getattr(node, 'name', '') or 'SDF')} Branch"
+    return f"{str(getattr(branch_root, 'name', '') or 'Branch')} Branch"
+
+
+def _expected_branch_frames(tree):
+    expected = []
+    for entry in branch_order_entries(tree):
+        branch_root = entry["branch_root"]
+        branch_nodes = [node for node in _branch_graph_nodes(branch_root) if runtime.safe_pointer(node) != 0]
+        if not branch_nodes:
+            continue
+        expected.append(
+            {
+                "label": _branch_frame_label(branch_root),
+                "branch_nodes": branch_nodes,
+                "node_keys": frozenset(runtime.safe_pointer(node) for node in branch_nodes if runtime.safe_pointer(node) != 0),
+            }
+        )
+    return expected
+
+
+def _sync_branch_frames(tree):
+    if tree is None or getattr(tree, "bl_idname", "") != runtime.TREE_IDNAME:
+        return False
+    if _branch_frame_sync_suppressed > 0:
+        return False
+
+    changed = False
+    with suppress_branch_frame_sync():
+        expected = _expected_branch_frames(tree)
+        auto_frames = _auto_branch_frames(tree)
+        existing = []
+        auto_frame_keys = {runtime.safe_pointer(frame) for frame in auto_frames}
+        for frame in auto_frames:
+            frame_key = runtime.safe_pointer(frame)
+            existing.append(
+                {
+                    "frame": frame,
+                    "label": str(getattr(frame, "label", "") or ""),
+                    "node_keys": frozenset(
+                        runtime.safe_pointer(node)
+                        for node in tree.nodes
+                        if runtime.safe_pointer(getattr(node, "parent", None)) == frame_key and runtime.safe_pointer(node) != 0
+                    ),
+                }
+            )
+
+        if len(existing) == len(expected):
+            unmatched = list(existing)
+            matches = True
+            for wanted in expected:
+                match = next(
+                    (
+                        item
+                        for item in unmatched
+                        if item["label"] == wanted["label"] and item["node_keys"] == wanted["node_keys"]
+                    ),
+                    None,
+                )
+                if match is None:
+                    matches = False
+                    break
+                unmatched.remove(match)
+            if matches and not unmatched:
+                return False
+
+        for node in list(tree.nodes):
+            if getattr(node, "bl_idname", "") == "NodeFrame":
+                continue
+            if runtime.safe_pointer(getattr(node, "parent", None)) not in auto_frame_keys:
+                continue
+            _set_node_parent_keep_absolute(node, None)
+            changed = True
+
+        for frame in auto_frames:
+            if runtime.safe_pointer(frame) == 0:
+                continue
+            tree.nodes.remove(frame)
+            changed = True
+
+        for wanted in expected:
+            branch_nodes = list(wanted["branch_nodes"])
+            frame = tree.nodes.new("NodeFrame")
+            frame[_BRANCH_FRAME_TAG] = True
+            frame.label = wanted["label"]
+            frame.shrink = True
+            top_left_x = min(_node_absolute_location(node)[0] for node in branch_nodes) - 40.0
+            top_left_y = max(_node_absolute_location(node)[1] for node in branch_nodes) + 30.0
+            frame.location = (top_left_x, top_left_y)
+            for node in branch_nodes:
+                _set_node_parent_keep_absolute(node, frame)
+            changed = True
+    return changed
+
+
+def _clear_socket_links(tree, socket):
+    if tree is None or socket is None:
+        return
+    for link in list(getattr(socket, "links", ())):
+        tree.links.remove(link)
+
+
+def move_branch_entry(tree, branch_root_name, direction):
+    if tree is None or getattr(tree, "bl_idname", "") != runtime.TREE_IDNAME:
+        return None
+    branch_root_name = str(branch_root_name or "")
+    direction = str(direction or "").strip().upper()
+    if direction not in {"UP", "DOWN"}:
+        return None
+
+    output = _find_output_node(tree)
+    entries = branch_order_entries(tree)
+    if output is None or len(entries) < 3:
+        return None
+
+    entry_index = -1
+    for index, entry in enumerate(entries):
+        branch_root = entry["branch_root"]
+        if branch_root is not None and str(getattr(branch_root, "name", "") or "") == branch_root_name:
+            entry_index = index
+            break
+    if entry_index <= 0:
+        return None
+
+    swap_index = entry_index - 1 if direction == "UP" else entry_index + 1
+    if swap_index <= 0 or swap_index >= len(entries):
+        return None
+
+    entries[entry_index], entries[swap_index] = entries[swap_index], entries[entry_index]
+
+    _clear_socket_links(tree, output.inputs[0])
+    for entry in entries[1:]:
+        csg_node = entry["csg_node"]
+        _ensure_csg_node_sockets(csg_node)
+        _clear_socket_links(tree, _input_socket(csg_node, "A", MathOPSV2SDFSocket.bl_idname))
+        _clear_socket_links(tree, _input_socket(csg_node, "B", MathOPSV2SDFSocket.bl_idname))
+
+    current_root = entries[0]["branch_root"]
+    _ensure_node_sockets(current_root)
+    for entry in entries[1:]:
+        csg_node = entry["csg_node"]
+        branch_root = entry["branch_root"]
+        _ensure_csg_node_sockets(csg_node)
+        _ensure_node_sockets(branch_root)
+        current_socket = _surface_output_socket(current_root)
+        branch_socket = _surface_output_socket(branch_root)
+        left_input = _input_socket(csg_node, "A", MathOPSV2SDFSocket.bl_idname)
+        right_input = _input_socket(csg_node, "B", MathOPSV2SDFSocket.bl_idname)
+        if current_socket is None or branch_socket is None or left_input is None or right_input is None:
+            return None
+        tree.links.new(current_socket, left_input)
+        tree.links.new(branch_socket, right_input)
+        current_root = csg_node
+
+    output_socket = _surface_output_socket(current_root)
+    if output_socket is None:
+        return None
+    tree.links.new(output_socket, output.inputs[0])
+    _safe_sync_branch_frames(tree)
+    _auto_arrange_tree(tree)
+    _mark_tree_dirty(tree, static=True)
+    runtime.note_interaction()
+    runtime.tag_redraw()
+    return entries[swap_index]["branch_root"]
+
+
 def _float_seq_changed(lhs, rhs, epsilon=1.0e-6):
     if len(lhs) != len(rhs):
         return True
@@ -1615,6 +2009,50 @@ def _float_seq_changed(lhs, rhs, epsilon=1.0e-6):
         if abs(float(left) - float(right)) > epsilon:
             return True
     return False
+
+
+def _object_transform_values(obj):
+    try:
+        obj = runtime.object_identity(obj)
+        if obj is None:
+            return None
+        return (
+            _sanitized_location(obj.location),
+            _sanitized_rotation(obj.rotation_euler),
+            _sanitized_scale(obj.scale),
+        )
+    except ReferenceError:
+        return None
+
+
+def _write_transform_to_object(obj, location=None, rotation=None, scale=None):
+    try:
+        obj = runtime.object_identity(obj)
+        if obj is None:
+            return False
+
+        changed = False
+        if location is not None:
+            target_location = _sanitized_location(location)
+            if _float_seq_changed(tuple(obj.location), target_location):
+                obj.location = target_location
+                changed = True
+        if rotation is not None:
+            target_rotation = _sanitized_rotation(rotation)
+            if obj.rotation_mode != "XYZ":
+                obj.rotation_mode = "XYZ"
+                changed = True
+            if _float_seq_changed(tuple(obj.rotation_euler), target_rotation):
+                obj.rotation_euler = target_rotation
+                changed = True
+        if scale is not None:
+            target_scale = _sanitized_scale(scale)
+            if _float_seq_changed(tuple(obj.scale), target_scale):
+                obj.scale = target_scale
+                changed = True
+        return changed
+    except ReferenceError:
+        return False
 
 
 def _set_float_vector_attr(owner, attribute, value, epsilon=1.0e-6):
@@ -1835,6 +2273,8 @@ def add_proxy_to_tree(scene, obj):
         object_node.location = (120.0, 0.0)
         output.location = (400.0, 0.0)
         tree.links.new(object_node.outputs[0], output.inputs[0])
+        _safe_sync_branch_frames(tree)
+        _auto_arrange_tree(tree)
         runtime.tag_redraw()
         return tree, object_node
 
@@ -1848,6 +2288,8 @@ def add_proxy_to_tree(scene, obj):
     tree.links.new(_surface_output_socket(existing_root), csg_node.inputs[0])
     tree.links.new(object_node.outputs[0], csg_node.inputs[1])
     tree.links.new(csg_node.outputs[0], output.inputs[0])
+    _safe_sync_branch_frames(tree)
+    _auto_arrange_tree(tree)
     runtime.tag_redraw()
     return tree, object_node
 
@@ -1928,14 +2370,84 @@ def _mirror_origin_world(origin_object):
         return _IDENTITY_LOCATION
 
 
-def _array_origin_world(origin_object, primitive_center):
+def _array_frame_transform_values(frame_node):
+    try:
+        if frame_node is None or not bool(getattr(frame_node, "use_array_transform", False)):
+            return None
+        return _array_node_transform_values(frame_node)
+    except ReferenceError:
+        return None
+
+
+def _packed_quaternion_xyz(matrix):
+    rotation = matrix.to_3x3().normalized().to_quaternion()
+    sign = -1.0 if float(rotation.w) < 0.0 else 1.0
+    return (
+        float(rotation.x) * sign,
+        float(rotation.y) * sign,
+        float(rotation.z) * sign,
+    )
+
+
+def _packed_euler_xyz(rotation):
+    return _packed_quaternion_xyz(Matrix.LocRotScale(Vector((0.0, 0.0, 0.0)), Euler(rotation, "XYZ"), None))
+
+
+def _array_frame_matrix(frame_node):
+    frame_transform = _array_frame_transform_values(frame_node)
+    if frame_transform is None:
+        return Matrix.Identity(4)
+    location, rotation, _scale = frame_transform
+    return Matrix.LocRotScale(Vector(location), Euler(rotation, "XYZ"), None)
+
+
+def _transform_point(matrix, point):
+    result = matrix @ Vector((float(point[0]), float(point[1]), float(point[2]), 1.0))
+    return (float(result[0]), float(result[1]), float(result[2]))
+
+
+def _array_frame_origin_world(frame_node):
+    frame_transform = _array_frame_transform_values(frame_node)
+    if frame_transform is not None:
+        return frame_transform[0]
+    return _IDENTITY_LOCATION
+
+
+def _array_repeat_origin_local(origin_object, primitive_center, frame_node=None):
     try:
         origin_object = runtime.object_identity(origin_object)
         if origin_object is None:
             return tuple(float(component) for component in primitive_center)
-        return _sanitized_location(origin_object.matrix_world.translation)
+        world_origin = _sanitized_location(origin_object.matrix_world.translation)
     except ReferenceError:
         return tuple(float(component) for component in primitive_center)
+    inverse = _array_frame_matrix(frame_node).inverted_safe()
+    return _transform_point(inverse, world_origin)
+
+
+def _array_rotation_world(frame_node=None):
+    frame_transform = _array_frame_transform_values(frame_node)
+    if frame_transform is not None:
+        _location, rotation, _scale = frame_transform
+        return _packed_euler_xyz(rotation)
+    return (0.0, 0.0, 0.0)
+
+
+def _transform_bounds(bounds_min, bounds_max, matrix):
+    corners = []
+    for x in (float(bounds_min[0]), float(bounds_max[0])):
+        for y in (float(bounds_min[1]), float(bounds_max[1])):
+            for z in (float(bounds_min[2]), float(bounds_max[2])):
+                corners.append(_transform_point(matrix, (x, y, z)))
+    mins = [min(corner[axis] for corner in corners) for axis in range(3)]
+    maxs = [max(corner[axis] for corner in corners) for axis in range(3)]
+    return tuple(mins), tuple(maxs)
+
+
+def _bounds_center(bounds):
+    if bounds is None:
+        return _IDENTITY_LOCATION
+    return tuple(0.5 * (float(bounds[0][axis]) + float(bounds[1][axis])) for axis in range(3))
 
 
 def _mirror_warp_descriptor(node):
@@ -1946,16 +2458,17 @@ def _mirror_warp_descriptor(node):
     return ("mirror", int(flags), runtime.object_identity(getattr(node, "origin_object", None)), blend)
 
 
-def _array_warp_descriptor(node):
+def _array_warp_descriptor(node, source_node=None, branch_center=None):
     mode = str(getattr(node, "array_mode", _ARRAY_MODE_GRID) or _ARRAY_MODE_GRID)
     blend = max(0.0, float(getattr(node, "blend", 0.0)))
     origin_object = runtime.object_identity(getattr(node, "origin_object", None))
+    frame_node = node
     if mode == _ARRAY_MODE_RADIAL:
         count = max(1, int(getattr(node, "radial_count", 1)))
         radius = max(0.0, float(getattr(node, "radius", 0.0)))
         if count <= 1 or radius <= 1.0e-6:
             return None
-        return ("radial", count, radius, origin_object, blend)
+        return ("radial", count, radius, origin_object, frame_node, source_node, branch_center, blend)
 
     count_x = max(1, int(getattr(node, "count_x", 1)))
     count_y = max(1, int(getattr(node, "count_y", 1)))
@@ -1969,7 +2482,88 @@ def _array_warp_descriptor(node):
     )
     if not has_spread:
         return None
-    return ("grid", count_x, count_y, count_z, spacing, None, blend)
+    return ("grid", count_x, count_y, count_z, spacing, None, frame_node, source_node, branch_center, blend)
+
+
+def _subtree_bounds(node, warps=(), visiting=None):
+    if node is None:
+        return None
+    if visiting is None:
+        visiting = set()
+    node_key = int(node.as_pointer())
+    if node_key in visiting:
+        raise RuntimeError(f"Cycle detected at node '{node.name}'")
+
+    visiting.add(node_key)
+    try:
+        node_idname = getattr(node, "bl_idname", "")
+        if node_idname == runtime.OBJECT_NODE_IDNAME:
+            spec = _primitive_spec_from_node(node, 0, warps=warps)
+            return tuple(spec["bounds_min"]), tuple(spec["bounds_max"])
+
+        if node_idname == MIRROR_NODE_IDNAME:
+            _ensure_mirror_node_sockets(node)
+            source = _linked_source_node(_input_socket(node, "SDF", MathOPSV2SDFSocket.bl_idname))
+            if source is None:
+                return None
+            mirror_warp = _mirror_warp_descriptor(node)
+            next_warps = tuple(warps) if mirror_warp is None else tuple(warps) + (mirror_warp,)
+            return _subtree_bounds(source, warps=next_warps, visiting=visiting)
+
+        if node_idname == ARRAY_NODE_IDNAME:
+            _ensure_array_node_sockets(node)
+            source = _linked_source_node(_input_socket(node, "SDF", MathOPSV2SDFSocket.bl_idname))
+            if source is None:
+                return None
+            array_warp = _array_warp_descriptor(node, source_node=source)
+            next_warps = tuple(warps) if array_warp is None else _resolve_warp_stack(tuple(warps) + (array_warp,))
+            return _subtree_bounds(source, warps=next_warps, visiting=visiting)
+
+        if node_idname == runtime.CSG_NODE_IDNAME:
+            _ensure_csg_node_sockets(node)
+            left = _linked_source_node(_input_socket(node, "A", MathOPSV2SDFSocket.bl_idname))
+            right = _linked_source_node(_input_socket(node, "B", MathOPSV2SDFSocket.bl_idname))
+            if left is None or right is None:
+                return None
+            left_bounds = _subtree_bounds(left, warps=warps, visiting=visiting)
+            right_bounds = _subtree_bounds(right, warps=warps, visiting=visiting)
+            operation = _CSG_OPERATION_TO_ID.get(getattr(node, "operation", "UNION"), 1.0)
+            if operation == int(_CSG_OPERATION_TO_ID["UNION"]):
+                bounds = _union_bounds(left_bounds, right_bounds)
+                return _expand_bounds(bounds, _blend_bounds_padding(getattr(node, "blend", 0.0)))
+            if operation == int(_CSG_OPERATION_TO_ID["SUBTRACT"]):
+                return left_bounds
+            if operation == int(_CSG_OPERATION_TO_ID["INTERSECT"]):
+                return _intersect_bounds(left_bounds, right_bounds)
+            return _union_bounds(left_bounds, right_bounds)
+
+        return None
+    finally:
+        visiting.remove(node_key)
+
+
+def _resolve_array_warp(warp, prefix_warps=()):
+    kind = warp[0]
+    if kind == "grid":
+        _kind, count_x, count_y, count_z, spacing, origin_object, frame_node, source_node, _branch_center, blend = warp
+        branch_center = _bounds_center(_subtree_bounds(source_node, warps=tuple(prefix_warps)))
+        return ("grid", count_x, count_y, count_z, spacing, origin_object, frame_node, source_node, branch_center, blend)
+    if kind == "radial":
+        _kind, count, radius, origin_object, frame_node, source_node, _branch_center, blend = warp
+        branch_center = _bounds_center(_subtree_bounds(source_node, warps=tuple(prefix_warps)))
+        return ("radial", count, radius, origin_object, frame_node, source_node, branch_center, blend)
+    return warp
+
+
+def _resolve_warp_stack(warps):
+    resolved = []
+    for warp in tuple(warps or ()):
+        kind = warp[0]
+        if kind in {"grid", "radial"}:
+            resolved.append(_resolve_array_warp(warp, tuple(resolved)))
+        else:
+            resolved.append(warp)
+    return tuple(resolved)
 
 
 def _warp_signature(warps):
@@ -1981,7 +2575,7 @@ def _warp_signature(warps):
             signature.append((kind, int(flags), runtime.object_key(origin_object), round(float(blend), 6)))
             continue
         if kind == "grid":
-            _kind, count_x, count_y, count_z, spacing, origin_object, blend = warp
+            _kind, count_x, count_y, count_z, spacing, origin_object, frame_node, source_node, _branch_center, blend = warp
             signature.append(
                 (
                     kind,
@@ -1990,14 +2584,24 @@ def _warp_signature(warps):
                     int(count_z),
                     tuple(round(float(component), 6) for component in spacing),
                     runtime.object_key(origin_object),
+                    runtime.safe_pointer(frame_node),
+                    runtime.safe_pointer(source_node),
                     round(float(blend), 6),
                 )
             )
             continue
         if kind == "radial":
-            _kind, count, radius, origin_object, blend = warp
+            _kind, count, radius, origin_object, frame_node, source_node, _branch_center, blend = warp
             signature.append(
-                (kind, int(count), round(float(radius), 6), runtime.object_key(origin_object), round(float(blend), 6))
+                (
+                    kind,
+                    int(count),
+                    round(float(radius), 6),
+                    runtime.object_key(origin_object),
+                    runtime.safe_pointer(frame_node),
+                    runtime.safe_pointer(source_node),
+                    round(float(blend), 6),
+                )
             )
     return tuple(signature)
 
@@ -2075,7 +2679,7 @@ def _apply_warp_stack_to_bounds(bounds_min, bounds_max, warps):
             continue
         current_center = tuple(0.5 * (current_min[axis] + current_max[axis]) for axis in range(3))
         if kind == "grid":
-            _kind, count_x, count_y, count_z, spacing, _origin_object, blend = warp
+            _kind, count_x, count_y, count_z, spacing, _origin_object, frame_node, _source_node, _branch_center, blend = warp
             current_min, current_max = _apply_grid_warp_to_bounds(
                 current_min,
                 current_max,
@@ -2085,16 +2689,18 @@ def _apply_warp_stack_to_bounds(bounds_min, bounds_max, warps):
                 spacing,
                 blend,
             )
+            current_min, current_max = _transform_bounds(current_min, current_max, _array_frame_matrix(frame_node))
             continue
         if kind == "radial":
-            _kind, _count, radius, origin_object, blend = warp
+            _kind, _count, radius, origin_object, frame_node, _source_node, branch_center, blend = warp
             current_min, current_max = _apply_radial_warp_to_bounds(
                 current_min,
                 current_max,
-                _array_origin_world(origin_object, current_center),
+                _array_repeat_origin_local(origin_object, branch_center, frame_node),
                 radius,
                 blend,
             )
+            current_min, current_max = _transform_bounds(current_min, current_max, _array_frame_matrix(frame_node))
     return current_min, current_max
 
 
@@ -2119,22 +2725,28 @@ def _append_warp_rows(warps, warp_rows, primitive_center=_IDENTITY_LOCATION):
             warp_rows.append((float(origin[0]), float(origin[1]), float(origin[2]), 0.0))
             warp_rows.append((0.0, 0.0, 0.0, 0.0))
             warp_rows.append((0.0, 0.0, 0.0, 0.0))
+            warp_rows.append((0.0, 0.0, 0.0, 0.0))
             continue
         if kind == "grid":
-            _kind, count_x, count_y, count_z, spacing, origin_object, blend = warp
-            origin = _array_origin_world(origin_object, center)
+            _kind, count_x, count_y, count_z, spacing, _origin_object, frame_node, _source_node, branch_center, blend = warp
+            origin = _array_frame_origin_world(frame_node)
+            rotation = _array_rotation_world(frame_node)
             warp_rows.append((float(_WARP_KIND_GRID), float(count_x), float(count_y), float(count_z)))
             warp_rows.append((float(spacing[0]), float(spacing[1]), float(spacing[2]), float(blend)))
             warp_rows.append((float(origin[0]), float(origin[1]), float(origin[2]), 0.0))
-            warp_rows.append((float(center[0]), float(center[1]), float(center[2]), 0.0))
+            warp_rows.append((float(rotation[0]), float(rotation[1]), float(rotation[2]), 0.0))
+            warp_rows.append((float(branch_center[0]), float(branch_center[1]), float(branch_center[2]), 0.0))
             continue
         if kind == "radial":
-            _kind, count, radius, origin_object, blend = warp
-            origin = _array_origin_world(origin_object, center)
+            _kind, count, radius, origin_object, frame_node, _source_node, branch_center, blend = warp
+            repeat_origin = _array_repeat_origin_local(origin_object, branch_center, frame_node)
+            field_origin = _array_frame_origin_world(frame_node)
+            rotation = _array_rotation_world(frame_node)
             warp_rows.append((float(_WARP_KIND_RADIAL), float(count), float(blend), float(radius)))
-            warp_rows.append((float(origin[0]), float(origin[1]), float(origin[2]), 0.0))
-            warp_rows.append((float(center[0]), float(center[1]), float(center[2]), 0.0))
-            warp_rows.append((0.0, 0.0, 0.0, 0.0))
+            warp_rows.append((float(repeat_origin[0]), float(repeat_origin[1]), float(repeat_origin[2]), 0.0))
+            warp_rows.append((float(field_origin[0]), float(field_origin[1]), float(field_origin[2]), 0.0))
+            warp_rows.append((float(rotation[0]), float(rotation[1]), float(rotation[2]), 0.0))
+            warp_rows.append((float(branch_center[0]), float(branch_center[1]), float(branch_center[2]), 0.0))
     return warp_offset, len(warps)
 
 
@@ -2244,6 +2856,20 @@ def _root_node_bounds(root_node, primitive_specs):
 
 
 def _scene_bounds(root_node, primitive_specs):
+    tight_bounds = _tight_scene_bounds(root_node, primitive_specs)
+    mins = [float(tight_bounds[0][axis]) for axis in range(3)]
+    maxs = [float(tight_bounds[1][axis]) for axis in range(3)]
+
+    extents = [maxs[axis] - mins[axis] for axis in range(3)]
+    max_extent = max(extents) if extents else 1.0
+    padding = max(0.5, max_extent * 0.1)
+    return (
+        tuple(mins[axis] - padding for axis in range(3)),
+        tuple(maxs[axis] + padding for axis in range(3)),
+    )
+
+
+def _tight_scene_bounds(root_node, primitive_specs):
     if not primitive_specs:
         return ((-2.0, -2.0, -2.0), (2.0, 2.0, 2.0))
 
@@ -2259,12 +2885,13 @@ def _scene_bounds(root_node, primitive_specs):
         mins = [float(bounds[0][axis]) for axis in range(3)]
         maxs = [float(bounds[1][axis]) for axis in range(3)]
 
-    extents = [maxs[axis] - mins[axis] for axis in range(3)]
-    max_extent = max(extents) if extents else 1.0
-    padding = max(0.5, max_extent * 0.1)
+    for axis in range(3):
+        if (maxs[axis] - mins[axis]) < 1.0e-4:
+            mins[axis] -= 5.0e-5
+            maxs[axis] += 5.0e-5
     return (
-        tuple(mins[axis] - padding for axis in range(3)),
-        tuple(maxs[axis] + padding for axis in range(3)),
+        tuple(mins[axis] for axis in range(3)),
+        tuple(maxs[axis] for axis in range(3)),
     )
 
 
@@ -2526,6 +3153,7 @@ def refresh_compiled_scene_dynamic(compiled):
             return compile_scene(scene) if scene is not None else compiled
         primitive_nodes.append(node)
 
+    render_bounds = _tight_scene_bounds(compiled.get("root_node"), primitive_specs)
     scene_bounds = _scene_bounds(compiled.get("root_node"), primitive_specs)
     instruction_rows = list(compiled.get("instruction_rows", ()))
     rows = primitive_rows + warp_rows + instruction_rows
@@ -2540,12 +3168,118 @@ def refresh_compiled_scene_dynamic(compiled):
             "primitive_count": len(primitive_entries),
             "warp_row_count": len(warp_rows),
             "instruction_base": len(primitive_rows) + len(warp_rows),
+            "render_bounds": render_bounds,
             "scene_bounds": scene_bounds,
             "rows": rows,
             "hash": runtime.hash_compiled_rows(primitive_rows, warp_rows, instruction_rows),
         }
     )
     return refreshed
+
+
+def compiled_dynamic_signature(compiled):
+    primitive_entries = list(compiled.get("primitive_entries", ()))
+    if not primitive_entries:
+        primitive_entries = [{"node": node, "warps": (), "object": getattr(node, "target", None)} for node in compiled.get("primitive_nodes", ())]
+
+    signature = []
+    for entry in primitive_entries:
+        node = entry.get("node")
+        node_key = runtime.safe_pointer(node)
+        if node_key == 0:
+            return None
+        try:
+            location, rotation, scale = _node_transform_values(node)
+        except ReferenceError:
+            return None
+
+        item = [
+            node_key,
+            tuple(round(float(component), 6) for component in location),
+            tuple(round(float(component), 6) for component in rotation),
+            tuple(round(float(component), 6) for component in scale),
+        ]
+
+        for warp in tuple(entry.get("warps", ())):
+            kind = warp[0]
+            if kind == "mirror":
+                _kind, _flags, origin_object, _blend = warp
+                item.append((kind, tuple(round(float(component), 6) for component in _mirror_origin_world(origin_object))))
+                continue
+            if kind == "grid":
+                _kind, _count_x, _count_y, _count_z, _spacing, _origin_object, frame_node, _blend = warp
+                if _array_frame_transform_values(frame_node) is not None:
+                    item.append(
+                        (
+                            kind,
+                            tuple(round(float(component), 6) for component in _array_frame_origin_world(frame_node)),
+                            tuple(round(float(component), 6) for component in _array_rotation_world(frame_node)),
+                        )
+                    )
+                continue
+            if kind == "radial":
+                _kind, _count, _radius, origin_object, frame_node, _blend = warp
+                if origin_object is not None or _array_frame_transform_values(frame_node) is not None:
+                    item.append(
+                        (
+                            kind,
+                            tuple(round(float(component), 6) for component in _array_repeat_origin_local(origin_object, location, frame_node)),
+                            tuple(round(float(component), 6) for component in _array_frame_origin_world(frame_node)),
+                            tuple(round(float(component), 6) for component in _array_rotation_world(frame_node)),
+                        )
+                    )
+
+        signature.append(tuple(item))
+
+    return tuple(signature)
+
+
+def scene_structure_signature(scene):
+    scene = runtime.scene_identity(scene)
+    settings = runtime.scene_settings(scene)
+    tree = None if settings is None else getattr(settings, "node_tree", None)
+    if tree is not None and getattr(tree, "bl_idname", "") == runtime.TREE_IDNAME:
+        node_items = []
+        for node in tree.nodes:
+            node_items.append(
+                (
+                    str(getattr(node, "name", "") or ""),
+                    str(getattr(node, "bl_idname", "") or ""),
+                )
+            )
+
+        link_items = []
+        for link in tree.links:
+            from_node = getattr(link, "from_node", None)
+            to_node = getattr(link, "to_node", None)
+            from_socket = getattr(link, "from_socket", None)
+            to_socket = getattr(link, "to_socket", None)
+            link_items.append(
+                (
+                    str(getattr(from_node, "name", "") or ""),
+                    str(getattr(from_socket, "name", "") or ""),
+                    str(getattr(to_node, "name", "") or ""),
+                    str(getattr(to_socket, "name", "") or ""),
+                )
+            )
+
+        return (
+            "tree",
+            runtime.safe_pointer(tree),
+            tuple(node_items),
+            tuple(link_items),
+        )
+
+    proxies = []
+    for obj in list_proxy_objects(scene):
+        settings = runtime.object_settings(obj)
+        proxies.append(
+            (
+                runtime.object_key(obj),
+                "" if settings is None else str(getattr(settings, "proxy_id", "") or ""),
+            )
+        )
+    return ("union", tuple(proxies))
 
 
 def ensure_unique_initializer_ids(tree):
@@ -2619,12 +3353,14 @@ def compile_scene(scene):
             f"Graph stack depth {stack_depth} exceeds shader stack limit {runtime.MAX_STACK}"
         )
 
+    render_bounds = _tight_scene_bounds(root_node, primitive_specs)
     scene_bounds = _scene_bounds(root_node, primitive_specs)
     scene_hash = runtime.hash_compiled_rows(primitive_rows, warp_rows, instructions)
     topology_hash = runtime.hash_instruction_rows(instructions)
     primitive_nodes = [entry["node"] for entry in primitive_entries]
     return {
         "scene": runtime.scene_identity(scene),
+        "scene_structure_signature": scene_structure_signature(scene),
         "primitive_rows": primitive_rows,
         "warp_rows": warp_rows,
         "instruction_rows": instructions,
@@ -2637,6 +3373,7 @@ def compile_scene(scene):
         "instruction_count": len(instructions),
         "instruction_base": len(primitive_rows) + len(warp_rows),
         "stack_depth": stack_depth,
+        "render_bounds": render_bounds,
         "scene_bounds": scene_bounds,
         "rows": primitive_rows + warp_rows + instructions,
         "hash": scene_hash,

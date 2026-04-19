@@ -37,11 +37,6 @@ if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   include("D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check-51/_deps/cli11-build/cmake_install.cmake")
 endif()
 
-if(NOT CMAKE_INSTALL_LOCAL_ONLY)
-  # Include the install script for the subdirectory.
-  include("D:/Projects/GitHub/MathOPS-v2/.cmake-matcap-check-51/_deps/nanobind-build/cmake_install.cmake")
-endif()
-
 string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
 if(CMAKE_INSTALL_LOCAL_ONLY)

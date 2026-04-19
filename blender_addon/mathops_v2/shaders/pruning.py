@@ -211,6 +211,30 @@ vec3 primitiveLocalToWorld(vec4 row0, vec4 row1, vec4 row2, vec3 localPoint)
   return origin + (basisX * localPoint.x) + (basisY * localPoint.y) + (basisZ * localPoint.z);
 }
 
+vec4 unpackWarpRotation(vec3 packedXYZ)
+{
+  return normalize(vec4(packedXYZ, sqrt(max(1.0 - dot(packedXYZ, packedXYZ), 0.0))));
+}
+
+vec3 rotateByQuaternion(vec4 rotation, vec3 point)
+{
+  vec3 axis = rotation.xyz;
+  float scalar = rotation.w;
+  return (2.0 * dot(axis, point) * axis)
+       + ((scalar * scalar - dot(axis, axis)) * point)
+       + (2.0 * scalar * cross(axis, point));
+}
+
+vec3 worldToArrayLocal(vec3 worldPoint, vec3 origin, vec4 rotation)
+{
+  return rotateByQuaternion(vec4(-rotation.xyz, rotation.w), worldPoint - origin);
+}
+
+vec3 arrayLocalToWorld(vec3 localPoint, vec3 origin, vec4 rotation)
+{
+  return origin + rotateByQuaternion(rotation, localPoint);
+}
+
 vec3 applyRadialArray(vec3 worldPoint, vec3 origin, vec3 primitiveCenter, float radius, int count, float blend)
 {
   if (count <= 1 || radius <= 1e-6) {
@@ -284,27 +308,30 @@ vec3 toLocalPoint(int primitiveIndex, vec3 worldPoint)
       continue;
     }
     if (warpKind == WARP_KIND_GRID) {
-      vec3 localPoint = worldToPrimitiveLocal(row0, row1, row2, warpedPoint);
       ivec3 counts = ivec3(int(warp0.y + 0.5), int(warp0.z + 0.5), int(warp0.w + 0.5));
       vec3 spacing = abs(warp1.xyz);
       float blend = max(warp1.w, 0.0);
-      vec3 origin = worldToPrimitiveLocal(row0, row1, row2, warp2.xyz);
-      vec3 primitiveCenter = worldToPrimitiveLocal(row0, row1, row2, warp3.xyz);
-      localPoint.x = foldFiniteGridAxis(localPoint.x, origin.x, primitiveCenter.x, spacing.x, counts.x, blend);
-      localPoint.y = foldFiniteGridAxis(localPoint.y, origin.y, primitiveCenter.y, spacing.y, counts.y, blend);
-      localPoint.z = foldFiniteGridAxis(localPoint.z, origin.z, primitiveCenter.z, spacing.z, counts.z, blend);
-      warpedPoint = primitiveLocalToWorld(row0, row1, row2, localPoint);
+      vec3 primitiveCenter = primitiveLocalToWorld(row0, row1, row2, vec3(0.0));
+      vec3 origin = warp2.xyz;
+      vec4 rotation = unpackWarpRotation(warp3.xyz);
+      vec3 arrayPoint = worldToArrayLocal(warpedPoint, origin, rotation);
+      arrayPoint.x = foldFiniteGridAxis(arrayPoint.x, primitiveCenter.x, primitiveCenter.x, spacing.x, counts.x, blend);
+      arrayPoint.y = foldFiniteGridAxis(arrayPoint.y, primitiveCenter.y, primitiveCenter.y, spacing.y, counts.y, blend);
+      arrayPoint.z = foldFiniteGridAxis(arrayPoint.z, primitiveCenter.z, primitiveCenter.z, spacing.z, counts.z, blend);
+      warpedPoint = arrayLocalToWorld(arrayPoint, origin, rotation);
       continue;
     }
     if (warpKind == WARP_KIND_RADIAL) {
-      vec3 localPoint = worldToPrimitiveLocal(row0, row1, row2, warpedPoint);
       int count = int(warp0.y + 0.5);
       float blend = max(warp0.z, 0.0);
       float radius = max(warp0.w, 0.0);
-      vec3 origin = worldToPrimitiveLocal(row0, row1, row2, warp1.xyz);
-      vec3 primitiveCenter = worldToPrimitiveLocal(row0, row1, row2, warp2.xyz);
-      localPoint = applyRadialArray(localPoint, origin, primitiveCenter, radius, count, blend);
-      warpedPoint = primitiveLocalToWorld(row0, row1, row2, localPoint);
+      vec3 primitiveCenter = primitiveLocalToWorld(row0, row1, row2, vec3(0.0));
+      vec3 repeatOrigin = warp1.xyz;
+      vec3 fieldOrigin = warp2.xyz;
+      vec4 rotation = unpackWarpRotation(warp3.xyz);
+      vec3 arrayPoint = worldToArrayLocal(warpedPoint, fieldOrigin, rotation);
+      arrayPoint = applyRadialArray(arrayPoint, repeatOrigin, primitiveCenter, radius, count, blend);
+      warpedPoint = arrayLocalToWorld(arrayPoint, fieldOrigin, rotation);
     }
   }
   return worldToPrimitiveLocal(row0, row1, row2, warpedPoint);
