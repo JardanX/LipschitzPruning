@@ -185,16 +185,27 @@ def _set_node_selection_for_proxies(tree, proxies, active_proxy=None):
 
     changed = False
     active_node = None
+    owner_nodes = []
+    owner_seen = set()
     for node in sdf_tree.initializer_nodes(tree):
         target_key = runtime.object_key(getattr(node, "target", None))
         should_select = target_key in selected_proxy_keys
         if bool(getattr(node, "select", False)) != should_select:
             node.select = should_select
             changed = True
+        owner = sdf_tree._proxy_transform_owner(node) if should_select else None
+        owner_key = runtime.safe_pointer(owner)
+        if owner is not None and owner_key not in owner_seen:
+            owner_seen.add(owner_key)
+            owner_nodes.append(owner)
         if should_select and target_key == active_proxy_key:
-            active_node = node
+            active_node = owner or node
         elif should_select and active_node is None:
-            active_node = node
+            active_node = owner or node
+    for owner in owner_nodes:
+        if not bool(getattr(owner, "select", False)):
+            owner.select = True
+            changed = True
     if active_node is not None and getattr(tree.nodes, "active", None) != active_node:
         tree.nodes.active = active_node
         changed = True

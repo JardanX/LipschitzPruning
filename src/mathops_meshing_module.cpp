@@ -15,7 +15,7 @@ namespace {
 
 constexpr int kPrimitiveStride = 5;
 constexpr int kMaxStack = 256;
-constexpr int kWarpRowsPerEntry = 4;
+constexpr int kWarpRowsPerEntry = 9;
 constexpr int kWarpPackScale = 256;
 constexpr int kDualContourHermiteSubdivisions = 2;
 constexpr int kDualContourZeroCrossingIterations = 10;
@@ -265,14 +265,30 @@ Vec3 rotate_by_quaternion(const Vec4& rotation, const Vec3& point)
          + cross(axis, point) * (2.0 * scalar);
 }
 
-Vec3 world_to_array_local(const Vec3& world_point, const Vec3& origin, const Vec4& rotation)
+Vec3 safe_array_scale(const Vec3& scale)
 {
-    return rotate_by_quaternion(quaternion_conjugate(rotation), world_point - origin);
+    return {std::max(std::abs(scale.x), 1.0e-6), std::max(std::abs(scale.y), 1.0e-6), std::max(std::abs(scale.z), 1.0e-6)};
 }
 
-Vec3 array_local_to_world(const Vec3& local_point, const Vec3& origin, const Vec4& rotation)
+Vec3 world_to_array_local(const Vec3& world_point, const Vec3& origin, const Vec4& rotation, const Vec3& scale, const Vec3& branch_center)
 {
-    return origin + rotate_by_quaternion(rotation, local_point);
+    const Vec3 safe_scale = safe_array_scale(scale);
+    const Vec3 local = rotate_by_quaternion(quaternion_conjugate(rotation), world_point - origin);
+    return {branch_center.x + (local.x / safe_scale.x), branch_center.y + (local.y / safe_scale.y), branch_center.z + (local.z / safe_scale.z)};
+}
+
+Vec3 apply_instance_offset_inverse(const Vec3& point, const Vec3& branch_center,
+                                  const Vec3& offset_location, const Vec4& offset_rotation,
+                                  const Vec3& offset_scale)
+{
+    const Vec3 centered = point - (branch_center + offset_location);
+    const Vec3 safe_scale = safe_array_scale(offset_scale);
+    const Vec3 local = rotate_by_quaternion(quaternion_conjugate(offset_rotation), centered);
+    return {
+        branch_center.x + (local.x / safe_scale.x),
+        branch_center.y + (local.y / safe_scale.y),
+        branch_center.z + (local.z / safe_scale.z),
+    };
 }
 
 double sabs(double x, double k)
@@ -333,14 +349,6 @@ Vec3 apply_radial_array(const Vec3& world_point, const Vec3& origin,
     const double norm_a = angle_rel / sector;
     const double id = std::round(norm_a);
     double local = norm_a - id;
-    const bool mirrored = fract(std::abs(id) * 0.5) > 0.25;
-    const bool odd = (count % 2) != 0;
-    const bool at_defect = odd && (std::abs(angle_rel) > kPi - sector * 0.5);
-    if (at_defect) {
-        local = std::abs(local);
-    } else if (mirrored) {
-        local = -local;
-    }
     const double arc = sector * base_radius;
     const double d_r = (0.5 - local) * arc;
     const double pull_r = d_r - sabs(d_r, blend);
@@ -353,19 +361,25 @@ Vec3 apply_radial_array(const Vec3& world_point, const Vec3& origin,
     return primitive_center + (q_fold - base_offset);
 }
 
-Vec3 to_local_point(const CompiledScene& scene, int primitive_index, const Vec3& world_point)
+Vec3 to_local_point(const CompiledScene& scene, int primitive_index, const Vec3& world_point, double& distance_scale)
 {
     const Primitive& primitive = scene.primitives.at(static_cast<std::size_t>(primitive_index));
     Vec3 warped_point = world_point;
+    distance_scale = 1.0;
     for (int index = 0; index < primitive.warp_count; ++index) {
         const int warp_row = primitive.warp_offset + index * kWarpRowsPerEntry;
-        if ((warp_row + 3) >= static_cast<int>(scene.warp_rows.size())) {
+        if ((warp_row + 8) >= static_cast<int>(scene.warp_rows.size())) {
             break;
         }
         const Vec4& warp0 = scene.warp_rows[static_cast<std::size_t>(warp_row + 0)];
         const Vec4& warp1 = scene.warp_rows[static_cast<std::size_t>(warp_row + 1)];
         const Vec4& warp2 = scene.warp_rows[static_cast<std::size_t>(warp_row + 2)];
         const Vec4& warp3 = scene.warp_rows[static_cast<std::size_t>(warp_row + 3)];
+        const Vec4& warp4 = scene.warp_rows[static_cast<std::size_t>(warp_row + 4)];
+        const Vec4& warp5 = scene.warp_rows[static_cast<std::size_t>(warp_row + 5)];
+        const Vec4& warp6 = scene.warp_rows[static_cast<std::size_t>(warp_row + 6)];
+        const Vec4& warp7 = scene.warp_rows[static_cast<std::size_t>(warp_row + 7)];
+        const Vec4& warp8 = scene.warp_rows[static_cast<std::size_t>(warp_row + 8)];
         const int warp_kind = static_cast<int>(std::lround(warp0.x));
         if (warp_kind == kWarpKindMirror) {
             const int flags = static_cast<int>(std::lround(warp0.y));
@@ -391,27 +405,40 @@ Vec3 to_local_point(const CompiledScene& scene, int primitive_index, const Vec3&
             const int count_z = static_cast<int>(std::lround(warp0.w));
             const Vec3 spacing{std::abs(warp1.x), std::abs(warp1.y), std::abs(warp1.z)};
             const double blend = std::max(warp1.w, 0.0);
-            const Vec3 primitive_center = primitive_local_to_world(primitive, {0.0, 0.0, 0.0});
             const Vec3 origin{warp2.x, warp2.y, warp2.z};
             const Vec4 rotation = unpack_warp_rotation({warp3.x, warp3.y, warp3.z});
-            Vec3 array_point = world_to_array_local(warped_point, origin, rotation);
-            array_point.x = fold_finite_grid_axis(array_point.x, primitive_center.x, primitive_center.x, spacing.x, count_x, blend);
-            array_point.y = fold_finite_grid_axis(array_point.y, primitive_center.y, primitive_center.y, spacing.y, count_y, blend);
-            array_point.z = fold_finite_grid_axis(array_point.z, primitive_center.z, primitive_center.z, spacing.z, count_z, blend);
-            warped_point = array_local_to_world(array_point, origin, rotation);
+            const Vec3 scale{warp4.x, warp4.y, warp4.z};
+            const Vec3 branch_center{warp5.x, warp5.y, warp5.z};
+            const Vec3 offset_location{warp6.x, warp6.y, warp6.z};
+            const Vec4 offset_rotation = unpack_warp_rotation({warp7.x, warp7.y, warp7.z});
+            const Vec3 offset_scale{warp8.x, warp8.y, warp8.z};
+            distance_scale *= std::max(min_component(safe_array_scale(scale)), 1.0e-6);
+            distance_scale *= std::max(min_component(safe_array_scale(offset_scale)), 1.0e-6);
+            Vec3 array_point = world_to_array_local(warped_point, origin, rotation, scale, branch_center);
+            const Vec3 offset_center = branch_center + offset_location;
+            array_point.x = fold_finite_grid_axis(array_point.x, offset_center.x, offset_center.x, spacing.x, count_x, blend);
+            array_point.y = fold_finite_grid_axis(array_point.y, offset_center.y, offset_center.y, spacing.y, count_y, blend);
+            array_point.z = fold_finite_grid_axis(array_point.z, offset_center.z, offset_center.z, spacing.z, count_z, blend);
+            warped_point = apply_instance_offset_inverse(array_point, branch_center, offset_location, offset_rotation, offset_scale);
             continue;
         }
         if (warp_kind == kWarpKindRadial) {
             const int count = static_cast<int>(std::lround(warp0.y));
             const double blend = std::max(warp0.z, 0.0);
             const double radius = std::max(warp0.w, 0.0);
-            const Vec3 primitive_center = primitive_local_to_world(primitive, {0.0, 0.0, 0.0});
             const Vec3 repeat_origin{warp1.x, warp1.y, warp1.z};
             const Vec3 field_origin{warp2.x, warp2.y, warp2.z};
             const Vec4 rotation = unpack_warp_rotation({warp3.x, warp3.y, warp3.z});
-            Vec3 array_point = world_to_array_local(warped_point, field_origin, rotation);
-            array_point = apply_radial_array(array_point, repeat_origin, primitive_center, radius, count, blend);
-            warped_point = array_local_to_world(array_point, field_origin, rotation);
+            const Vec3 scale{warp4.x, warp4.y, warp4.z};
+            const Vec3 branch_center{warp5.x, warp5.y, warp5.z};
+            const Vec3 offset_location{warp6.x, warp6.y, warp6.z};
+            const Vec4 offset_rotation = unpack_warp_rotation({warp7.x, warp7.y, warp7.z});
+            const Vec3 offset_scale{warp8.x, warp8.y, warp8.z};
+            distance_scale *= std::max(min_component(safe_array_scale(scale)), 1.0e-6);
+            distance_scale *= std::max(min_component(safe_array_scale(offset_scale)), 1.0e-6);
+            Vec3 array_point = world_to_array_local(warped_point, field_origin, rotation, scale, branch_center);
+            array_point = apply_radial_array(array_point, repeat_origin, branch_center + offset_location, radius, count, blend);
+            warped_point = apply_instance_offset_inverse(array_point, branch_center, offset_location, offset_rotation, offset_scale);
         }
     }
     return world_to_primitive_local(primitive, warped_point);
@@ -495,21 +522,22 @@ double apply_op(int op, double a, double b, double blend)
 double eval_primitive(const CompiledScene& scene, int primitive_index, const Vec3& world_point)
 {
     const Primitive& primitive = scene.primitives.at(static_cast<std::size_t>(primitive_index));
-    const Vec3 local_point = to_local_point(scene, primitive_index, world_point);
+    double distance_scale = 1.0;
+    const Vec3 local_point = to_local_point(scene, primitive_index, world_point, distance_scale);
     const Vec3 scale = primitive.scale;
     const double min_scale = std::max(min_component(scale), 1.0e-6);
     const int primitive_type = static_cast<int>(std::lround(primitive.meta.x));
     if (primitive_type == 0) {
-        return sd_ellipsoid(local_point, {primitive.meta.y * scale.x, primitive.meta.y * scale.y, primitive.meta.y * scale.z});
+        return sd_ellipsoid(local_point, {primitive.meta.y * scale.x, primitive.meta.y * scale.y, primitive.meta.y * scale.z}) * distance_scale;
     }
     if (primitive_type == 1) {
-        return sd_box(local_point, {primitive.meta.y * scale.x, primitive.meta.z * scale.y, primitive.meta.w * scale.z});
+        return sd_box(local_point, {primitive.meta.y * scale.x, primitive.meta.z * scale.y, primitive.meta.w * scale.z}) * distance_scale;
     }
     if (primitive_type == 2) {
-        return sd_cylinder({local_point.x / scale.x, local_point.y / scale.y, local_point.z / scale.z}, primitive.meta.y, primitive.meta.z) * min_scale;
+        return sd_cylinder({local_point.x / scale.x, local_point.y / scale.y, local_point.z / scale.z}, primitive.meta.y, primitive.meta.z) * min_scale * distance_scale;
     }
     if (primitive_type == 3) {
-        return sd_torus({local_point.x / scale.x, local_point.y / scale.y, local_point.z / scale.z}, primitive.meta.y, primitive.meta.z) * min_scale;
+        return sd_torus({local_point.x / scale.x, local_point.y / scale.y, local_point.z / scale.z}, primitive.meta.y, primitive.meta.z) * min_scale * distance_scale;
     }
     return 1.0e20;
 }

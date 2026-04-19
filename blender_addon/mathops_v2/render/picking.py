@@ -61,11 +61,18 @@ def _mirror_origin(origin_object):
         return Vector((0.0, 0.0, 0.0))
 
 
-def _array_field_origin(frame_node=None):
+def _array_field_origin(frame_node=None, branch_center=(0.0, 0.0, 0.0)):
     if frame_node is not None and bool(getattr(frame_node, "use_array_transform", False)):
         location = getattr(frame_node, "array_location", (0.0, 0.0, 0.0))
         return Vector((float(location[0]), float(location[1]), float(location[2])))
-    return Vector((0.0, 0.0, 0.0))
+    return Vector((float(branch_center[0]), float(branch_center[1]), float(branch_center[2])))
+
+
+def _array_scale(frame_node=None):
+    if frame_node is not None and bool(getattr(frame_node, "use_array_transform", False)):
+        scale = getattr(frame_node, "array_scale", (1.0, 1.0, 1.0))
+        return Vector((max(abs(float(scale[0])), 1.0e-6), max(abs(float(scale[1])), 1.0e-6), max(abs(float(scale[2])), 1.0e-6)))
+    return Vector((1.0, 1.0, 1.0))
 
 
 def _array_rotation(_origin_object=None, frame_node=None):
@@ -81,21 +88,33 @@ def _array_repeat_origin(origin_object, primitive_center, frame_node=None):
         if origin_object is None:
             return Vector((float(primitive_center[0]), float(primitive_center[1]), float(primitive_center[2])))
         translation = origin_object.matrix_world.translation
-        field_origin = _array_field_origin(frame_node)
+        field_origin = _array_field_origin(frame_node, primitive_center)
         rotation = _array_rotation(None, frame_node)
-        return rotation.inverted() @ (Vector((float(translation[0]), float(translation[1]), float(translation[2]))) - field_origin)
+        scale = _array_scale(frame_node)
+        local = rotation.inverted() @ (Vector((float(translation[0]), float(translation[1]), float(translation[2]))) - field_origin)
+        return Vector((float(primitive_center[0]) + (local[0] / scale[0]), float(primitive_center[1]) + (local[1] / scale[1]), float(primitive_center[2]) + (local[2] / scale[2])))
     except ReferenceError:
         return Vector((float(primitive_center[0]), float(primitive_center[1]), float(primitive_center[2])))
 
 
-def _world_to_array_local(origin, rotation, world_point):
+def _world_to_array_local(origin, rotation, scale, branch_center, world_point):
     point = Vector((float(world_point[0]), float(world_point[1]), float(world_point[2])))
-    return rotation.inverted() @ (point - origin)
+    local = rotation.inverted() @ (point - origin)
+    return Vector((float(branch_center[0]) + (local[0] / scale[0]), float(branch_center[1]) + (local[1] / scale[1]), float(branch_center[2]) + (local[2] / scale[2])))
 
 
-def _array_local_to_world(origin, rotation, local_point):
-    point = Vector((float(local_point[0]), float(local_point[1]), float(local_point[2])))
-    return origin + (rotation @ point)
+def _apply_instance_offset_inverse(point, branch_center, offset_location, offset_rotation, offset_scale):
+    centered = Vector((
+        float(point[0]) - float(branch_center[0]) - float(offset_location[0]),
+        float(point[1]) - float(branch_center[1]) - float(offset_location[1]),
+        float(point[2]) - float(branch_center[2]) - float(offset_location[2]),
+    ))
+    local = offset_rotation.inverted() @ centered
+    return Vector((
+        float(branch_center[0]) + (local[0] / float(offset_scale[0])),
+        float(branch_center[1]) + (local[1] / float(offset_scale[1])),
+        float(branch_center[2]) + (local[2] / float(offset_scale[2])),
+    ))
 
 
 def _fold_finite_grid_axis(axis_value, origin, primitive_center, spacing, count, blend):
@@ -142,12 +161,6 @@ def _apply_radial_array(world_point, origin, primitive_center, radius, count, bl
     norm_a = angle_rel / sector
     index = round(norm_a)
     local = norm_a - index
-    mirrored = (abs(index) % 2) == 1
-    at_defect = (count % 2) != 0 and abs(angle_rel) > math.pi - sector * 0.5
-    if at_defect:
-        local = abs(local)
-    elif mirrored:
-        local = -local
     arc = sector * base_radius
     pull_right = (0.5 - local) * arc
     pull_right = pull_right - _sabs(pull_right, blend)
@@ -163,6 +176,7 @@ def _apply_radial_array(world_point, origin, primitive_center, radius, count, bl
 def _apply_warps(world_point, primitive_center, rows, warps):
     warped_point = Vector((float(world_point[0]), float(world_point[1]), float(world_point[2])))
     primitive_center = Vector((float(primitive_center[0]), float(primitive_center[1]), float(primitive_center[2])))
+    distance_scale = 1.0
     for warp in tuple(warps or ()):
         kind = str(warp[0] or "")
         if kind == "mirror":
@@ -180,32 +194,41 @@ def _apply_warps(world_point, primitive_center, rows, warps):
                 warped_point.z = origin.z + side * _sabs(side * (warped_point.z - origin.z), blend)
             continue
         if kind == "grid":
-            _kind, count_x, count_y, count_z, spacing, _origin_object, frame_node, blend = warp
+            _kind, count_x, count_y, count_z, spacing, _origin_object, frame_node, _source_node, branch_center, offset_location, offset_rotation, offset_scale, blend = warp
             blend = max(float(blend), 0.0)
-            field_origin = _array_field_origin(frame_node)
+            field_origin = _array_field_origin(frame_node, branch_center)
             rotation = _array_rotation(None, frame_node)
-            array_point = _world_to_array_local(field_origin, rotation, warped_point)
-            array_point.x = _fold_finite_grid_axis(array_point.x, float(primitive_center[0]), float(primitive_center[0]), abs(float(spacing[0])), int(count_x), blend)
-            array_point.y = _fold_finite_grid_axis(array_point.y, float(primitive_center[1]), float(primitive_center[1]), abs(float(spacing[1])), int(count_y), blend)
-            array_point.z = _fold_finite_grid_axis(array_point.z, float(primitive_center[2]), float(primitive_center[2]), abs(float(spacing[2])), int(count_z), blend)
-            warped_point = _array_local_to_world(field_origin, rotation, array_point)
+            scale = _array_scale(frame_node)
+            distance_scale *= max(min(float(scale[0]), float(scale[1]), float(scale[2])), 1.0e-6)
+            distance_scale *= max(min(float(offset_scale[0]), float(offset_scale[1]), float(offset_scale[2])), 1.0e-6)
+            array_point = _world_to_array_local(field_origin, rotation, scale, branch_center, warped_point)
+            offset_center = sdf_tree._offset_center(branch_center, offset_location)
+            array_point.x = _fold_finite_grid_axis(array_point.x, float(offset_center[0]), float(offset_center[0]), abs(float(spacing[0])), int(count_x), blend)
+            array_point.y = _fold_finite_grid_axis(array_point.y, float(offset_center[1]), float(offset_center[1]), abs(float(spacing[1])), int(count_y), blend)
+            array_point.z = _fold_finite_grid_axis(array_point.z, float(offset_center[2]), float(offset_center[2]), abs(float(spacing[2])), int(count_z), blend)
+            offset_quaternion = Matrix.LocRotScale(Vector((0.0, 0.0, 0.0)), Euler((float(offset_rotation[0]), float(offset_rotation[1]), float(offset_rotation[2])), "XYZ"), None).to_quaternion()
+            warped_point = _apply_instance_offset_inverse(array_point, branch_center, offset_location, offset_quaternion, offset_scale)
             continue
         if kind == "radial":
-            _kind, count, radius, origin_object, frame_node, blend = warp
-            field_origin = _array_field_origin(frame_node)
+            _kind, count, radius, origin_object, frame_node, _source_node, branch_center, offset_location, offset_rotation, offset_scale, blend = warp
+            field_origin = _array_field_origin(frame_node, branch_center)
             rotation = _array_rotation(None, frame_node)
-            repeat_origin = _array_repeat_origin(origin_object, primitive_center, frame_node)
-            array_point = _world_to_array_local(field_origin, rotation, warped_point)
-            array_point = _apply_radial_array(array_point, repeat_origin, primitive_center, float(radius), int(count), max(float(blend), 0.0))
-            warped_point = _array_local_to_world(field_origin, rotation, array_point)
-    return warped_point
+            scale = _array_scale(frame_node)
+            distance_scale *= max(min(float(scale[0]), float(scale[1]), float(scale[2])), 1.0e-6)
+            distance_scale *= max(min(float(offset_scale[0]), float(offset_scale[1]), float(offset_scale[2])), 1.0e-6)
+            repeat_origin = _array_repeat_origin(origin_object, branch_center, frame_node)
+            array_point = _world_to_array_local(field_origin, rotation, scale, branch_center, warped_point)
+            array_point = _apply_radial_array(array_point, repeat_origin, Vector(sdf_tree._offset_center(branch_center, offset_location)), float(radius), int(count), max(float(blend), 0.0))
+            offset_quaternion = Matrix.LocRotScale(Vector((0.0, 0.0, 0.0)), Euler((float(offset_rotation[0]), float(offset_rotation[1]), float(offset_rotation[2])), "XYZ"), None).to_quaternion()
+            warped_point = _apply_instance_offset_inverse(array_point, branch_center, offset_location, offset_quaternion, offset_scale)
+    return warped_point, distance_scale
 
 
 def _primitive_local_point(spec, entry, world_point):
     row0, row1, row2 = spec["world_to_local"]
     rows = (row0, row1, row2)
-    warped_point = _apply_warps(world_point, spec.get("center", (0.0, 0.0, 0.0)), rows, entry.get("warps", ()))
-    return _world_to_local(rows, warped_point)
+    warped_point, distance_scale = _apply_warps(world_point, spec.get("center", (0.0, 0.0, 0.0)), rows, entry.get("warps", ()))
+    return _world_to_local(rows, warped_point), distance_scale
 
 
 def _safe_component(value):
@@ -256,21 +279,21 @@ def eval_primitive(compiled, primitive_index, world_point):
 
     spec = primitive_specs[primitive_index]
     entry = primitive_entries[primitive_index]
-    local_point = _primitive_local_point(spec, entry, world_point)
+    local_point, distance_scale = _primitive_local_point(spec, entry, world_point)
     primitive_type = str(spec.get("primitive_type", "sphere") or "sphere")
     meta = tuple(float(value) for value in spec.get("meta", (0.0, 0.5, 0.0, 0.0)))
     scale = _safe_vec(spec.get("scale", (1.0, 1.0, 1.0)))
     min_scale = max(min(float(scale[0]), float(scale[1]), float(scale[2])), 1.0e-6)
     if primitive_type == "sphere":
-        return _sd_ellipsoid(local_point, Vector((meta[1] * scale[0], meta[1] * scale[1], meta[1] * scale[2])))
+        return _sd_ellipsoid(local_point, Vector((meta[1] * scale[0], meta[1] * scale[1], meta[1] * scale[2]))) * distance_scale
     if primitive_type == "box":
-        return _sd_box(local_point, Vector((meta[1] * scale[0], meta[2] * scale[1], meta[3] * scale[2])))
+        return _sd_box(local_point, Vector((meta[1] * scale[0], meta[2] * scale[1], meta[3] * scale[2]))) * distance_scale
     if primitive_type == "cylinder":
         scaled_point = Vector((float(local_point[0]) / float(scale[0]), float(local_point[1]) / float(scale[1]), float(local_point[2]) / float(scale[2])))
-        return _sd_cylinder(scaled_point, meta[1], meta[2]) * min_scale
+        return _sd_cylinder(scaled_point, meta[1], meta[2]) * min_scale * distance_scale
     if primitive_type == "torus":
         scaled_point = Vector((float(local_point[0]) / float(scale[0]), float(local_point[1]) / float(scale[1]), float(local_point[2]) / float(scale[2])))
-        return _sd_torus(scaled_point, (meta[1], meta[2])) * min_scale
+        return _sd_torus(scaled_point, (meta[1], meta[2])) * min_scale * distance_scale
     return _MISS_DISTANCE
 
 
@@ -504,9 +527,10 @@ def pick_viewport_sdf(context, coord):
         return None
     hit_node = hit_entry.get("node")
     hit_object = _entry_object(hit_entry)
+    hit_owner = sdf_tree._proxy_transform_owner(hit_node) if hit_node is not None else None
     return {
         "object": hit_object,
-        "node": hit_node,
+        "node": hit_owner or hit_node,
         "point": hit_point,
         "compiled": compiled,
     }

@@ -138,6 +138,7 @@ def _draw_array_node(layout, node):
     box.label(text="Array", icon="MOD_ARRAY")
     box.prop(node, "name", text="Node")
     _draw_socket_input(box, sdf_tree.node_input_socket(node, "SDF"))
+    _draw_socket_input(box, sdf_tree.node_input_socket(node, "Transform Offset"))
     box.prop(node, "array_mode", text="Mode")
     if node.array_mode == sdf_tree._ARRAY_MODE_GRID:
         row = box.row(align=True)

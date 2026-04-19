@@ -123,7 +123,7 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
         name="Mesh Resolution",
         default=48,
         min=8,
-        max=256,
+        max=512,
         description="Dual contouring cells along the longest scene axis",
         update=_tag_redraw,
     )

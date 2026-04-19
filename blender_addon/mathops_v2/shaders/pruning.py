@@ -11,7 +11,7 @@ COMPUTE_SOURCE = """\
 #define PRIMITIVE_STRIDE %d
 #define STACK_DEPTH %d
 #define MIRROR_WARP_PACK_SCALE 256
-#define WARP_ROWS_PER_ENTRY 4
+#define WARP_ROWS_PER_ENTRY 9
 #define WARP_KIND_MIRROR 1
 #define WARP_KIND_GRID 2
 #define WARP_KIND_RADIAL 3
@@ -225,14 +225,21 @@ vec3 rotateByQuaternion(vec4 rotation, vec3 point)
        + (2.0 * scalar * cross(axis, point));
 }
 
-vec3 worldToArrayLocal(vec3 worldPoint, vec3 origin, vec4 rotation)
+vec3 safeArrayScale(vec3 scale)
 {
-  return rotateByQuaternion(vec4(-rotation.xyz, rotation.w), worldPoint - origin);
+  return max(abs(scale), vec3(1e-6));
 }
 
-vec3 arrayLocalToWorld(vec3 localPoint, vec3 origin, vec4 rotation)
+vec3 worldToArrayLocal(vec3 worldPoint, vec3 origin, vec4 rotation, vec3 scale, vec3 branchCenter)
 {
-  return origin + rotateByQuaternion(rotation, localPoint);
+  return branchCenter + rotateByQuaternion(vec4(-rotation.xyz, rotation.w), worldPoint - origin) / safeArrayScale(scale);
+}
+
+vec3 applyInstanceOffsetInverse(vec3 point, vec3 branchCenter, vec3 offsetLocation, vec4 offsetRotation, vec3 offsetScale)
+{
+  vec3 centered = point - (branchCenter + offsetLocation);
+  vec3 local = rotateByQuaternion(vec4(-offsetRotation.xyz, offsetRotation.w), centered) / safeArrayScale(offsetScale);
+  return branchCenter + local;
 }
 
 vec3 applyRadialArray(vec3 worldPoint, vec3 origin, vec3 primitiveCenter, float radius, int count, float blend)
@@ -250,15 +257,6 @@ vec3 applyRadialArray(vec3 worldPoint, vec3 origin, vec3 primitiveCenter, float 
   float normA = angleRel / sector;
   float id = round(normA);
   float local = normA - id;
-  bool mirrored = fract(abs(id) * 0.5) > 0.25;
-  bool odd = (count %% 2) != 0;
-  bool atDefect = odd && (abs(angleRel) > WARP_PI - sector * 0.5);
-  if (atDefect) {
-    local = abs(local);
-  }
-  else if (mirrored) {
-    local = -local;
-  }
   float arc = sector * baseRadius;
   float dR = (0.5 - local) * arc;
   float pullR = dR - sabs(dR, blend);
@@ -271,7 +269,7 @@ vec3 applyRadialArray(vec3 worldPoint, vec3 origin, vec3 primitiveCenter, float 
   return primitiveCenter + (qFold - baseOffset);
 }
 
-vec3 toLocalPoint(int primitiveIndex, vec3 worldPoint)
+vec3 toLocalPoint(int primitiveIndex, vec3 worldPoint, out float distanceScale)
 {
   int baseRow = primitiveIndex * PRIMITIVE_STRIDE;
   vec4 row0 = loadSceneRow(baseRow + 1);
@@ -282,12 +280,18 @@ vec3 toLocalPoint(int primitiveIndex, vec3 worldPoint)
   int warpOffset = packedWarpInfo / MIRROR_WARP_PACK_SCALE;
   int warpCount = packedWarpInfo - warpOffset * MIRROR_WARP_PACK_SCALE;
   vec3 warpedPoint = worldPoint;
+  distanceScale = 1.0;
   for (int index = 0; index < warpCount; index++) {
     int warpRow = warpBase + warpOffset + index * WARP_ROWS_PER_ENTRY;
     vec4 warp0 = loadSceneRow(warpRow);
     vec4 warp1 = loadSceneRow(warpRow + 1);
     vec4 warp2 = loadSceneRow(warpRow + 2);
     vec4 warp3 = loadSceneRow(warpRow + 3);
+    vec4 warp4 = loadSceneRow(warpRow + 4);
+    vec4 warp5 = loadSceneRow(warpRow + 5);
+    vec4 warp6 = loadSceneRow(warpRow + 6);
+    vec4 warp7 = loadSceneRow(warpRow + 7);
+    vec4 warp8 = loadSceneRow(warpRow + 8);
     int warpKind = int(warp0.x + 0.5);
     if (warpKind == WARP_KIND_MIRROR) {
       int flags = int(warp0.y + 0.5);
@@ -311,27 +315,40 @@ vec3 toLocalPoint(int primitiveIndex, vec3 worldPoint)
       ivec3 counts = ivec3(int(warp0.y + 0.5), int(warp0.z + 0.5), int(warp0.w + 0.5));
       vec3 spacing = abs(warp1.xyz);
       float blend = max(warp1.w, 0.0);
-      vec3 primitiveCenter = primitiveLocalToWorld(row0, row1, row2, vec3(0.0));
       vec3 origin = warp2.xyz;
       vec4 rotation = unpackWarpRotation(warp3.xyz);
-      vec3 arrayPoint = worldToArrayLocal(warpedPoint, origin, rotation);
-      arrayPoint.x = foldFiniteGridAxis(arrayPoint.x, primitiveCenter.x, primitiveCenter.x, spacing.x, counts.x, blend);
-      arrayPoint.y = foldFiniteGridAxis(arrayPoint.y, primitiveCenter.y, primitiveCenter.y, spacing.y, counts.y, blend);
-      arrayPoint.z = foldFiniteGridAxis(arrayPoint.z, primitiveCenter.z, primitiveCenter.z, spacing.z, counts.z, blend);
-      warpedPoint = arrayLocalToWorld(arrayPoint, origin, rotation);
+      vec3 scale = warp4.xyz;
+      vec3 branchCenter = warp5.xyz;
+      vec3 offsetLocation = warp6.xyz;
+      vec4 offsetRotation = unpackWarpRotation(warp7.xyz);
+      vec3 offsetScale = warp8.xyz;
+      distanceScale *= max(min(scale.x, min(scale.y, scale.z)), 1e-6);
+      distanceScale *= max(min(offsetScale.x, min(offsetScale.y, offsetScale.z)), 1e-6);
+      vec3 arrayPoint = worldToArrayLocal(warpedPoint, origin, rotation, scale, branchCenter);
+      vec3 offsetCenter = branchCenter + offsetLocation;
+      arrayPoint.x = foldFiniteGridAxis(arrayPoint.x, offsetCenter.x, offsetCenter.x, spacing.x, counts.x, blend);
+      arrayPoint.y = foldFiniteGridAxis(arrayPoint.y, offsetCenter.y, offsetCenter.y, spacing.y, counts.y, blend);
+      arrayPoint.z = foldFiniteGridAxis(arrayPoint.z, offsetCenter.z, offsetCenter.z, spacing.z, counts.z, blend);
+      warpedPoint = applyInstanceOffsetInverse(arrayPoint, branchCenter, offsetLocation, offsetRotation, offsetScale);
       continue;
     }
     if (warpKind == WARP_KIND_RADIAL) {
       int count = int(warp0.y + 0.5);
       float blend = max(warp0.z, 0.0);
       float radius = max(warp0.w, 0.0);
-      vec3 primitiveCenter = primitiveLocalToWorld(row0, row1, row2, vec3(0.0));
       vec3 repeatOrigin = warp1.xyz;
       vec3 fieldOrigin = warp2.xyz;
       vec4 rotation = unpackWarpRotation(warp3.xyz);
-      vec3 arrayPoint = worldToArrayLocal(warpedPoint, fieldOrigin, rotation);
-      arrayPoint = applyRadialArray(arrayPoint, repeatOrigin, primitiveCenter, radius, count, blend);
-      warpedPoint = arrayLocalToWorld(arrayPoint, fieldOrigin, rotation);
+      vec3 scale = warp4.xyz;
+      vec3 branchCenter = warp5.xyz;
+      vec3 offsetLocation = warp6.xyz;
+      vec4 offsetRotation = unpackWarpRotation(warp7.xyz);
+      vec3 offsetScale = warp8.xyz;
+      distanceScale *= max(min(scale.x, min(scale.y, scale.z)), 1e-6);
+      distanceScale *= max(min(offsetScale.x, min(offsetScale.y, offsetScale.z)), 1e-6);
+      vec3 arrayPoint = worldToArrayLocal(warpedPoint, fieldOrigin, rotation, scale, branchCenter);
+      arrayPoint = applyRadialArray(arrayPoint, repeatOrigin, branchCenter + offsetLocation, radius, count, blend);
+      warpedPoint = applyInstanceOffsetInverse(arrayPoint, branchCenter, offsetLocation, offsetRotation, offsetScale);
     }
   }
   return worldToPrimitiveLocal(row0, row1, row2, warpedPoint);
@@ -366,23 +383,25 @@ float evalPrimitive(int primitiveIndex, vec3 worldPoint)
 {
   int baseRow = primitiveIndex * PRIMITIVE_STRIDE;
   vec4 meta = loadSceneRow(baseRow);
-  vec3 localPoint = toLocalPoint(primitiveIndex, worldPoint);
+  float distanceScale;
+  vec3 localPoint = toLocalPoint(primitiveIndex, worldPoint, distanceScale);
   vec3 scale = primitiveScale(primitiveIndex);
   float minScale = max(min(scale.x, min(scale.y, scale.z)), 1e-6);
   int primitiveType = int(meta.x + 0.5);
+  float distanceValue = 1e20;
   if (primitiveType == 0) {
-    return sdEllipsoid(localPoint, vec3(meta.y) * scale);
+    distanceValue = sdEllipsoid(localPoint, vec3(meta.y) * scale);
   }
-  if (primitiveType == 1) {
-    return sdBox(localPoint, meta.yzw * scale);
+  else if (primitiveType == 1) {
+    distanceValue = sdBox(localPoint, meta.yzw * scale);
   }
-  if (primitiveType == 2) {
-    return sdCylinder(localPoint / scale, meta.y, meta.z) * minScale;
+  else if (primitiveType == 2) {
+    distanceValue = sdCylinder(localPoint / scale, meta.y, meta.z) * minScale;
   }
-  if (primitiveType == 3) {
-    return sdTorus(localPoint / scale, vec2(meta.y, meta.z)) * minScale;
+  else if (primitiveType == 3) {
+    distanceValue = sdTorus(localPoint / scale, vec2(meta.y, meta.z)) * minScale;
   }
-  return 1e20;
+  return distanceValue * distanceScale;
 }
 
 float kernel(float x, float k)

@@ -53,7 +53,7 @@ _MIRROR_SIDE_X = 8
 _MIRROR_SIDE_Y = 16
 _MIRROR_SIDE_Z = 32
 _MIRROR_WARP_PACK_SCALE = 256
-_WARP_ROWS_PER_ENTRY = 5
+_WARP_ROWS_PER_ENTRY = 9
 
 _WARP_KIND_MIRROR = 1
 _WARP_KIND_GRID = 2
@@ -63,6 +63,7 @@ _ARRAY_MODE_GRID = "GRID"
 _ARRAY_MODE_RADIAL = "RADIAL"
 
 _SOCKET_TRANSFORM = "Transform"
+_SOCKET_TRANSFORM_OFFSET = "Transform Offset"
 _SOCKET_LOCATION = "Location"
 _SOCKET_ROTATION = "Rotation"
 _SOCKET_SCALE = "Scale"
@@ -856,6 +857,10 @@ def _transform_input_socket(node):
     return _socket_by_name(getattr(node, "inputs", ()), _SOCKET_TRANSFORM, TRANSFORM_SOCKET_IDNAME)
 
 
+def _array_offset_input_socket(node):
+    return _socket_by_name(getattr(node, "inputs", ()), _SOCKET_TRANSFORM_OFFSET, TRANSFORM_SOCKET_IDNAME)
+
+
 def _input_socket(node, name, bl_idname=""):
     return _socket_by_name(getattr(node, "inputs", ()), name, bl_idname)
 
@@ -975,6 +980,7 @@ def _ensure_array_node_sockets(node):
     if getattr(node, "bl_idname", "") != ARRAY_NODE_IDNAME:
         return node
     _ensure_named_input_socket(node, MathOPSV2SDFSocket.bl_idname, "SDF")
+    _ensure_named_input_socket(node, MathOPSV2TransformSocket.bl_idname, _SOCKET_TRANSFORM_OFFSET)
     _ensure_named_output_socket(node, MathOPSV2SDFSocket.bl_idname, "SDF")
     _ensure_named_output_socket(node, MathOPSV2TransformSocket.bl_idname, _SOCKET_TRANSFORM)
     return node
@@ -1103,11 +1109,38 @@ def _array_node_transform_values(node):
     )
 
 
+def _resolve_transform_socket_values(socket, visiting=None, prefer_proxy=False):
+    source = _linked_source_node(socket)
+    if source is None:
+        return _identity_transform_values()
+    return _resolved_transform_values(source, visiting=visiting, prefer_proxy=prefer_proxy)
+
+
+def _array_transform_offset_values(node, visiting=None):
+    _ensure_array_node_sockets(node)
+    return _resolve_transform_socket_values(_array_offset_input_socket(node), visiting=visiting, prefer_proxy=False)
+
+
+def _array_source_node(node):
+    _ensure_array_node_sockets(node)
+    return _linked_source_node(_input_socket(node, "SDF", MathOPSV2SDFSocket.bl_idname))
+
+
+def _array_default_center(node):
+    source = _array_source_node(node)
+    if source is None:
+        return _IDENTITY_LOCATION
+    try:
+        return _bounds_center(_subtree_bounds(source))
+    except Exception:
+        return _IDENTITY_LOCATION
+
+
 def _array_transform_values(node, visiting=None, prefer_proxy=True):
     _ensure_array_node_sockets(node)
     if bool(getattr(node, "use_array_transform", False)):
         return _array_node_transform_values(node)
-    return _identity_transform_values()
+    return (_array_default_center(node), _IDENTITY_ROTATION, _IDENTITY_SCALE)
 
 
 def _write_vector_input_socket(socket, values, sanitizer, visiting=None):
@@ -1159,7 +1192,7 @@ def _resolved_transform_values(node, visiting=None, prefer_proxy=True):
             if source is not None:
                 return _resolved_transform_values(source, visiting=visiting, prefer_proxy=prefer_proxy)
             target = getattr(node, "target", None)
-            if prefer_proxy and runtime.is_sdf_proxy(target):
+            if prefer_proxy and runtime.is_sdf_proxy(target) and runtime.safe_pointer(_proxy_transform_owner(node)) == runtime.safe_pointer(node):
                 return (
                     _sanitized_location(target.location),
                     _sanitized_rotation(target.rotation_euler),
@@ -1211,6 +1244,10 @@ def _write_transform_values(node, location=None, rotation=None, scale=None, visi
             target_location = current_location if location is None else _sanitized_location(location)
             target_rotation = current_rotation if rotation is None else _sanitized_rotation(rotation)
             target_scale = current_scale if scale is None else _sanitized_scale(scale)
+            origin_object = runtime.object_identity(getattr(node, "origin_object", None))
+            branch_center = _array_default_center(node)
+            current_matrix = _array_field_matrix(current_location, current_rotation, current_scale, branch_center)
+            target_matrix = _array_field_matrix(target_location, target_rotation, target_scale, branch_center)
             changed = False
             with suppress_object_node_updates():
                 if not bool(getattr(node, "use_array_transform", False)):
@@ -1225,6 +1262,8 @@ def _write_transform_values(node, location=None, rotation=None, scale=None, visi
                 if _float_seq_changed(tuple(getattr(node, "array_scale", _IDENTITY_SCALE)), target_scale):
                     node.array_scale = target_scale
                     changed = True
+            if origin_object is not None and _apply_matrix_to_object(origin_object, target_matrix @ current_matrix.inverted_safe()):
+                changed = True
             if changed:
                 _update_array_node_transform(node, None)
             return changed
@@ -1260,7 +1299,7 @@ def _write_transform_to_node_source(node, location, rotation, scale):
 
 
 def _sync_resolved_transform_to_node(node):
-    location, rotation, scale = _resolved_transform_values(node)
+    location, rotation, scale = _resolved_transform_values(node, prefer_proxy=False)
     changed = False
     with suppress_object_node_updates():
         if _float_seq_changed(tuple(node.sdf_location), location):
@@ -1689,6 +1728,39 @@ def _collect_downstream_nodes(node, nodes, seen):
         _collect_downstream_nodes(downstream, nodes, seen)
 
 
+def _surface_downstream_nodes(node):
+    output_socket = _surface_output_socket(node)
+    if output_socket is None:
+        return []
+    downstream = []
+    for link in list(output_socket.links):
+        target = getattr(link, "to_node", None)
+        if target is None or getattr(target, "bl_idname", "") == runtime.OUTPUT_NODE_IDNAME:
+            continue
+        downstream.append(target)
+    return downstream
+
+
+def _proxy_transform_owner(node):
+    owner = node
+    current = node
+    seen = set()
+    while current is not None:
+        current_key = runtime.safe_pointer(current)
+        if current_key == 0 or current_key in seen:
+            break
+        seen.add(current_key)
+        downstream = _surface_downstream_nodes(current)
+        if len(downstream) != 1:
+            break
+        next_node = downstream[0]
+        if getattr(next_node, "bl_idname", "") != ARRAY_NODE_IDNAME:
+            break
+        owner = next_node
+        current = next_node
+    return owner
+
+
 def inspector_related_nodes(node):
     if node is None:
         return []
@@ -2055,6 +2127,21 @@ def _write_transform_to_object(obj, location=None, rotation=None, scale=None):
         return False
 
 
+def _apply_matrix_to_object(obj, matrix):
+    try:
+        obj = runtime.object_identity(obj)
+        if obj is None:
+            return False
+        current = obj.matrix_world.copy()
+        target = matrix @ current
+        if current == target:
+            return False
+        obj.matrix_world = target
+        return True
+    except ReferenceError:
+        return False
+
+
 def _set_float_vector_attr(owner, attribute, value, epsilon=1.0e-6):
     current = tuple(float(component) for component in getattr(owner, attribute))
     target = tuple(float(component) for component in value)
@@ -2165,7 +2252,8 @@ def sync_node_to_proxy(node, include_transform=True):
     _configure_proxy_display(target)
     _mirror_node_to_proxy_settings(node, target)
     if include_transform:
-        location, rotation, scale = _resolved_transform_values(node, prefer_proxy=False)
+        transform_owner = _proxy_transform_owner(node)
+        location, rotation, scale = _resolved_transform_values(transform_owner, prefer_proxy=False)
         _set_float_vector_attr(target, "location", location)
         _set_float_vector_attr(target, "rotation_euler", rotation)
         _set_float_vector_attr(target, "scale", scale)
@@ -2183,11 +2271,15 @@ def sync_proxy_to_node(node):
 
     _ensure_object_node_sockets(node)
     changed = False
+    transform_owner = _proxy_transform_owner(node)
     transform_source = transform_source_node(node)
     target_location = tuple(float(component) for component in target.location)
     target_rotation = tuple(float(component) for component in target.rotation_euler)
     target_scale = tuple(abs(float(component)) for component in target.scale)
-    changed = _write_transform_to_node_source(node, target_location, target_rotation, target_scale) or changed
+    if runtime.safe_pointer(transform_owner) == runtime.safe_pointer(node):
+        changed = _write_transform_to_node_source(node, target_location, target_rotation, target_scale) or changed
+    else:
+        changed = _write_transform_values(transform_owner, location=target_location, rotation=target_rotation, scale=target_scale) or changed
     with suppress_object_node_updates():
         if not bool(getattr(node, "use_proxy", False)):
             node.use_proxy = True
@@ -2196,17 +2288,21 @@ def sync_proxy_to_node(node):
         if proxy_id and str(getattr(node, "proxy_id", "") or "") != proxy_id:
             node.proxy_id = proxy_id
             changed = True
-        if _float_seq_changed(tuple(node.sdf_location), target_location):
-            node.sdf_location = target_location
-            changed = True
-        if _float_seq_changed(tuple(node.sdf_rotation), target_rotation):
-            node.sdf_rotation = target_rotation
-            changed = True
-        if _float_seq_changed(tuple(node.sdf_scale), target_scale):
-            node.sdf_scale = target_scale
-            changed = True
-    if changed and transform_source is not None:
-        _sync_tree_proxy_transforms(getattr(node, "id_data", None), source_node=transform_source)
+        if runtime.safe_pointer(transform_owner) == runtime.safe_pointer(node):
+            if _float_seq_changed(tuple(node.sdf_location), target_location):
+                node.sdf_location = target_location
+                changed = True
+            if _float_seq_changed(tuple(node.sdf_rotation), target_rotation):
+                node.sdf_rotation = target_rotation
+                changed = True
+            if _float_seq_changed(tuple(node.sdf_scale), target_scale):
+                node.sdf_scale = target_scale
+                changed = True
+    if changed:
+        if runtime.safe_pointer(transform_owner) == runtime.safe_pointer(node) and transform_source is not None:
+            _sync_tree_proxy_transforms(getattr(node, "id_data", None), source_node=transform_source)
+        elif runtime.safe_pointer(transform_owner) != runtime.safe_pointer(node):
+            _sync_tree_proxy_transforms(getattr(node, "id_data", None))
     return changed
 
 
@@ -2393,12 +2489,32 @@ def _packed_euler_xyz(rotation):
     return _packed_quaternion_xyz(Matrix.LocRotScale(Vector((0.0, 0.0, 0.0)), Euler(rotation, "XYZ"), None))
 
 
-def _array_frame_matrix(frame_node):
+def _array_transform_matrix(location, rotation, scale):
+    return Matrix.LocRotScale(Vector(location), Euler(rotation, "XYZ"), Vector(scale))
+
+
+def _array_offset_matrix(location, rotation, scale, branch_center):
+    return (
+        Matrix.Translation(Vector(branch_center) + Vector(location))
+        @ _array_transform_matrix(_IDENTITY_LOCATION, rotation, scale)
+        @ Matrix.Translation(-Vector(branch_center))
+    )
+
+
+def _array_field_matrix(location, rotation, scale, branch_center):
+    return (
+        Matrix.Translation(Vector(location))
+        @ _array_transform_matrix(_IDENTITY_LOCATION, rotation, scale)
+        @ Matrix.Translation(-Vector(branch_center))
+    )
+
+
+def _array_frame_matrix(frame_node, branch_center):
     frame_transform = _array_frame_transform_values(frame_node)
     if frame_transform is None:
         return Matrix.Identity(4)
-    location, rotation, _scale = frame_transform
-    return Matrix.LocRotScale(Vector(location), Euler(rotation, "XYZ"), None)
+    location, rotation, scale = frame_transform
+    return _array_field_matrix(location, rotation, scale, branch_center)
 
 
 def _transform_point(matrix, point):
@@ -2406,11 +2522,11 @@ def _transform_point(matrix, point):
     return (float(result[0]), float(result[1]), float(result[2]))
 
 
-def _array_frame_origin_world(frame_node):
+def _array_frame_origin_world(frame_node, branch_center):
     frame_transform = _array_frame_transform_values(frame_node)
     if frame_transform is not None:
         return frame_transform[0]
-    return _IDENTITY_LOCATION
+    return tuple(float(component) for component in branch_center)
 
 
 def _array_repeat_origin_local(origin_object, primitive_center, frame_node=None):
@@ -2421,7 +2537,7 @@ def _array_repeat_origin_local(origin_object, primitive_center, frame_node=None)
         world_origin = _sanitized_location(origin_object.matrix_world.translation)
     except ReferenceError:
         return tuple(float(component) for component in primitive_center)
-    inverse = _array_frame_matrix(frame_node).inverted_safe()
+    inverse = _array_frame_matrix(frame_node, primitive_center).inverted_safe()
     return _transform_point(inverse, world_origin)
 
 
@@ -2431,6 +2547,14 @@ def _array_rotation_world(frame_node=None):
         _location, rotation, _scale = frame_transform
         return _packed_euler_xyz(rotation)
     return (0.0, 0.0, 0.0)
+
+
+def _array_scale_world(frame_node=None):
+    frame_transform = _array_frame_transform_values(frame_node)
+    if frame_transform is not None:
+        _location, _rotation, scale = frame_transform
+        return _sanitized_scale(scale)
+    return _IDENTITY_SCALE
 
 
 def _transform_bounds(bounds_min, bounds_max, matrix):
@@ -2448,6 +2572,10 @@ def _bounds_center(bounds):
     if bounds is None:
         return _IDENTITY_LOCATION
     return tuple(0.5 * (float(bounds[0][axis]) + float(bounds[1][axis])) for axis in range(3))
+
+
+def _offset_center(branch_center, offset_location):
+    return tuple(float(branch_center[axis]) + float(offset_location[axis]) for axis in range(3))
 
 
 def _mirror_warp_descriptor(node):
@@ -2545,13 +2673,47 @@ def _subtree_bounds(node, warps=(), visiting=None):
 def _resolve_array_warp(warp, prefix_warps=()):
     kind = warp[0]
     if kind == "grid":
-        _kind, count_x, count_y, count_z, spacing, origin_object, frame_node, source_node, _branch_center, blend = warp
+        if len(warp) >= 13:
+            _kind, count_x, count_y, count_z, spacing, origin_object, frame_node, source_node, _branch_center, _offset_location, _offset_rotation, _offset_scale, blend = warp
+        else:
+            _kind, count_x, count_y, count_z, spacing, origin_object, frame_node, source_node, _branch_center, blend = warp
         branch_center = _bounds_center(_subtree_bounds(source_node, warps=tuple(prefix_warps)))
-        return ("grid", count_x, count_y, count_z, spacing, origin_object, frame_node, source_node, branch_center, blend)
+        offset_location, offset_rotation, offset_scale = _array_transform_offset_values(frame_node)
+        return (
+            "grid",
+            count_x,
+            count_y,
+            count_z,
+            spacing,
+            origin_object,
+            frame_node,
+            source_node,
+            branch_center,
+            offset_location,
+            offset_rotation,
+            offset_scale,
+            blend,
+        )
     if kind == "radial":
-        _kind, count, radius, origin_object, frame_node, source_node, _branch_center, blend = warp
+        if len(warp) >= 11:
+            _kind, count, radius, origin_object, frame_node, source_node, _branch_center, _offset_location, _offset_rotation, _offset_scale, blend = warp
+        else:
+            _kind, count, radius, origin_object, frame_node, source_node, _branch_center, blend = warp
         branch_center = _bounds_center(_subtree_bounds(source_node, warps=tuple(prefix_warps)))
-        return ("radial", count, radius, origin_object, frame_node, source_node, branch_center, blend)
+        offset_location, offset_rotation, offset_scale = _array_transform_offset_values(frame_node)
+        return (
+            "radial",
+            count,
+            radius,
+            origin_object,
+            frame_node,
+            source_node,
+            branch_center,
+            offset_location,
+            offset_rotation,
+            offset_scale,
+            blend,
+        )
     return warp
 
 
@@ -2575,7 +2737,7 @@ def _warp_signature(warps):
             signature.append((kind, int(flags), runtime.object_key(origin_object), round(float(blend), 6)))
             continue
         if kind == "grid":
-            _kind, count_x, count_y, count_z, spacing, origin_object, frame_node, source_node, _branch_center, blend = warp
+            _kind, count_x, count_y, count_z, spacing, origin_object, frame_node, source_node, _branch_center, offset_location, offset_rotation, offset_scale, blend = warp
             signature.append(
                 (
                     kind,
@@ -2586,12 +2748,15 @@ def _warp_signature(warps):
                     runtime.object_key(origin_object),
                     runtime.safe_pointer(frame_node),
                     runtime.safe_pointer(source_node),
+                    tuple(round(float(component), 6) for component in offset_location),
+                    tuple(round(float(component), 6) for component in offset_rotation),
+                    tuple(round(float(component), 6) for component in offset_scale),
                     round(float(blend), 6),
                 )
             )
             continue
         if kind == "radial":
-            _kind, count, radius, origin_object, frame_node, source_node, _branch_center, blend = warp
+            _kind, count, radius, origin_object, frame_node, source_node, _branch_center, offset_location, offset_rotation, offset_scale, blend = warp
             signature.append(
                 (
                     kind,
@@ -2600,6 +2765,9 @@ def _warp_signature(warps):
                     runtime.object_key(origin_object),
                     runtime.safe_pointer(frame_node),
                     runtime.safe_pointer(source_node),
+                    tuple(round(float(component), 6) for component in offset_location),
+                    tuple(round(float(component), 6) for component in offset_rotation),
+                    tuple(round(float(component), 6) for component in offset_scale),
                     round(float(blend), 6),
                 )
             )
@@ -2679,7 +2847,12 @@ def _apply_warp_stack_to_bounds(bounds_min, bounds_max, warps):
             continue
         current_center = tuple(0.5 * (current_min[axis] + current_max[axis]) for axis in range(3))
         if kind == "grid":
-            _kind, count_x, count_y, count_z, spacing, _origin_object, frame_node, _source_node, _branch_center, blend = warp
+            _kind, count_x, count_y, count_z, spacing, _origin_object, frame_node, _source_node, branch_center, offset_location, offset_rotation, offset_scale, blend = warp
+            current_min, current_max = _transform_bounds(
+                current_min,
+                current_max,
+                _array_offset_matrix(offset_location, offset_rotation, offset_scale, branch_center),
+            )
             current_min, current_max = _apply_grid_warp_to_bounds(
                 current_min,
                 current_max,
@@ -2689,10 +2862,15 @@ def _apply_warp_stack_to_bounds(bounds_min, bounds_max, warps):
                 spacing,
                 blend,
             )
-            current_min, current_max = _transform_bounds(current_min, current_max, _array_frame_matrix(frame_node))
+            current_min, current_max = _transform_bounds(current_min, current_max, _array_frame_matrix(frame_node, branch_center))
             continue
         if kind == "radial":
-            _kind, _count, radius, origin_object, frame_node, _source_node, branch_center, blend = warp
+            _kind, _count, radius, origin_object, frame_node, _source_node, branch_center, offset_location, offset_rotation, offset_scale, blend = warp
+            current_min, current_max = _transform_bounds(
+                current_min,
+                current_max,
+                _array_offset_matrix(offset_location, offset_rotation, offset_scale, branch_center),
+            )
             current_min, current_max = _apply_radial_warp_to_bounds(
                 current_min,
                 current_max,
@@ -2700,7 +2878,7 @@ def _apply_warp_stack_to_bounds(bounds_min, bounds_max, warps):
                 radius,
                 blend,
             )
-            current_min, current_max = _transform_bounds(current_min, current_max, _array_frame_matrix(frame_node))
+            current_min, current_max = _transform_bounds(current_min, current_max, _array_frame_matrix(frame_node, branch_center))
     return current_min, current_max
 
 
@@ -2726,27 +2904,41 @@ def _append_warp_rows(warps, warp_rows, primitive_center=_IDENTITY_LOCATION):
             warp_rows.append((0.0, 0.0, 0.0, 0.0))
             warp_rows.append((0.0, 0.0, 0.0, 0.0))
             warp_rows.append((0.0, 0.0, 0.0, 0.0))
+            warp_rows.append((0.0, 0.0, 0.0, 0.0))
+            warp_rows.append((0.0, 0.0, 0.0, 0.0))
+            warp_rows.append((0.0, 0.0, 0.0, 0.0))
+            warp_rows.append((0.0, 0.0, 0.0, 0.0))
             continue
         if kind == "grid":
-            _kind, count_x, count_y, count_z, spacing, _origin_object, frame_node, _source_node, branch_center, blend = warp
-            origin = _array_frame_origin_world(frame_node)
+            _kind, count_x, count_y, count_z, spacing, _origin_object, frame_node, _source_node, branch_center, offset_location, offset_rotation, offset_scale, blend = warp
+            origin = _array_frame_origin_world(frame_node, branch_center)
             rotation = _array_rotation_world(frame_node)
+            scale = _array_scale_world(frame_node)
             warp_rows.append((float(_WARP_KIND_GRID), float(count_x), float(count_y), float(count_z)))
             warp_rows.append((float(spacing[0]), float(spacing[1]), float(spacing[2]), float(blend)))
             warp_rows.append((float(origin[0]), float(origin[1]), float(origin[2]), 0.0))
             warp_rows.append((float(rotation[0]), float(rotation[1]), float(rotation[2]), 0.0))
+            warp_rows.append((float(scale[0]), float(scale[1]), float(scale[2]), 0.0))
             warp_rows.append((float(branch_center[0]), float(branch_center[1]), float(branch_center[2]), 0.0))
+            warp_rows.append((float(offset_location[0]), float(offset_location[1]), float(offset_location[2]), 0.0))
+            warp_rows.append((float(_packed_euler_xyz(offset_rotation)[0]), float(_packed_euler_xyz(offset_rotation)[1]), float(_packed_euler_xyz(offset_rotation)[2]), 0.0))
+            warp_rows.append((float(offset_scale[0]), float(offset_scale[1]), float(offset_scale[2]), 0.0))
             continue
         if kind == "radial":
-            _kind, count, radius, origin_object, frame_node, _source_node, branch_center, blend = warp
+            _kind, count, radius, origin_object, frame_node, _source_node, branch_center, offset_location, offset_rotation, offset_scale, blend = warp
             repeat_origin = _array_repeat_origin_local(origin_object, branch_center, frame_node)
-            field_origin = _array_frame_origin_world(frame_node)
+            field_origin = _array_frame_origin_world(frame_node, branch_center)
             rotation = _array_rotation_world(frame_node)
+            scale = _array_scale_world(frame_node)
             warp_rows.append((float(_WARP_KIND_RADIAL), float(count), float(blend), float(radius)))
             warp_rows.append((float(repeat_origin[0]), float(repeat_origin[1]), float(repeat_origin[2]), 0.0))
             warp_rows.append((float(field_origin[0]), float(field_origin[1]), float(field_origin[2]), 0.0))
             warp_rows.append((float(rotation[0]), float(rotation[1]), float(rotation[2]), 0.0))
+            warp_rows.append((float(scale[0]), float(scale[1]), float(scale[2]), 0.0))
             warp_rows.append((float(branch_center[0]), float(branch_center[1]), float(branch_center[2]), 0.0))
+            warp_rows.append((float(offset_location[0]), float(offset_location[1]), float(offset_location[2]), 0.0))
+            warp_rows.append((float(_packed_euler_xyz(offset_rotation)[0]), float(_packed_euler_xyz(offset_rotation)[1]), float(_packed_euler_xyz(offset_rotation)[2]), 0.0))
+            warp_rows.append((float(offset_scale[0]), float(offset_scale[1]), float(offset_scale[2]), 0.0))
     return warp_offset, len(warps)
 
 
@@ -2989,8 +3181,8 @@ def _emit_node(node, primitive_rows, warp_rows, instructions, primitive_map, pri
             source = _linked_source_node(_input_socket(node, "SDF", MathOPSV2SDFSocket.bl_idname))
             if source is None:
                 raise RuntimeError(f"Node '{node.name}' needs its SDF input connected")
-            array_warp = _array_warp_descriptor(node)
-            next_warps = warps if array_warp is None else (tuple(warps) + (array_warp,))
+            array_warp = _array_warp_descriptor(node, source_node=source)
+            next_warps = tuple(warps) if array_warp is None else _resolve_warp_stack(tuple(warps) + (array_warp,))
             return _emit_node(
                 source,
                 primitive_rows,
@@ -3145,12 +3337,13 @@ def refresh_compiled_scene_dynamic(compiled):
         node = entry["node"]
         if runtime.safe_pointer(node) == 0:
             return compile_scene(scene) if scene is not None else compiled
-        warps = tuple(entry.get("warps", ()))
+        warps = _resolve_warp_stack(tuple(entry.get("warps", ())))
         try:
             primitive_rows.extend(_primitive_rows_from_node(node, warps=warps, warp_rows=warp_rows))
             primitive_specs.append(_primitive_spec_from_node(node, primitive_index, warps=warps))
         except ReferenceError:
             return compile_scene(scene) if scene is not None else compiled
+        entry["warps"] = warps
         primitive_nodes.append(node)
 
     render_bounds = _tight_scene_bounds(compiled.get("root_node"), primitive_specs)
@@ -3200,32 +3393,42 @@ def compiled_dynamic_signature(compiled):
             tuple(round(float(component), 6) for component in scale),
         ]
 
-        for warp in tuple(entry.get("warps", ())):
+        for warp in _resolve_warp_stack(tuple(entry.get("warps", ()))):
             kind = warp[0]
             if kind == "mirror":
                 _kind, _flags, origin_object, _blend = warp
                 item.append((kind, tuple(round(float(component), 6) for component in _mirror_origin_world(origin_object))))
                 continue
             if kind == "grid":
-                _kind, _count_x, _count_y, _count_z, _spacing, _origin_object, frame_node, _blend = warp
-                if _array_frame_transform_values(frame_node) is not None:
+                _kind, _count_x, _count_y, _count_z, _spacing, _origin_object, frame_node, _source_node, branch_center, offset_location, offset_rotation, offset_scale, _blend = warp
+                if _array_frame_transform_values(frame_node) is not None or any(abs(float(component)) > 1.0e-6 for component in offset_location + offset_rotation) or any(abs(float(component) - 1.0) > 1.0e-6 for component in offset_scale):
                     item.append(
                         (
                             kind,
-                            tuple(round(float(component), 6) for component in _array_frame_origin_world(frame_node)),
+                            tuple(round(float(component), 6) for component in _array_frame_origin_world(frame_node, branch_center)),
                             tuple(round(float(component), 6) for component in _array_rotation_world(frame_node)),
+                            tuple(round(float(component), 6) for component in _array_scale_world(frame_node)),
+                            tuple(round(float(component), 6) for component in branch_center),
+                            tuple(round(float(component), 6) for component in offset_location),
+                            tuple(round(float(component), 6) for component in offset_rotation),
+                            tuple(round(float(component), 6) for component in offset_scale),
                         )
                     )
                 continue
             if kind == "radial":
-                _kind, _count, _radius, origin_object, frame_node, _blend = warp
-                if origin_object is not None or _array_frame_transform_values(frame_node) is not None:
+                _kind, _count, _radius, origin_object, frame_node, _source_node, branch_center, offset_location, offset_rotation, offset_scale, _blend = warp
+                if origin_object is not None or _array_frame_transform_values(frame_node) is not None or any(abs(float(component)) > 1.0e-6 for component in offset_location + offset_rotation) or any(abs(float(component) - 1.0) > 1.0e-6 for component in offset_scale):
                     item.append(
                         (
                             kind,
-                            tuple(round(float(component), 6) for component in _array_repeat_origin_local(origin_object, location, frame_node)),
-                            tuple(round(float(component), 6) for component in _array_frame_origin_world(frame_node)),
+                            tuple(round(float(component), 6) for component in _array_repeat_origin_local(origin_object, branch_center, frame_node)),
+                            tuple(round(float(component), 6) for component in _array_frame_origin_world(frame_node, branch_center)),
                             tuple(round(float(component), 6) for component in _array_rotation_world(frame_node)),
+                            tuple(round(float(component), 6) for component in _array_scale_world(frame_node)),
+                            tuple(round(float(component), 6) for component in branch_center),
+                            tuple(round(float(component), 6) for component in offset_location),
+                            tuple(round(float(component), 6) for component in offset_rotation),
+                            tuple(round(float(component), 6) for component in offset_scale),
                         )
                     )
 
