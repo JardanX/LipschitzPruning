@@ -161,8 +161,8 @@ def get_matcaps_enum(_self, context):
     if not studio_lights:
         return [("NONE", "None", "No matcaps available", 0, 0)]
 
-    items = [("NONE", "None", "Use the current viewport setting", 0, 0)]
-    item_index = 1
+    items = []
+    item_index = 0
     for studio_light in studio_lights:
         items.append(
             (

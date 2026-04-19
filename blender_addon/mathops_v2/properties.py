@@ -1,7 +1,9 @@
 import bpy
+from bpy.app.handlers import persistent
 from bpy.props import BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty, PointerProperty, StringProperty
 
 from . import runtime
+from .nodes import sdf_tree
 from .render import matcap
 
 
@@ -26,6 +28,64 @@ def _poll_tree(_self, tree):
 def _update_custom_matcap(self, context):
     matcap.sync_viewport_matcap(context, getattr(self, "custom_matcap", ""))
     _tag_redraw(self, context)
+
+
+def _preferred_matcap_identifier(context):
+    items = matcap.get_matcaps_enum(None, context)
+    for item in items:
+        identifier = str(item[0] or "")
+        if identifier and identifier != "NONE":
+            return identifier
+    return ""
+
+
+def _valid_matcap_identifiers(context):
+    items = matcap.get_matcaps_enum(None, context)
+    return {str(item[0] or "") for item in items if str(item[0] or "") and str(item[0] or "") != "NONE"}
+
+
+def ensure_scene_defaults(scene, context=None):
+    settings = runtime.scene_settings(scene)
+    if settings is None:
+        return False
+
+    changed = False
+    tree = getattr(settings, "node_tree", None)
+    if tree is None or getattr(tree, "bl_idname", "") != runtime.TREE_IDNAME:
+        tree = sdf_tree.ensure_scene_tree(scene)
+        if getattr(settings, "node_tree", None) != tree:
+            settings.node_tree = tree
+        changed = True
+
+    if context is None:
+        context = getattr(bpy, "context", None)
+    if context is not None:
+        valid_matcaps = _valid_matcap_identifiers(context)
+        preferred_matcap = _preferred_matcap_identifier(context)
+        current_matcap = str(getattr(settings, "custom_matcap", "") or "")
+        if preferred_matcap and current_matcap not in valid_matcaps:
+            try:
+                settings.custom_matcap = preferred_matcap
+                changed = True
+            except Exception:
+                pass
+
+    return changed
+
+
+def _deferred_ensure_scene_defaults():
+    scenes = getattr(bpy.data, "scenes", None)
+    if scenes is None:
+        return None
+    context = getattr(bpy, "context", None)
+    for scene in scenes:
+        ensure_scene_defaults(scene, context=context)
+    return None
+
+
+@persistent
+def _on_load_post(_dummy):
+    _deferred_ensure_scene_defaults()
 
 
 class MathOPSV2ObjectSettings(bpy.types.PropertyGroup):
@@ -67,6 +127,12 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
         description="Display gamma applied to viewport shading",
         update=_tag_redraw,
     )
+    disable_surface_shading: BoolProperty(
+        name="Disable Surface Shading",
+        default=False,
+        description="Use a fixed normal direction instead of estimating hit normals, to measure shading cost",
+        update=_tag_redraw,
+    )
     light_direction: FloatVectorProperty(
         name="Light Direction",
         size=3,
@@ -78,6 +144,28 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
         name="Pruning Enabled",
         default=True,
         description="Use Lipschitz pruning to accelerate the raymarch",
+        update=_tag_redraw,
+    )
+    cone_prepass_enabled: BoolProperty(
+        name="Cone Trace Pre-Pass",
+        default=False,
+        description="Coarse tile cone tracing after Lipschitz pruning to skip empty space before the fine raymarch",
+        update=_tag_redraw,
+    )
+    cone_aperture: FloatProperty(
+        name="Cone Aperture",
+        default=1.25,
+        min=0.1,
+        max=4.0,
+        description="Cone radius scale used by the tile pre-pass",
+        update=_tag_redraw,
+    )
+    cone_steps: bpy.props.IntProperty(
+        name="Cone Steps",
+        default=16,
+        min=1,
+        max=128,
+        description="Max cone march steps per 8x8 tile",
         update=_tag_redraw,
     )
     pruning_grid_level: bpy.props.IntProperty(
@@ -94,6 +182,8 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
             ("SHADED", "Shaded", "Normal shaded raymarch"),
             ("PRUNING_ACTIVE", "Pruning Active", "Visualize active node counts per cell"),
             ("PRUNING_FIELD", "Pruning Field", "Visualize the far-field cell values"),
+            ("CONE_HEATMAP", "Cone Heatmap", "Steps saved by the cone trace pre-pass (green=many, red=none)"),
+            ("STEP_COUNT", "Step Count", "Number of fine march steps per pixel"),
         ),
         default="SHADED",
         update=_tag_redraw,
@@ -112,6 +202,100 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
         items=matcap.get_matcaps_enum,
         update=_update_custom_matcap,
     )
+    outline_color: FloatVectorProperty(
+        name="Outline Color",
+        size=3,
+        subtype="COLOR",
+        min=0.0,
+        max=1.0,
+        default=(0.0, 0.0, 0.0),
+        description="Base color for unselected SDF outlines",
+        update=_tag_redraw,
+    )
+    outline_opacity: FloatProperty(
+        name="Outline Opacity",
+        min=0.0,
+        max=1.0,
+        default=1.0,
+        subtype="FACTOR",
+        description="Opacity used for all SDF outlines",
+        update=_tag_redraw,
+    )
+    show_grid: BoolProperty(
+        name="Grid",
+        description="Show the custom grid in orthographic views",
+        default=True,
+        update=_tag_redraw,
+    )
+    show_floor: BoolProperty(
+        name="Floor",
+        description="Show the custom ground plane in perspective views",
+        default=True,
+        update=_tag_redraw,
+    )
+    show_axis_x: BoolProperty(
+        name="X",
+        description="Show the X axis line",
+        default=True,
+        update=_tag_redraw,
+    )
+    show_axis_y: BoolProperty(
+        name="Y",
+        description="Show the Y axis line",
+        default=True,
+        update=_tag_redraw,
+    )
+    show_axis_z: BoolProperty(
+        name="Z",
+        description="Show the Z axis line",
+        default=False,
+        update=_tag_redraw,
+    )
+    grid_scale_rectangular: FloatProperty(
+        name="Scale",
+        description="Grid scale for the rectangular grid",
+        min=0.001,
+        max=1000.0,
+        default=1.0,
+        precision=3,
+        update=_tag_redraw,
+    )
+    grid_subdivisions_rectangular: bpy.props.IntProperty(
+        name="Subdivisions",
+        description="Number of rectangular grid subdivisions",
+        min=1,
+        max=100,
+        default=1,
+        update=_tag_redraw,
+    )
+    grid_scale_radial: FloatProperty(
+        name="Scale",
+        description="Grid scale for the radial grid",
+        min=0.001,
+        max=1000.0,
+        default=1.0,
+        precision=3,
+        update=_tag_redraw,
+    )
+    grid_subdivisions_radial: bpy.props.IntProperty(
+        name="Subdivisions",
+        description="Number of radial grid subdivisions",
+        min=1,
+        max=100,
+        default=12,
+        update=_tag_redraw,
+    )
+    grid_type: EnumProperty(
+        name="Grid Type",
+        description="Type of custom grid to draw",
+        items=(
+            ("RECTANGULAR", "Rectangular", "Standard rectangular grid"),
+            ("RADIAL", "Radial", "Radial grid with concentric circles"),
+        ),
+        default="RECTANGULAR",
+        update=_tag_redraw,
+    )
+    grid_overlay_initialized: BoolProperty(default=False, options={"HIDDEN"})
 
 
 classes = (
@@ -125,9 +309,24 @@ def register():
         bpy.utils.register_class(cls)
     bpy.types.Object.mathops_v2_sdf = PointerProperty(type=MathOPSV2ObjectSettings)
     bpy.types.Scene.mathops_v2 = PointerProperty(type=MathOPSV2SceneSettings)
+    scenes = getattr(bpy.data, "scenes", None)
+    context = getattr(bpy, "context", None)
+    if scenes is not None:
+        for scene in scenes:
+            ensure_scene_defaults(scene, context=context)
+    if _on_load_post not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_on_load_post)
+    bpy.app.timers.register(_deferred_ensure_scene_defaults, first_interval=0.0)
 
 
 def unregister():
+    if _on_load_post in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_on_load_post)
+    try:
+        if bpy.app.timers.is_registered(_deferred_ensure_scene_defaults):
+            bpy.app.timers.unregister(_deferred_ensure_scene_defaults)
+    except Exception:
+        pass
     del bpy.types.Scene.mathops_v2
     del bpy.types.Object.mathops_v2_sdf
     for cls in reversed(classes):

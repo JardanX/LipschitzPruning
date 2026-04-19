@@ -35,7 +35,7 @@ def note_interaction() -> None:
 
 
 def _scene_revision_entry(scene):
-    key = safe_pointer(scene)
+    key = scene_key(scene)
     if key == 0:
         return None
     entry = scene_revisions.get(key)
@@ -43,6 +43,18 @@ def _scene_revision_entry(scene):
         entry = {"static": 0, "transform": 0}
         scene_revisions[key] = entry
     return entry
+
+
+def scene_identity(scene):
+    original = getattr(scene, "original", None)
+    original_key = safe_pointer(original)
+    if original_key:
+        return original
+    return scene
+
+
+def scene_key(scene) -> int:
+    return safe_pointer(scene_identity(scene))
 
 
 def scene_revision_tuple(scene):
@@ -74,10 +86,24 @@ def interaction_active(grace_period: float) -> bool:
 
 
 def scene_settings(scene):
-    return getattr(scene, "mathops_v2", None)
+    return getattr(scene_identity(scene), "mathops_v2", None)
+
+
+def scene_background_color(scene):
+    scene = scene_identity(scene)
+    color = BACKGROUND_COLOR
+    try:
+        world = getattr(scene, "world", None)
+        world_color = getattr(world, "color", None)
+        if world_color is not None and len(world_color) >= 3:
+            color = (float(world_color[0]), float(world_color[1]), float(world_color[2]), 1.0)
+    except Exception:
+        pass
+    return color
 
 
 def object_settings(obj):
+    obj = object_identity(obj)
     try:
         return getattr(obj, "mathops_v2_sdf", None)
     except ReferenceError:
@@ -86,10 +112,23 @@ def object_settings(obj):
 
 def is_sdf_proxy(obj) -> bool:
     try:
+        obj = object_identity(obj)
         settings = object_settings(obj)
         return bool(obj and obj.type == "EMPTY" and settings and settings.enabled)
     except ReferenceError:
         return False
+
+
+def object_identity(obj):
+    original = getattr(obj, "original", None)
+    original_key = safe_pointer(original)
+    if original_key:
+        return original
+    return obj
+
+
+def object_key(obj) -> int:
+    return safe_pointer(object_identity(obj))
 
 
 def safe_pointer(rna) -> int:

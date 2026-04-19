@@ -3,7 +3,7 @@ import uuid
 
 import bpy
 import nodeitems_utils
-from bpy.props import BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty, PointerProperty, StringProperty
 from bpy.types import Node, NodeSocket, NodeTree
 from mathutils import Euler, Matrix, Vector
 from nodeitems_utils import NodeCategory, NodeItem
@@ -16,6 +16,7 @@ TRANSFORM_SOCKET_IDNAME = "MathOPSV2TransformSocket"
 TRANSFORM_NODE_IDNAME = "MathOPSV2TransformNode"
 BREAK_TRANSFORM_NODE_IDNAME = "MathOPSV2BreakTransformNode"
 MIRROR_NODE_IDNAME = "MathOPSV2MirrorNode"
+ARRAY_NODE_IDNAME = "MathOPSV2ArrayNode"
 
 _PRIMITIVE_TYPE_TO_ID = {
     "sphere": 0.0,
@@ -48,7 +49,18 @@ _IDENTITY_SCALE = (1.0, 1.0, 1.0)
 _MIRROR_AXIS_X = 1
 _MIRROR_AXIS_Y = 2
 _MIRROR_AXIS_Z = 4
+_MIRROR_SIDE_X = 8
+_MIRROR_SIDE_Y = 16
+_MIRROR_SIDE_Z = 32
 _MIRROR_WARP_PACK_SCALE = 256
+_WARP_ROWS_PER_ENTRY = 4
+
+_WARP_KIND_MIRROR = 1
+_WARP_KIND_GRID = 2
+_WARP_KIND_RADIAL = 3
+
+_ARRAY_MODE_GRID = "GRID"
+_ARRAY_MODE_RADIAL = "RADIAL"
 
 _SOCKET_TRANSFORM = "Transform"
 _SOCKET_LOCATION = "Location"
@@ -78,6 +90,12 @@ def suppress_object_node_updates():
         yield
     finally:
         _object_node_updates_suppressed -= 1
+
+
+def _detach_proxy_binding(node):
+    with suppress_object_node_updates():
+        node.target = None
+        node.use_proxy = False
 
 
 def _poll_sdf_proxy(_self, obj):
@@ -162,6 +180,12 @@ def _update_mirror_node_data(self, context):
     _tag_redraw(self, context)
 
 
+def _update_array_node_data(self, context):
+    _ensure_array_node_sockets(self)
+    _mark_tree_dirty(getattr(self, "id_data", None), static=True, context=context)
+    _tag_redraw(self, context)
+
+
 def _update_transform_node_data(self, context):
     if _object_node_updates_suppressed > 0:
         return
@@ -179,6 +203,10 @@ def _update_socket_value(self, context):
     if node is None:
         return
     node_idname = getattr(node, "bl_idname", "")
+    if node_idname == runtime.CSG_NODE_IDNAME and getattr(self, "name", "") == _SOCKET_BLEND:
+        if float(getattr(self, "default_value", 0.0)) < 0.0:
+            with suppress_object_node_updates():
+                self.default_value = 0.0
     if node_idname == runtime.OBJECT_NODE_IDNAME:
         _update_object_node_payload(node, context)
         return
@@ -190,6 +218,9 @@ def _update_socket_value(self, context):
         return
     if node_idname == MIRROR_NODE_IDNAME:
         _update_mirror_node_data(node, context)
+        return
+    if node_idname == ARRAY_NODE_IDNAME:
+        _update_array_node_data(node, context)
 
 
 class MathOPSV2SDFSocket(NodeSocket):
@@ -379,6 +410,36 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
             self.target = None
             self.use_proxy = False
 
+    def free(self):
+        tree = getattr(self, "id_data", None)
+        target = getattr(self, "target", None)
+        proxy_id = str(getattr(self, "proxy_id", "") or "")
+        settings = None if target is None else runtime.object_settings(target)
+        remove_target = bool(
+            getattr(self, "use_proxy", False)
+            and target is not None
+            and settings is not None
+            and (not proxy_id or str(getattr(settings, "proxy_id", "") or "") == proxy_id)
+            and not _other_initializer_uses_proxy(tree, self, target, proxy_id)
+        )
+        if remove_target and bool(getattr(settings, "enabled", False)):
+            settings.enabled = False
+
+        def _cleanup_after_delete():
+            if remove_target:
+                try:
+                    if runtime.safe_pointer(target):
+                        bpy.data.objects.remove(target, do_unlink=True)
+                except Exception:
+                    pass
+            try:
+                cleanup_graph_structure(tree)
+            except Exception:
+                return None
+            return None
+
+        bpy.app.timers.register(_cleanup_after_delete, first_interval=0.0)
+
     def draw_buttons(self, _context, layout):
         layout.prop(self, "primitive_type", text="Type")
         if self.target is None:
@@ -534,6 +595,60 @@ class MathOPSV2MirrorNode(_MathOPSV2NodeBase):
         layout.prop(self, "origin_object", text="Origin")
 
 
+class MathOPSV2ArrayNode(_MathOPSV2NodeBase):
+    bl_idname = ARRAY_NODE_IDNAME
+    bl_label = "Array"
+    bl_width_default = 240
+
+    array_mode: EnumProperty(
+        name="Mode",
+        items=(
+            (_ARRAY_MODE_GRID, "Grid", "Repeat in a finite 3D grid"),
+            (_ARRAY_MODE_RADIAL, "Radial", "Repeat around the Z axis"),
+        ),
+        default=_ARRAY_MODE_GRID,
+        update=_update_array_node_data,
+    )
+    count_x: IntProperty(name="Count X", default=1, min=1, max=128, update=_update_array_node_data)
+    count_y: IntProperty(name="Count Y", default=1, min=1, max=128, update=_update_array_node_data)
+    count_z: IntProperty(name="Count Z", default=1, min=1, max=128, update=_update_array_node_data)
+    spacing: FloatVectorProperty(
+        name="Spacing",
+        size=3,
+        default=(1.0, 1.0, 1.0),
+        subtype="XYZ",
+        update=_update_array_node_data,
+    )
+    radial_count: IntProperty(name="Count", default=6, min=1, max=512, update=_update_array_node_data)
+    radius: FloatProperty(name="Radius", default=2.0, min=0.0, max=100.0, update=_update_array_node_data)
+    blend: FloatProperty(
+        name="Blend",
+        default=0.0,
+        min=0.0,
+        max=100.0,
+        description="Blend radius for smooth array repetition",
+        update=_update_array_node_data,
+    )
+    origin_object: PointerProperty(type=bpy.types.Object, update=_update_array_node_data)
+
+    def init(self, _context):
+        _ensure_array_node_sockets(self)
+
+    def draw_buttons(self, _context, layout):
+        layout.prop(self, "array_mode", text="")
+        if self.array_mode == _ARRAY_MODE_GRID:
+            row = layout.row(align=True)
+            row.prop(self, "count_x")
+            row.prop(self, "count_y")
+            row.prop(self, "count_z")
+            layout.prop(self, "spacing")
+        else:
+            layout.prop(self, "radial_count")
+            layout.prop(self, "radius")
+            layout.prop(self, "origin_object", text="Origin")
+        layout.prop(self, "blend", text="Blend")
+
+
 def _find_output_node(tree):
     for node in tree.nodes:
         if getattr(node, "bl_idname", "") == runtime.OUTPUT_NODE_IDNAME:
@@ -547,7 +662,7 @@ def _candidate_root_nodes(tree):
         node_idname = getattr(node, "bl_idname", "")
         if node_idname == runtime.OUTPUT_NODE_IDNAME:
             continue
-        if node_idname == MIRROR_NODE_IDNAME:
+        if node_idname in {MIRROR_NODE_IDNAME, ARRAY_NODE_IDNAME}:
             source_socket = _input_socket(node, "SDF", MathOPSV2SDFSocket.bl_idname)
             if source_socket is None or not source_socket.is_linked:
                 continue
@@ -588,6 +703,48 @@ def _ensure_output_node(tree):
 
 def ensure_graph_output(tree):
     return _ensure_output_node(tree)
+
+
+def cleanup_graph_structure(tree):
+    if tree is None or getattr(tree, "bl_idname", "") != runtime.TREE_IDNAME:
+        return False
+
+    changed = False
+    while True:
+        collapsed = False
+        for node in list(tree.nodes):
+            if getattr(node, "bl_idname", "") != runtime.CSG_NODE_IDNAME:
+                continue
+            _ensure_csg_node_sockets(node)
+            left_source = _linked_source_socket(_input_socket(node, "A", MathOPSV2SDFSocket.bl_idname))
+            right_source = _linked_source_socket(_input_socket(node, "B", MathOPSV2SDFSocket.bl_idname))
+            linked_sources = [socket for socket in (left_source, right_source) if socket is not None]
+            if len(linked_sources) >= 2:
+                continue
+
+            output_socket = _surface_output_socket(node)
+            output_links = [] if output_socket is None else list(output_socket.links)
+            if len(linked_sources) == 1:
+                source_socket = linked_sources[0]
+                for link in output_links:
+                    to_socket = getattr(link, "to_socket", None)
+                    if to_socket is not None:
+                        tree.links.new(source_socket, to_socket)
+            tree.nodes.remove(node)
+            changed = True
+            collapsed = True
+            break
+        if not collapsed:
+            break
+
+    ensure_graph_output(tree)
+    if changed:
+        scene = _scene_for_tree(tree)
+        if scene is not None:
+            runtime.mark_scene_static_dirty(scene)
+        runtime.note_interaction()
+        runtime.tag_redraw()
+    return changed
 
 
 def _linked_source_node(socket):
@@ -738,6 +895,15 @@ def _ensure_mirror_node_sockets(node):
     return node
 
 
+def _ensure_array_node_sockets(node):
+    if getattr(node, "bl_idname", "") != ARRAY_NODE_IDNAME:
+        return node
+    _ensure_named_input_socket(node, MathOPSV2SDFSocket.bl_idname, "SDF")
+    _ensure_named_output_socket(node, MathOPSV2SDFSocket.bl_idname, "SDF")
+    _ensure_named_output_socket(node, MathOPSV2TransformSocket.bl_idname, _SOCKET_TRANSFORM)
+    return node
+
+
 def _ensure_object_node_sockets(node):
     if getattr(node, "bl_idname", "") != runtime.OBJECT_NODE_IDNAME:
         return node
@@ -775,6 +941,8 @@ def _ensure_node_sockets(node):
         return _ensure_csg_node_sockets(node)
     if node_idname == MIRROR_NODE_IDNAME:
         return _ensure_mirror_node_sockets(node)
+    if node_idname == ARRAY_NODE_IDNAME:
+        return _ensure_array_node_sockets(node)
     return node
 
 
@@ -860,6 +1028,20 @@ def _mirror_transform_values(node):
         return _identity_transform_values()
 
 
+def _array_transform_values(node):
+    origin_object = getattr(node, "origin_object", None)
+    try:
+        if origin_object is None:
+            return _identity_transform_values()
+        return (
+            _sanitized_location(origin_object.location),
+            _sanitized_rotation(origin_object.rotation_euler),
+            _sanitized_scale(origin_object.scale),
+        )
+    except ReferenceError:
+        return _identity_transform_values()
+
+
 def _write_vector_input_socket(socket, values, sanitizer, visiting=None):
     if socket is None:
         return False
@@ -924,6 +1106,8 @@ def _resolved_transform_values(node, visiting=None, prefer_proxy=True):
             return _transform_node_values(node, visiting=visiting)
         if node_idname == MIRROR_NODE_IDNAME:
             return _mirror_transform_values(node)
+        if node_idname == ARRAY_NODE_IDNAME:
+            return _array_transform_values(node)
     finally:
         visiting.remove(node_key)
 
@@ -1121,30 +1305,204 @@ def _recover_scene_tree(scene, settings):
     return best_tree
 
 
+def _node_editor_space(area):
+    for space in area.spaces:
+        if space.type == "NODE_EDITOR":
+            return space
+    return None
+
+
+def _node_editor_window_region(area):
+    for region in area.regions:
+        if region.type == "WINDOW":
+            return region
+    return None
+
+
+def _node_editor_context(context, tree=None):
+    window = getattr(context, "window", None)
+    screen = getattr(context, "screen", None)
+    if window is None or screen is None:
+        return None, None, None, None
+
+    preferred = None
+    fallback = None
+    for area in screen.areas:
+        if area.type != "NODE_EDITOR":
+            continue
+        space = _node_editor_space(area)
+        region = _node_editor_window_region(area)
+        if space is None or region is None:
+            continue
+        if tree is not None and getattr(space, "tree_type", "") == runtime.TREE_IDNAME and getattr(space, "node_tree", None) == tree:
+            return window, area, space, region
+        if preferred is None and getattr(space, "tree_type", "") == runtime.TREE_IDNAME:
+            preferred = (window, area, space, region)
+        if fallback is None:
+            fallback = (window, area, space, region)
+    return preferred or fallback or (None, None, None, None)
+
+
 def focus_scene_tree(context, create=True):
     tree = get_scene_tree(context.scene, create=create)
     if tree is None:
         return False
-    screen = getattr(context, "screen", None)
-    if screen is None:
+    _window, area, space, _region = _node_editor_context(context, tree=tree)
+    if area is None or space is None:
         return False
-    for area in screen.areas:
-        if area.type != "NODE_EDITOR":
+    if getattr(space, "tree_type", "") != runtime.TREE_IDNAME:
+        space.tree_type = runtime.TREE_IDNAME
+    if getattr(space, "node_tree", None) != tree:
+        space.node_tree = tree
+    area.tag_redraw()
+    return True
+
+
+def select_nodes_in_editor(context, nodes, active_node=None, reveal=True):
+    selected_nodes = []
+    seen = set()
+    tree = None
+    for node in tuple(nodes or ()):
+        if node is None:
             continue
-        for space in area.spaces:
-            if space.type != "NODE_EDITOR":
-                continue
-            space.tree_type = runtime.TREE_IDNAME
-            space.node_tree = tree
-            area.tag_redraw()
+        node_tree = getattr(node, "id_data", None)
+        if node_tree is None or getattr(node_tree, "bl_idname", "") != runtime.TREE_IDNAME:
+            continue
+        if tree is None:
+            tree = node_tree
+        if node_tree != tree:
+            continue
+        node_key = runtime.safe_pointer(node)
+        if node_key == 0 or node_key in seen:
+            continue
+        seen.add(node_key)
+        selected_nodes.append(node)
+    if tree is None or not selected_nodes:
+        return False
+
+    if active_node not in selected_nodes:
+        active_node = selected_nodes[-1]
+
+    selected_keys = {runtime.safe_pointer(node) for node in selected_nodes}
+    for tree_node in tree.nodes:
+        tree_node.select = runtime.safe_pointer(tree_node) in selected_keys
+    tree.nodes.active = active_node
+
+    window, area, space, region = _node_editor_context(context, tree=tree)
+    if area is None or space is None:
+        return False
+
+    if getattr(space, "tree_type", "") != runtime.TREE_IDNAME:
+        space.tree_type = runtime.TREE_IDNAME
+    if getattr(space, "node_tree", None) != tree:
+        space.node_tree = tree
+    area.tag_redraw()
+    runtime.tag_redraw(context)
+
+    if not reveal or region is None:
+        return True
+
+    try:
+        with context.temp_override(window=window, area=area, region=region, space_data=space):
+            bpy.ops.node.view_selected("INVOKE_DEFAULT")
+    except Exception:
+        try:
+            with context.temp_override(window=window, area=area, region=region, space_data=space):
+                bpy.ops.node.view_selected()
+        except Exception:
             return True
-    return False
+    return True
+
+
+def select_node_in_editor(context, node, reveal=True):
+    tree = getattr(node, "id_data", None)
+    if tree is None or getattr(tree, "bl_idname", "") != runtime.TREE_IDNAME:
+        return False
+    return select_nodes_in_editor(context, (node,), active_node=node, reveal=reveal)
 
 
 def list_proxy_objects(scene):
     proxies = [obj for obj in scene.objects if runtime.is_sdf_proxy(obj)]
     proxies.sort(key=lambda obj: obj.name_full)
     return proxies
+
+
+def _other_initializer_uses_proxy(tree, current_node, target, proxy_id):
+    current_key = runtime.safe_pointer(current_node)
+    target_key = runtime.object_key(target)
+    proxy_id = str(proxy_id or "")
+    for node in initializer_nodes(tree):
+        if runtime.safe_pointer(node) == current_key:
+            continue
+        if not bool(getattr(node, "use_proxy", False)):
+            continue
+        other_target = getattr(node, "target", None)
+        other_target_key = runtime.object_key(other_target)
+        if target_key and other_target_key == target_key and runtime.is_sdf_proxy(other_target):
+            return True
+        if proxy_id and str(getattr(node, "proxy_id", "") or "") == proxy_id:
+            return True
+    return False
+
+
+def _initializer_proxy_binding(node):
+    if getattr(node, "bl_idname", "") != runtime.OBJECT_NODE_IDNAME:
+        return None, 0
+    if not bool(getattr(node, "use_proxy", False)):
+        return None, 0
+
+    proxy_id = str(getattr(node, "proxy_id", "") or "")
+    target = getattr(node, "target", None)
+    target_key = runtime.object_key(target)
+    if target_key and runtime.is_sdf_proxy(target):
+        settings = runtime.object_settings(target)
+        target_proxy_id = "" if settings is None else str(getattr(settings, "proxy_id", "") or "")
+        binding_id = target_proxy_id or proxy_id
+        if binding_id:
+            return ("proxy", binding_id), 2
+        return ("target", target_key), 2
+    if proxy_id:
+        return ("proxy", proxy_id), 1
+    return None, 0
+
+
+def deduplicate_initializer_nodes(tree):
+    if tree is None or getattr(tree, "bl_idname", "") != runtime.TREE_IDNAME:
+        return False
+
+    kept = {}
+    duplicates = []
+    for node in initializer_nodes(tree):
+        key, score = _initializer_proxy_binding(node)
+        if key is None:
+            continue
+        current = kept.get(key)
+        if current is None:
+            kept[key] = (node, score)
+            continue
+        kept_node, kept_score = current
+        if kept_score >= score:
+            duplicates.append(node)
+            continue
+        duplicates.append(kept_node)
+        kept[key] = (node, score)
+
+    if not duplicates:
+        return False
+
+    for node in duplicates:
+        if runtime.safe_pointer(node) == 0:
+            continue
+        _detach_proxy_binding(node)
+        tree.nodes.remove(node)
+
+    cleanup_graph_structure(tree)
+    scene = _scene_for_tree(tree)
+    if scene is not None:
+        runtime.mark_scene_static_dirty(scene)
+    runtime.note_interaction()
+    runtime.tag_redraw()
+    return True
 
 
 def scene_summary(scene):
@@ -1161,14 +1519,14 @@ def initializer_nodes(tree):
     return [node for node in tree.nodes if getattr(node, "bl_idname", "") == runtime.OBJECT_NODE_IDNAME]
 
 
-def mirror_origin_referenced(tree, obj):
-    object_pointer = runtime.safe_pointer(obj)
+def warp_origin_referenced(tree, obj):
+    object_pointer = runtime.object_key(obj)
     if tree is None or object_pointer == 0:
         return False
     for node in tree.nodes:
-        if getattr(node, "bl_idname", "") != MIRROR_NODE_IDNAME:
+        if getattr(node, "bl_idname", "") not in {MIRROR_NODE_IDNAME, ARRAY_NODE_IDNAME}:
             continue
-        if runtime.safe_pointer(getattr(node, "origin_object", None)) == object_pointer:
+        if runtime.object_key(getattr(node, "origin_object", None)) == object_pointer:
             return True
     return False
 
@@ -1184,10 +1542,10 @@ def ensure_object_node_id(node):
 
 
 def find_initializer_node(tree, obj=None, proxy_id=""):
-    object_pointer = runtime.safe_pointer(obj)
+    object_pointer = runtime.object_key(obj)
     proxy_id = str(proxy_id or "")
     for node in initializer_nodes(tree):
-        if object_pointer and runtime.safe_pointer(getattr(node, "target", None)) == object_pointer:
+        if object_pointer and runtime.object_key(getattr(node, "target", None)) == object_pointer:
             return node
         if proxy_id and str(getattr(node, "proxy_id", "") or "") == proxy_id:
             return node
@@ -1356,9 +1714,13 @@ def _mirror_node_to_proxy_settings(node, obj):
 
 
 def sync_node_to_proxy(node, include_transform=True):
-    target = getattr(node, "target", None)
+    target = runtime.object_identity(getattr(node, "target", None))
     if target is None or not runtime.is_sdf_proxy(target):
         return None
+
+    if runtime.safe_pointer(getattr(node, "target", None)) != runtime.safe_pointer(target):
+        with suppress_object_node_updates():
+            node.target = target
 
     _ensure_object_node_sockets(node)
     ensure_object_node_id(node)
@@ -1373,9 +1735,13 @@ def sync_node_to_proxy(node, include_transform=True):
 
 
 def sync_proxy_to_node(node):
-    target = getattr(node, "target", None)
+    target = runtime.object_identity(getattr(node, "target", None))
     if target is None or not runtime.is_sdf_proxy(target):
         return False
+
+    if runtime.safe_pointer(getattr(node, "target", None)) != runtime.safe_pointer(target):
+        with suppress_object_node_updates():
+            node.target = target
 
     _ensure_object_node_sockets(node)
     changed = False
@@ -1407,6 +1773,7 @@ def sync_proxy_to_node(node):
 
 
 def _adopt_proxy_data(node, obj):
+    obj = runtime.object_identity(obj)
     settings = runtime.object_settings(obj)
     with suppress_object_node_updates():
         if settings is not None:
@@ -1434,6 +1801,7 @@ def _adopt_proxy_data(node, obj):
 
 
 def attach_proxy_to_node(node, obj, adopt_proxy=False):
+    obj = runtime.object_identity(obj)
     _ensure_object_node_sockets(node)
     if adopt_proxy:
         _adopt_proxy_data(node, obj)
@@ -1448,12 +1816,17 @@ def attach_proxy_to_node(node, obj, adopt_proxy=False):
 
 
 def add_proxy_to_tree(scene, obj):
+    obj = runtime.object_identity(obj)
     tree = ensure_scene_tree(scene)
     output = _ensure_output_node(tree)
     existing_root = _linked_source_node(output.inputs[0])
-    for node in tree.nodes:
-        if getattr(node, "bl_idname", "") == runtime.OBJECT_NODE_IDNAME and getattr(node, "target", None) == obj:
-            return tree, node
+    settings = runtime.object_settings(obj)
+    proxy_id = "" if settings is None else str(getattr(settings, "proxy_id", "") or "")
+    existing_node = find_initializer_node(tree, obj=obj, proxy_id=proxy_id)
+    if existing_node is not None:
+        if runtime.safe_pointer(getattr(existing_node, "target", None)) != runtime.safe_pointer(obj):
+            attach_proxy_to_node(existing_node, obj, adopt_proxy=True)
+        return tree, existing_node
 
     object_node = tree.nodes.new(runtime.OBJECT_NODE_IDNAME)
     attach_proxy_to_node(object_node, obj, adopt_proxy=True)
@@ -1515,14 +1888,15 @@ def _primitive_local_extents(primitive_type, meta, scale):
     if primitive_type == "box":
         return Vector((meta[1] * scale[0], meta[2] * scale[1], meta[3] * scale[2]))
     if primitive_type == "cylinder":
-        radial_scale = max(0.5 * (scale[0] + scale[1]), 1.0e-6)
-        return Vector((meta[1] * radial_scale, meta[1] * radial_scale, meta[2] * scale[2]))
+        return Vector((meta[1] * scale[0], meta[1] * scale[1], meta[2] * scale[2]))
     if primitive_type == "torus":
-        radial_scale = max(0.5 * (scale[0] + scale[2]), 1.0e-6)
-        minor_scale = max(min(radial_scale, scale[1]), 1.0e-6)
-        outer = (meta[1] * radial_scale) + (meta[2] * minor_scale)
-        vertical = meta[2] * minor_scale
-        return Vector((outer, vertical, outer))
+        return Vector(
+            (
+                (meta[1] + meta[2]) * scale[0],
+                meta[2] * scale[1],
+                (meta[1] + meta[2]) * scale[2],
+            )
+        )
     return Vector((1.0, 1.0, 1.0))
 
 
@@ -1546,6 +1920,7 @@ def _mirror_axis_flags(node):
 
 def _mirror_origin_world(origin_object):
     try:
+        origin_object = runtime.object_identity(origin_object)
         if origin_object is None:
             return _IDENTITY_LOCATION
         return _sanitized_location(origin_object.matrix_world.translation)
@@ -1553,63 +1928,221 @@ def _mirror_origin_world(origin_object):
         return _IDENTITY_LOCATION
 
 
+def _array_origin_world(origin_object, primitive_center):
+    try:
+        origin_object = runtime.object_identity(origin_object)
+        if origin_object is None:
+            return tuple(float(component) for component in primitive_center)
+        return _sanitized_location(origin_object.matrix_world.translation)
+    except ReferenceError:
+        return tuple(float(component) for component in primitive_center)
+
+
 def _mirror_warp_descriptor(node):
     flags = _mirror_axis_flags(node)
     if flags == 0:
         return None
     blend = max(0.0, float(getattr(node, "blend", 0.0)))
-    return (int(flags), getattr(node, "origin_object", None), blend)
+    return ("mirror", int(flags), runtime.object_identity(getattr(node, "origin_object", None)), blend)
+
+
+def _array_warp_descriptor(node):
+    mode = str(getattr(node, "array_mode", _ARRAY_MODE_GRID) or _ARRAY_MODE_GRID)
+    blend = max(0.0, float(getattr(node, "blend", 0.0)))
+    origin_object = runtime.object_identity(getattr(node, "origin_object", None))
+    if mode == _ARRAY_MODE_RADIAL:
+        count = max(1, int(getattr(node, "radial_count", 1)))
+        radius = max(0.0, float(getattr(node, "radius", 0.0)))
+        if count <= 1 or radius <= 1.0e-6:
+            return None
+        return ("radial", count, radius, origin_object, blend)
+
+    count_x = max(1, int(getattr(node, "count_x", 1)))
+    count_y = max(1, int(getattr(node, "count_y", 1)))
+    count_z = max(1, int(getattr(node, "count_z", 1)))
+    spacing_values = getattr(node, "spacing", (1.0, 1.0, 1.0))
+    spacing = tuple(abs(float(component)) for component in spacing_values)
+    has_spread = (
+        (count_x > 1 and spacing[0] > 1.0e-6)
+        or (count_y > 1 and spacing[1] > 1.0e-6)
+        or (count_z > 1 and spacing[2] > 1.0e-6)
+    )
+    if not has_spread:
+        return None
+    return ("grid", count_x, count_y, count_z, spacing, None, blend)
 
 
 def _warp_signature(warps):
-    return tuple(
-        (int(flags), runtime.safe_pointer(origin_object), round(float(blend), 6))
-        for flags, origin_object, blend in warps
-    )
+    signature = []
+    for warp in warps:
+        kind = warp[0]
+        if kind == "mirror":
+            _kind, flags, origin_object, blend = warp
+            signature.append((kind, int(flags), runtime.object_key(origin_object), round(float(blend), 6)))
+            continue
+        if kind == "grid":
+            _kind, count_x, count_y, count_z, spacing, origin_object, blend = warp
+            signature.append(
+                (
+                    kind,
+                    int(count_x),
+                    int(count_y),
+                    int(count_z),
+                    tuple(round(float(component), 6) for component in spacing),
+                    runtime.object_key(origin_object),
+                    round(float(blend), 6),
+                )
+            )
+            continue
+        if kind == "radial":
+            _kind, count, radius, origin_object, blend = warp
+            signature.append(
+                (kind, int(count), round(float(radius), 6), runtime.object_key(origin_object), round(float(blend), 6))
+            )
+    return tuple(signature)
 
 
-def _apply_mirror_warp_to_bounds(bounds_min, bounds_max, flags, origin):
+def _blend_bounds_padding(blend):
+    return max(0.0, float(blend)) * 0.25
+
+
+def _apply_mirror_warp_to_bounds(bounds_min, bounds_max, flags, origin, blend=0.0):
     mins = [float(value) for value in bounds_min]
     maxs = [float(value) for value in bounds_max]
+    padding = _blend_bounds_padding(blend)
     for axis, mask in enumerate((_MIRROR_AXIS_X, _MIRROR_AXIS_Y, _MIRROR_AXIS_Z)):
         if (flags & mask) == 0:
             continue
         center = float(origin[axis])
         extent = max(abs(mins[axis] - center), abs(maxs[axis] - center))
-        mins[axis] = center - extent
-        maxs[axis] = center + extent
+        mins[axis] = center - extent - padding
+        maxs[axis] = center + extent + padding
+    return tuple(mins), tuple(maxs)
+
+
+def _apply_grid_warp_to_bounds(bounds_min, bounds_max, count_x, count_y, count_z, spacing, blend=0.0):
+    mins = [float(value) for value in bounds_min]
+    maxs = [float(value) for value in bounds_max]
+    counts = (int(count_x), int(count_y), int(count_z))
+    padding = _blend_bounds_padding(blend)
+    span = Vector((
+        abs(float(spacing[0])) * 0.5 * max(counts[0] - 1, 0),
+        abs(float(spacing[1])) * 0.5 * max(counts[1] - 1, 0),
+        abs(float(spacing[2])) * 0.5 * max(counts[2] - 1, 0),
+    ))
+    span_radius = float(span.length) + padding
+    for axis in range(3):
+        mins[axis] -= span_radius
+        maxs[axis] += span_radius
+    return tuple(mins), tuple(maxs)
+
+
+def _apply_radial_warp_to_bounds(bounds_min, bounds_max, origin, radius, blend=0.0):
+    mins = [float(value) for value in bounds_min]
+    maxs = [float(value) for value in bounds_max]
+    center_x = 0.5 * (mins[0] + maxs[0])
+    center_y = 0.5 * (mins[1] + maxs[1])
+    center_z = 0.5 * (mins[2] + maxs[2])
+    extent_x = 0.5 * max(maxs[0] - mins[0], 0.0)
+    extent_y = 0.5 * max(maxs[1] - mins[1], 0.0)
+    extent_z = 0.5 * max(maxs[2] - mins[2], 0.0)
+    radial_extent = (extent_x * extent_x + extent_y * extent_y + extent_z * extent_z) ** 0.5
+    base_dx = center_x - float(origin[0]) + float(radius)
+    base_dy = center_y - float(origin[1])
+    base_dz = center_z - float(origin[2])
+    ring_radius = (base_dx * base_dx + base_dy * base_dy + base_dz * base_dz) ** 0.5
+    total_radius = ring_radius + radial_extent + _blend_bounds_padding(blend)
+    for axis in range(3):
+        mins[axis] = float(origin[axis]) - total_radius
+        maxs[axis] = float(origin[axis]) + total_radius
     return tuple(mins), tuple(maxs)
 
 
 def _apply_warp_stack_to_bounds(bounds_min, bounds_max, warps):
     current_min = tuple(bounds_min)
     current_max = tuple(bounds_max)
-    for flags, origin_object, _blend in warps:
-        current_min, current_max = _apply_mirror_warp_to_bounds(
-            current_min,
-            current_max,
-            int(flags),
-            _mirror_origin_world(origin_object),
-        )
+    for warp in warps:
+        kind = warp[0]
+        if kind == "mirror":
+            _kind, flags, origin_object, blend = warp
+            current_min, current_max = _apply_mirror_warp_to_bounds(
+                current_min,
+                current_max,
+                int(flags),
+                _mirror_origin_world(origin_object),
+                blend,
+            )
+            continue
+        current_center = tuple(0.5 * (current_min[axis] + current_max[axis]) for axis in range(3))
+        if kind == "grid":
+            _kind, count_x, count_y, count_z, spacing, _origin_object, blend = warp
+            current_min, current_max = _apply_grid_warp_to_bounds(
+                current_min,
+                current_max,
+                count_x,
+                count_y,
+                count_z,
+                spacing,
+                blend,
+            )
+            continue
+        if kind == "radial":
+            _kind, _count, radius, origin_object, blend = warp
+            current_min, current_max = _apply_radial_warp_to_bounds(
+                current_min,
+                current_max,
+                _array_origin_world(origin_object, current_center),
+                radius,
+                blend,
+            )
     return current_min, current_max
 
 
-def _append_warp_rows(warps, warp_rows):
+def _append_warp_rows(warps, warp_rows, primitive_center=_IDENTITY_LOCATION):
     if warp_rows is None or not warps:
         return 0, 0
     warp_offset = len(warp_rows)
-    for flags, origin_object, blend in warps:
-        origin = _mirror_origin_world(origin_object)
-        warp_rows.append((float(flags), float(blend), float(origin[0]), float(origin[1])))
-        warp_rows.append((float(origin[2]), 0.0, 0.0, 0.0))
+    center = tuple(float(component) for component in primitive_center)
+    for warp in warps:
+        kind = warp[0]
+        if kind == "mirror":
+            _kind, flags, origin_object, blend = warp
+            origin = _mirror_origin_world(origin_object)
+            packed_flags = int(flags)
+            if (packed_flags & _MIRROR_AXIS_X) != 0 and float(center[0]) >= float(origin[0]):
+                packed_flags |= _MIRROR_SIDE_X
+            if (packed_flags & _MIRROR_AXIS_Y) != 0 and float(center[1]) >= float(origin[1]):
+                packed_flags |= _MIRROR_SIDE_Y
+            if (packed_flags & _MIRROR_AXIS_Z) != 0 and float(center[2]) >= float(origin[2]):
+                packed_flags |= _MIRROR_SIDE_Z
+            warp_rows.append((float(_WARP_KIND_MIRROR), float(packed_flags), float(blend), 0.0))
+            warp_rows.append((float(origin[0]), float(origin[1]), float(origin[2]), 0.0))
+            warp_rows.append((0.0, 0.0, 0.0, 0.0))
+            warp_rows.append((0.0, 0.0, 0.0, 0.0))
+            continue
+        if kind == "grid":
+            _kind, count_x, count_y, count_z, spacing, origin_object, blend = warp
+            origin = _array_origin_world(origin_object, center)
+            warp_rows.append((float(_WARP_KIND_GRID), float(count_x), float(count_y), float(count_z)))
+            warp_rows.append((float(spacing[0]), float(spacing[1]), float(spacing[2]), float(blend)))
+            warp_rows.append((float(origin[0]), float(origin[1]), float(origin[2]), 0.0))
+            warp_rows.append((float(center[0]), float(center[1]), float(center[2]), 0.0))
+            continue
+        if kind == "radial":
+            _kind, count, radius, origin_object, blend = warp
+            origin = _array_origin_world(origin_object, center)
+            warp_rows.append((float(_WARP_KIND_RADIAL), float(count), float(blend), float(radius)))
+            warp_rows.append((float(origin[0]), float(origin[1]), float(origin[2]), 0.0))
+            warp_rows.append((float(center[0]), float(center[1]), float(center[2]), 0.0))
+            warp_rows.append((0.0, 0.0, 0.0, 0.0))
     return warp_offset, len(warps)
 
 
-def _pack_mirror_warp_info(warp_offset, warp_count):
+def _pack_warp_info(warp_offset, warp_count):
     offset = max(0, int(warp_offset))
     count = max(0, int(warp_count))
     if count >= _MIRROR_WARP_PACK_SCALE:
-        raise RuntimeError("Mirror stack exceeds shader packing limit")
+        raise RuntimeError("Warp stack exceeds shader packing limit")
     return float(offset * _MIRROR_WARP_PACK_SCALE + count)
 
 
@@ -1643,16 +2176,88 @@ def _primitive_spec_from_node(node, primitive_index, warps=()):
     }
 
 
-def _scene_bounds_from_specs(primitive_specs):
+def _union_bounds(bounds_a, bounds_b):
+    if bounds_a is None:
+        return bounds_b
+    if bounds_b is None:
+        return bounds_a
+    return (
+        tuple(min(float(bounds_a[0][axis]), float(bounds_b[0][axis])) for axis in range(3)),
+        tuple(max(float(bounds_a[1][axis]), float(bounds_b[1][axis])) for axis in range(3)),
+    )
+
+
+def _intersect_bounds(bounds_a, bounds_b):
+    if bounds_a is None:
+        return bounds_b
+    if bounds_b is None:
+        return bounds_a
+
+    mins = [max(float(bounds_a[0][axis]), float(bounds_b[0][axis])) for axis in range(3)]
+    maxs = [min(float(bounds_a[1][axis]), float(bounds_b[1][axis])) for axis in range(3)]
+    for axis in range(3):
+        if maxs[axis] < mins[axis]:
+            center = 0.5 * (mins[axis] + maxs[axis])
+            mins[axis] = center
+            maxs[axis] = center
+    return tuple(mins), tuple(maxs)
+
+
+def _expand_bounds(bounds, padding):
+    if bounds is None:
+        return None
+    expand = max(0.0, float(padding))
+    if expand <= 1.0e-6:
+        return bounds
+    return (
+        tuple(float(bounds[0][axis]) - expand for axis in range(3)),
+        tuple(float(bounds[1][axis]) + expand for axis in range(3)),
+    )
+
+
+def _root_node_bounds(root_node, primitive_specs):
+    if root_node is None:
+        return None
+
+    kind = root_node.get("kind")
+    if kind == "primitive":
+        primitive_index = int(root_node.get("primitive_index", -1))
+        if primitive_index < 0 or primitive_index >= len(primitive_specs):
+            return None
+        spec = primitive_specs[primitive_index]
+        return tuple(spec["bounds_min"]), tuple(spec["bounds_max"])
+
+    if kind != "op":
+        return None
+
+    op = int(root_node.get("op", 0))
+    left_bounds = _root_node_bounds(root_node.get("left"), primitive_specs)
+    right_bounds = _root_node_bounds(root_node.get("right"), primitive_specs)
+    if op == int(_CSG_OPERATION_TO_ID["UNION"]):
+        bounds = _union_bounds(left_bounds, right_bounds)
+        return _expand_bounds(bounds, _blend_bounds_padding(root_node.get("blend", 0.0)))
+    if op == int(_CSG_OPERATION_TO_ID["SUBTRACT"]):
+        return left_bounds
+    if op == int(_CSG_OPERATION_TO_ID["INTERSECT"]):
+        return _intersect_bounds(left_bounds, right_bounds)
+    return _union_bounds(left_bounds, right_bounds)
+
+
+def _scene_bounds(root_node, primitive_specs):
     if not primitive_specs:
         return ((-2.0, -2.0, -2.0), (2.0, 2.0, 2.0))
 
-    mins = [float("inf"), float("inf"), float("inf")]
-    maxs = [float("-inf"), float("-inf"), float("-inf")]
-    for spec in primitive_specs:
-        for axis in range(3):
-            mins[axis] = min(mins[axis], float(spec["bounds_min"][axis]))
-            maxs[axis] = max(maxs[axis], float(spec["bounds_max"][axis]))
+    bounds = _root_node_bounds(root_node, primitive_specs)
+    if bounds is None:
+        mins = [float("inf"), float("inf"), float("inf")]
+        maxs = [float("-inf"), float("-inf"), float("-inf")]
+        for spec in primitive_specs:
+            for axis in range(3):
+                mins[axis] = min(mins[axis], float(spec["bounds_min"][axis]))
+                maxs[axis] = max(maxs[axis], float(spec["bounds_max"][axis]))
+    else:
+        mins = [float(bounds[0][axis]) for axis in range(3)]
+        maxs = [float(bounds[1][axis]) for axis in range(3)]
 
     extents = [maxs[axis] - mins[axis] for axis in range(3)]
     max_extent = max(extents) if extents else 1.0
@@ -1665,15 +2270,16 @@ def _scene_bounds_from_specs(primitive_specs):
 
 def _primitive_rows_from_node(node, warps=(), warp_rows=None):
     _primitive_type, meta, scale = _primitive_parameters_from_node(node)
+    location, _rotation, _node_scale = _node_transform_values(node)
     transform = _node_transform_matrix(node).inverted_safe()
     rows = [tuple(float(value) for value in transform[index]) for index in range(3)]
-    warp_offset, warp_count = _append_warp_rows(warps, warp_rows)
+    warp_offset, warp_count = _append_warp_rows(warps, warp_rows, primitive_center=location)
     return [
         tuple(meta),
         rows[0],
         rows[1],
         rows[2],
-        (scale[0], scale[1], scale[2], _pack_mirror_warp_info(warp_offset, warp_count)),
+        (scale[0], scale[1], scale[2], _pack_warp_info(warp_offset, warp_count)),
     ]
 
 
@@ -1739,6 +2345,25 @@ def _emit_node(node, primitive_rows, warp_rows, instructions, primitive_map, pri
                 raise RuntimeError(f"Node '{node.name}' needs its SDF input connected")
             mirror_warp = _mirror_warp_descriptor(node)
             next_warps = warps if mirror_warp is None else (tuple(warps) + (mirror_warp,))
+            return _emit_node(
+                source,
+                primitive_rows,
+                warp_rows,
+                instructions,
+                primitive_map,
+                primitive_specs,
+                primitive_entries,
+                visiting,
+                warps=next_warps,
+            )
+
+        if node_idname == ARRAY_NODE_IDNAME:
+            _ensure_array_node_sockets(node)
+            source = _linked_source_node(_input_socket(node, "SDF", MathOPSV2SDFSocket.bl_idname))
+            if source is None:
+                raise RuntimeError(f"Node '{node.name}' needs its SDF input connected")
+            array_warp = _array_warp_descriptor(node)
+            next_warps = warps if array_warp is None else (tuple(warps) + (array_warp,))
             return _emit_node(
                 source,
                 primitive_rows,
@@ -1878,6 +2503,7 @@ def _compile_scene_union(scene):
 
 
 def refresh_compiled_scene_dynamic(compiled):
+    scene = runtime.scene_identity(compiled.get("scene"))
     primitive_entries = list(compiled.get("primitive_entries", ()))
     if not primitive_entries:
         primitive_entries = [{"node": node, "warps": (), "object": getattr(node, "target", None)} for node in compiled.get("primitive_nodes", ())]
@@ -1890,12 +2516,17 @@ def refresh_compiled_scene_dynamic(compiled):
     primitive_nodes = []
     for primitive_index, entry in enumerate(primitive_entries):
         node = entry["node"]
+        if runtime.safe_pointer(node) == 0:
+            return compile_scene(scene) if scene is not None else compiled
         warps = tuple(entry.get("warps", ()))
-        primitive_rows.extend(_primitive_rows_from_node(node, warps=warps, warp_rows=warp_rows))
-        primitive_specs.append(_primitive_spec_from_node(node, primitive_index, warps=warps))
+        try:
+            primitive_rows.extend(_primitive_rows_from_node(node, warps=warps, warp_rows=warp_rows))
+            primitive_specs.append(_primitive_spec_from_node(node, primitive_index, warps=warps))
+        except ReferenceError:
+            return compile_scene(scene) if scene is not None else compiled
         primitive_nodes.append(node)
 
-    scene_bounds = _scene_bounds_from_specs(primitive_specs)
+    scene_bounds = _scene_bounds(compiled.get("root_node"), primitive_specs)
     instruction_rows = list(compiled.get("instruction_rows", ()))
     rows = primitive_rows + warp_rows + instruction_rows
     refreshed = dict(compiled)
@@ -1936,21 +2567,26 @@ def prune_tree(tree, valid_target_pointers=None):
 
     valid_targets = None if valid_target_pointers is None else set(int(pointer) for pointer in valid_target_pointers if pointer)
     changed = False
+    pruned = False
 
     for node in list(tree.nodes):
         if getattr(node, "bl_idname", "") != runtime.OBJECT_NODE_IDNAME:
             continue
         target = getattr(node, "target", None)
-        target_pointer = runtime.safe_pointer(target)
+        target_pointer = runtime.object_key(target)
         if target_pointer and runtime.is_sdf_proxy(target) and (valid_targets is None or target_pointer in valid_targets):
             continue
         if not bool(getattr(node, "use_proxy", False)):
             continue
+        _detach_proxy_binding(node)
         tree.nodes.remove(node)
         changed = True
+        pruned = True
 
     ensure_graph_output(tree)
-    if changed:
+    cleanup_changed = cleanup_graph_structure(tree)
+    changed = cleanup_changed or changed
+    if pruned and not cleanup_changed:
         scene = _scene_for_tree(tree)
         if scene is not None:
             runtime.mark_scene_static_dirty(scene)
@@ -1983,11 +2619,12 @@ def compile_scene(scene):
             f"Graph stack depth {stack_depth} exceeds shader stack limit {runtime.MAX_STACK}"
         )
 
-    scene_bounds = _scene_bounds_from_specs(primitive_specs)
+    scene_bounds = _scene_bounds(root_node, primitive_specs)
     scene_hash = runtime.hash_compiled_rows(primitive_rows, warp_rows, instructions)
     topology_hash = runtime.hash_instruction_rows(instructions)
     primitive_nodes = [entry["node"] for entry in primitive_entries]
     return {
+        "scene": runtime.scene_identity(scene),
         "primitive_rows": primitive_rows,
         "warp_rows": warp_rows,
         "instruction_rows": instructions,
@@ -2029,7 +2666,7 @@ node_categories = [
     _MathOPSV2NodeCategory(
         "MATHOPS_V2_MODIFIERS",
         "Modifiers",
-        items=[NodeItem(MIRROR_NODE_IDNAME)],
+        items=[NodeItem(MIRROR_NODE_IDNAME), NodeItem(ARRAY_NODE_IDNAME)],
     ),
     _MathOPSV2NodeCategory(
         "MATHOPS_V2_UTILS",
@@ -2051,6 +2688,7 @@ classes = (
     MathOPSV2BreakTransformNode,
     MathOPSV2CSGNode,
     MathOPSV2MirrorNode,
+    MathOPSV2ArrayNode,
     MathOPSV2NodeTree,
 )
 

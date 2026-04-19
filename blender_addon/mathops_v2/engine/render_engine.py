@@ -25,7 +25,7 @@ class MathOPSV2RenderEngine(RenderEngine):
         width = max(1, int(scene.render.resolution_x * scene.render.resolution_percentage / 100.0))
         height = max(1, int(scene.render.resolution_y * scene.render.resolution_percentage / 100.0))
         result = self.begin_result(0, 0, width, height)
-        result.layers[0].passes["Combined"].rect = [runtime.BACKGROUND_COLOR] * (width * height)
+        result.layers[0].passes["Combined"].rect = [runtime.scene_background_color(scene)] * (width * height)
         self.end_result(result)
         self.update_stats("MathOPS V2", "Viewport GPU path only")
 
@@ -42,11 +42,6 @@ class MathOPSV2RenderEngine(RenderEngine):
         region_data = getattr(context, "region_data", None)
         if region_data is None:
             return None
-        if not (region_data.is_perspective or region_data.view_perspective == "CAMERA"):
-            runtime.set_error("MathOPS viewport preview requires a perspective or camera view")
-            self.update_stats("MathOPS V2", "Perspective view required")
-            return None
-
         try:
             compiled = self._viewport.draw(context, depsgraph)
             stats = f"Prims {compiled['primitive_count']} | Ops {compiled['instruction_count']}"
@@ -54,6 +49,8 @@ class MathOPSV2RenderEngine(RenderEngine):
                 stats += f" | Cull {compiled['pruning_cells']} cells {compiled.get('pruning_ms', 0.0):.2f}ms"
             elif compiled.get("pruning_pending"):
                 stats += " | Cull pending"
+            if compiled.get("cone_prepass_active"):
+                stats += f" | Cone {compiled.get('cone_tiles', 0)} tiles {compiled.get('cone_ms', 0.0):.2f}ms"
             self.update_stats(
                 "MathOPS V2",
                 stats,

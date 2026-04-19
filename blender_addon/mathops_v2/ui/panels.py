@@ -120,6 +120,25 @@ def _draw_mirror_node(layout, node):
     box.prop(node, "origin_object", text="Origin")
 
 
+def _draw_array_node(layout, node):
+    box = layout.box()
+    box.label(text="Array", icon="MOD_ARRAY")
+    box.prop(node, "name", text="Node")
+    _draw_socket_input(box, sdf_tree.node_input_socket(node, "SDF"))
+    box.prop(node, "array_mode", text="Mode")
+    if node.array_mode == sdf_tree._ARRAY_MODE_GRID:
+        row = box.row(align=True)
+        row.prop(node, "count_x")
+        row.prop(node, "count_y")
+        row.prop(node, "count_z")
+        box.prop(node, "spacing")
+    else:
+        box.prop(node, "radial_count")
+        box.prop(node, "radius")
+        box.prop(node, "origin_object", text="Origin")
+    box.prop(node, "blend", text="Blend")
+
+
 def _draw_inspector_node(layout, node):
     node_idname = getattr(node, "bl_idname", "")
     if node_idname == runtime.OBJECT_NODE_IDNAME:
@@ -136,6 +155,9 @@ def _draw_inspector_node(layout, node):
         return
     if node_idname == sdf_tree.MIRROR_NODE_IDNAME:
         _draw_mirror_node(layout, node)
+        return
+    if node_idname == sdf_tree.ARRAY_NODE_IDNAME:
+        _draw_array_node(layout, node)
 
 
 def _draw_node_sections(layout, nodes):
@@ -198,15 +220,25 @@ class MATHOPS_V2_PT_render_settings(Panel):
         layout.prop(settings, "max_steps")
         layout.prop(settings, "max_distance")
         layout.prop(settings, "surface_epsilon")
-
+        layout.prop(settings, "disable_surface_shading")
         layout.separator()
         layout.prop(settings, "culling_enabled")
         pruning_col = layout.column()
         pruning_col.enabled = settings.culling_enabled
         pruning_col.prop(settings, "pruning_grid_level")
-        pruning_col.prop(settings, "debug_shading")
-        if settings.debug_shading != "SHADED":
-            pruning_col.prop(settings, "colormap_max")
+
+        cone_toggle_col = layout.column()
+        cone_toggle_col.enabled = settings.culling_enabled
+        cone_toggle_col.prop(settings, "cone_prepass_enabled")
+        if settings.cone_prepass_enabled:
+            cone_col = layout.column()
+            cone_col.enabled = settings.culling_enabled
+            cone_col.prop(settings, "cone_aperture")
+            cone_col.prop(settings, "cone_steps")
+
+        layout.prop(settings, "debug_shading")
+        if settings.debug_shading in {"PRUNING_ACTIVE", "PRUNING_FIELD"}:
+            layout.prop(settings, "colormap_max")
 
         if runtime.last_error_message:
             layout.separator()

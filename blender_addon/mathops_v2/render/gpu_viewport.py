@@ -7,9 +7,10 @@ from gpu_extras.batch import batch_for_shader
 
 from .. import runtime
 from ..nodes import sdf_tree
+from ..shaders import cone_prepass
 from ..shaders import pruning as pruning_shader
 from ..shaders import raymarch
-from . import matcap, pruning
+from . import grid, matcap, overlay, pruning
 
 
 _COUNTERS_ACTIVE_BASE = 0
@@ -20,21 +21,37 @@ _FLOAT32_EXACT_UINT_LIMIT = 1 << 24
 _TEXTURE_DATA_WIDTH = 4096
 _MAX_ACTIVE_CAP = 100_000_000
 _MAX_TMP_CAP = 400_000_000
+_OUTLINE_ID_STRIDE = 1 << 20
+_OUTLINE_COLOR_SELECTED = 1
+_OUTLINE_COLOR_DEFAULT = 2
+_OUTLINE_COLOR_ACTIVE = 3
 
 
 class MathOPSV2GPUViewport:
     def __init__(self):
         self._draw_shader = None
+        self._blit_shader = None
+        self._outline_shader = None
         self._compute_shader = None
+        self._cone_compute_shader = None
         self._batch = None
         self._params_ubo = None
         self._scene_texture = None
         self._scene_hash = ""
+        self._outline_data_texture = None
+        self._outline_signature = None
+        self._dummy_rgba_texture = None
+        self._offscreen = None
+        self._offscreen_color_texture = None
+        self._offscreen_outline_texture = None
+        self._offscreen_position_texture = None
+        self._offscreen_depth_texture = None
         self._compiled_scene = None
         self._compiled_scene_scene_key = 0
         self._compiled_scene_static_revision = -1
         self._compiled_scene_transform_revision = -1
         self._dummy_scalar_texture = None
+        self._grid_renderer = grid.MathOPSV2GridRenderer()
         self._topology_key = None
         self._content_key = None
         self._resource_key = None
@@ -57,19 +74,35 @@ class MathOPSV2GPUViewport:
         self._tmp_capacity = 0
         self._max_active_count = 0
         self._pruning_stats = {"active": False, "cells": 0, "ms": 0.0}
+        self._cone_hit_texture = None
+        self._cone_texture_key = None
+        self._cone_stats = {"active": False, "tiles": 0, "ms": 0.0}
 
     def free(self):
         self._draw_shader = None
+        self._blit_shader = None
+        self._outline_shader = None
         self._compute_shader = None
+        self._cone_compute_shader = None
         self._batch = None
         self._params_ubo = None
         self._scene_texture = None
         self._scene_hash = ""
+        self._outline_data_texture = None
+        self._outline_signature = None
+        self._dummy_rgba_texture = None
+        self._offscreen = None
+        self._offscreen_color_texture = None
+        self._offscreen_outline_texture = None
+        self._offscreen_position_texture = None
+        self._offscreen_depth_texture = None
         self._compiled_scene = None
         self._compiled_scene_scene_key = 0
         self._compiled_scene_static_revision = -1
         self._compiled_scene_transform_revision = -1
         self._dummy_scalar_texture = None
+        if self._grid_renderer is not None:
+            self._grid_renderer.free()
         self._topology_key = None
         self._content_key = None
         self._resource_key = None
@@ -92,6 +125,9 @@ class MathOPSV2GPUViewport:
         self._tmp_capacity = 0
         self._max_active_count = 0
         self._pruning_stats = {"active": False, "cells": 0, "ms": 0.0}
+        self._cone_hit_texture = None
+        self._cone_texture_key = None
+        self._cone_stats = {"active": False, "tiles": 0, "ms": 0.0}
 
     def _packed_texture_size(self, count: int) -> tuple[int, int]:
         count = max(1, int(count))
@@ -132,6 +168,24 @@ class MathOPSV2GPUViewport:
             pass
         return texture
 
+    def _create_rgba_texture(self, size, fmt: str = "RGBA32F", values=None):
+        width = max(1, int(size[0]))
+        height = max(1, int(size[1]))
+        if values is None:
+            texture = gpu.types.GPUTexture((width, height), format=fmt)
+        else:
+            needed = width * height * 4
+            payload = np.zeros(needed, dtype=np.float32)
+            src = np.asarray(values, dtype=np.float32)
+            payload[: min(len(src), needed)] = src[:needed]
+            buffer = gpu.types.Buffer("FLOAT", len(payload), payload)
+            texture = gpu.types.GPUTexture((width, height), format=fmt, data=buffer)
+        try:
+            texture.filter_mode(False)
+        except Exception:
+            pass
+        return texture
+
     def _create_scene_texture(self, rows):
         texture_rows = rows if rows else [(0.0, 0.0, 0.0, 0.0)]
         flat = []
@@ -155,6 +209,11 @@ class MathOPSV2GPUViewport:
             self._dummy_scalar_texture = self._create_scalar_texture(1, "R32F", [0.0])
         return self._dummy_scalar_texture
 
+    def _ensure_dummy_rgba_texture(self):
+        if self._dummy_rgba_texture is None:
+            self._dummy_rgba_texture = self._create_rgba_texture((1, 1), values=[0.0, 0.0, 0.0, -1.0])
+        return self._dummy_rgba_texture
+
     def _ensure_scene_texture(self, compiled):
         scene_hash = str(compiled["hash"])
         if self._scene_texture is not None and self._scene_hash == scene_hash:
@@ -163,8 +222,70 @@ class MathOPSV2GPUViewport:
         self._scene_hash = scene_hash
         return self._scene_texture
 
+    def _outline_theme_colors(self, context):
+        settings = runtime.scene_settings(getattr(context, "scene", None))
+        opacity = 1.0 if settings is None else max(0.0, min(1.0, float(getattr(settings, "outline_opacity", 1.0))))
+        default_rgb = (0.0, 0.0, 0.0) if settings is None else tuple(float(component) for component in getattr(settings, "outline_color", (0.0, 0.0, 0.0)))
+        default_color = (default_rgb[0], default_rgb[1], default_rgb[2], opacity)
+        selected_color = (1.0, 0.55, 0.15, opacity)
+        active_color = (1.0, 0.75, 0.3, opacity)
+        try:
+            theme = context.preferences.themes[0]
+            selected_raw = tuple(theme.view_3d.object_selected)
+            active_raw = tuple(theme.view_3d.object_active)
+            if len(selected_raw) == 3:
+                selected_color = selected_raw + (opacity,)
+            if len(active_raw) == 3:
+                active_color = active_raw + (opacity,)
+        except Exception:
+            pass
+        return default_color, selected_color, active_color
+
+    def _ensure_outline_data_texture(self, context, compiled):
+        primitive_entries = tuple(compiled.get("primitive_entries", ()))
+        active_object = runtime.object_identity(getattr(context, "active_object", None))
+        active_key = runtime.object_key(active_object)
+        resource_ids = {}
+        packed_ids = []
+        signature_items = [str(compiled.get("hash", "")), active_key]
+        next_resource_id = 1
+
+        for primitive_index, entry in enumerate(primitive_entries):
+            obj = runtime.object_identity(entry.get("object", None))
+            object_key = runtime.object_key(obj)
+            resource_key = object_key if object_key else ("primitive", primitive_index)
+            if resource_key not in resource_ids:
+                resource_ids[resource_key] = next_resource_id
+                next_resource_id += 1
+
+            selected = False
+            if obj is not None:
+                try:
+                    selected = bool(obj.select_get())
+                except Exception:
+                    selected = False
+
+            color_id = _OUTLINE_COLOR_DEFAULT
+            if selected and object_key == active_key:
+                color_id = _OUTLINE_COLOR_ACTIVE
+            elif selected:
+                color_id = _OUTLINE_COLOR_SELECTED
+
+            packed_id = float(color_id * _OUTLINE_ID_STRIDE + resource_ids[resource_key])
+            packed_ids.append(packed_id)
+            signature_items.append((resource_key, color_id, resource_ids[resource_key]))
+
+        outline_signature = tuple(signature_items)
+        if self._outline_signature == outline_signature and self._outline_data_texture is not None:
+            return self._outline_data_texture
+
+        values = packed_ids if packed_ids else [0.0]
+        self._outline_data_texture = self._create_scalar_texture(max(1, len(values)), "R32F", values)
+        self._outline_signature = outline_signature
+        return self._outline_data_texture
+
     def _ensure_compiled_scene(self, scene):
-        scene_key = runtime.safe_pointer(scene)
+        scene_key = runtime.scene_key(scene)
         static_revision, transform_revision = runtime.scene_revision_tuple(scene)
         if (
             self._compiled_scene is None
@@ -191,6 +312,7 @@ class MathOPSV2GPUViewport:
 
         shader_info = gpu.types.GPUShaderCreateInfo()
         shader_info.push_constant("MAT4", "invViewProjectionMatrix")
+        shader_info.push_constant("MAT4", "viewProjectionMatrix")
         shader_info.typedef_source(raymarch.UNIFORMS_SOURCE)
         shader_info.uniform_buf(0, "MathOPSV2ViewParams", "mathops")
         shader_info.sampler(0, "FLOAT_2D", "sceneData")
@@ -200,13 +322,107 @@ class MathOPSV2GPUViewport:
         shader_info.sampler(4, "FLOAT_2D", "pruneCellErrors")
         shader_info.sampler(5, "FLOAT_2D", "matcapDiffuse")
         shader_info.sampler(6, "FLOAT_2D", "matcapSpecular")
+        shader_info.sampler(7, "FLOAT_2D", "coneTileHits")
+        shader_info.sampler(8, "FLOAT_2D", "outlineData")
         shader_info.vertex_in(0, "VEC2", "position")
         shader_info.vertex_out(interface)
         shader_info.fragment_out(0, "VEC4", "FragColor")
+        shader_info.fragment_out(1, "FLOAT", "OutlineId")
+        shader_info.depth_write("ANY")
         shader_info.vertex_source(raymarch.VERTEX_SOURCE)
         shader_info.fragment_source(raymarch.FRAGMENT_SOURCE)
         self._draw_shader = gpu.shader.create_from_info(shader_info)
         return self._draw_shader
+
+    def _ensure_blit_shader(self):
+        if self._blit_shader is not None:
+            return self._blit_shader
+
+        interface = gpu.types.GPUStageInterfaceInfo("mathops_v2_blit_interface")
+        interface.smooth("VEC2", "uvInterp")
+
+        shader_info = gpu.types.GPUShaderCreateInfo()
+        shader_info.vertex_in(0, "VEC2", "position")
+        shader_info.vertex_out(interface)
+        shader_info.fragment_out(0, "VEC4", "FragColor")
+        shader_info.sampler(0, "FLOAT_2D", "colorTex")
+        shader_info.sampler(1, "FLOAT_2D", "depthTex")
+        shader_info.depth_write("ANY")
+        shader_info.vertex_source(raymarch.VERTEX_SOURCE)
+        shader_info.fragment_source(
+            """
+void main()
+{
+  FragColor = texture(colorTex, uvInterp);
+  gl_FragDepth = texture(depthTex, uvInterp).r;
+}
+"""
+        )
+        self._blit_shader = gpu.shader.create_from_info(shader_info)
+        return self._blit_shader
+
+    def _ensure_outline_shader(self):
+        if self._outline_shader is not None:
+            return self._outline_shader
+
+        interface = gpu.types.GPUStageInterfaceInfo("mathops_v2_outline_interface")
+        interface.smooth("VEC2", "uvInterp")
+
+        shader_info = gpu.types.GPUShaderCreateInfo()
+        shader_info.vertex_in(0, "VEC2", "position")
+        shader_info.vertex_out(interface)
+        shader_info.fragment_out(0, "VEC4", "FragColor")
+        shader_info.sampler(0, "FLOAT_2D", "idTex")
+        shader_info.push_constant("VEC4", "defaultOutlineColor")
+        shader_info.push_constant("VEC4", "selectedOutlineColor")
+        shader_info.push_constant("VEC4", "activeOutlineColor")
+        shader_info.vertex_source(raymarch.VERTEX_SOURCE)
+        shader_info.fragment_source(
+            """
+const int OUTLINE_ID_STRIDE = %d;
+
+void main()
+{
+  ivec2 texSize = textureSize(idTex, 0);
+  ivec2 coord = clamp(ivec2(gl_FragCoord.xy), ivec2(0), texSize - ivec2(1));
+  int centerId = int(texelFetch(idTex, coord, 0).x + 0.5);
+  if (centerId == 0) {
+    discard;
+    return;
+  }
+
+  bool edge = false;
+  ivec2 offsets[4] = ivec2[4](ivec2(-1, 0), ivec2(1, 0), ivec2(0, -1), ivec2(0, 1));
+  for (int index = 0; index < 4; index++) {
+    ivec2 neighborCoord = clamp(coord + offsets[index], ivec2(0), texSize - ivec2(1));
+    int neighborId = int(texelFetch(idTex, neighborCoord, 0).x + 0.5);
+    if (neighborId != centerId) {
+      edge = true;
+      break;
+    }
+  }
+
+  if (!edge) {
+    discard;
+    return;
+  }
+
+  int colorId = centerId / OUTLINE_ID_STRIDE;
+  vec4 lineColor = defaultOutlineColor;
+  if (colorId == %d) {
+    lineColor = selectedOutlineColor;
+  }
+  else if (colorId == %d) {
+    lineColor = activeOutlineColor;
+  }
+
+  FragColor = lineColor;
+}
+"""
+            % (_OUTLINE_ID_STRIDE, _OUTLINE_COLOR_SELECTED, _OUTLINE_COLOR_ACTIVE)
+        )
+        self._outline_shader = gpu.shader.create_from_info(shader_info)
+        return self._outline_shader
 
     def _ensure_compute_shader(self):
         if self._compute_shader is not None:
@@ -246,6 +462,28 @@ class MathOPSV2GPUViewport:
         self._compute_shader = gpu.shader.create_from_info(shader_info)
         return self._compute_shader
 
+    def _ensure_cone_compute_shader(self):
+        if self._cone_compute_shader is not None:
+            return self._cone_compute_shader
+
+        shader_info = gpu.types.GPUShaderCreateInfo()
+        shader_info.push_constant("MAT4", "invViewProjectionMatrix")
+        shader_info.push_constant("VEC2", "screenSizePx")
+        shader_info.push_constant("FLOAT", "coneAperture")
+        shader_info.push_constant("INT", "coneSteps")
+        shader_info.typedef_source(raymarch.UNIFORMS_SOURCE)
+        shader_info.uniform_buf(0, "MathOPSV2ViewParams", "mathops")
+        shader_info.sampler(0, "FLOAT_2D", "sceneData")
+        shader_info.sampler(1, "FLOAT_2D", "pruneActiveNodes")
+        shader_info.sampler(2, "FLOAT_2D", "pruneCellOffsets")
+        shader_info.sampler(3, "FLOAT_2D", "pruneCellCounts")
+        shader_info.sampler(4, "FLOAT_2D", "pruneCellErrors")
+        shader_info.image(0, "RGBA32F", "FLOAT_2D", "coneTileHints", qualifiers={"WRITE"})
+        shader_info.local_group_size(*cone_prepass.LOCAL_GROUP_SIZE)
+        shader_info.compute_source(cone_prepass.COMPUTE_SOURCE)
+        self._cone_compute_shader = gpu.shader.create_from_info(shader_info)
+        return self._cone_compute_shader
+
     def _ensure_batch(self):
         if self._batch is not None:
             return self._batch
@@ -256,6 +494,100 @@ class MathOPSV2GPUViewport:
             {"position": ((-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0))},
         )
         return self._batch
+
+    def _ensure_offscreen(self, width: int, height: int) -> bool:
+        width = max(1, int(width))
+        height = max(1, int(height))
+        if (
+            self._offscreen is not None
+            and self._offscreen_color_texture is not None
+            and self._offscreen_outline_texture is not None
+            and self._offscreen_depth_texture is not None
+        ):
+            if self._offscreen_color_texture.width == width and self._offscreen_color_texture.height == height:
+                return True
+            self._offscreen = None
+            self._offscreen_color_texture = None
+            self._offscreen_outline_texture = None
+            self._offscreen_depth_texture = None
+
+        try:
+            self._offscreen_color_texture = gpu.types.GPUTexture((width, height), format="RGBA16F")
+            self._offscreen_outline_texture = gpu.types.GPUTexture((width, height), format="R32F")
+            try:
+                self._offscreen_outline_texture.filter_mode(False)
+            except Exception:
+                pass
+            self._offscreen_depth_texture = gpu.types.GPUTexture((width, height), format="DEPTH24_STENCIL8")
+            self._offscreen = gpu.types.GPUFrameBuffer(
+                color_slots=(self._offscreen_color_texture, self._offscreen_outline_texture),
+                depth_slot=self._offscreen_depth_texture,
+            )
+            return True
+        except Exception:
+            self._offscreen = None
+            self._offscreen_color_texture = None
+            self._offscreen_outline_texture = None
+            self._offscreen_depth_texture = None
+            return False
+
+    def _should_draw_custom_grid(self, context, settings) -> bool:
+        space = getattr(context, "space_data", None)
+        shading = getattr(space, "shading", None)
+        overlay_state = getattr(space, "overlay", None)
+        if shading is None or overlay_state is None or getattr(shading, "type", "") != "RENDERED":
+            return False
+        if not bool(getattr(overlay_state, "show_overlays", True)):
+            return False
+        if space is not None and overlay.use_native_ortho_grid(space):
+            return False
+        return any(
+            bool(getattr(settings, name, False))
+            for name in ("show_grid", "show_floor", "show_axis_x", "show_axis_y", "show_axis_z")
+        )
+
+    def _draw_scene_pass(self, context, settings, scene_texture, outline_texture, params_ubo, inv_view_projection, view_projection):
+        shader = self._ensure_draw_shader()
+        batch = self._ensure_batch()
+        shader.uniform_float("invViewProjectionMatrix", inv_view_projection)
+        shader.uniform_float("viewProjectionMatrix", view_projection)
+        shader.uniform_block("mathops", params_ubo)
+        shader.uniform_sampler("sceneData", scene_texture)
+        shader.uniform_sampler("pruneActiveNodes", self._final_active_nodes or self._ensure_dummy_scalar_texture())
+        shader.uniform_sampler("pruneCellOffsets", self._final_cell_offsets or self._ensure_dummy_scalar_texture())
+        shader.uniform_sampler("pruneCellCounts", self._final_cell_counts or self._ensure_dummy_scalar_texture())
+        shader.uniform_sampler("pruneCellErrors", self._final_cell_errors or self._ensure_dummy_scalar_texture())
+        diffuse_texture, specular_texture = matcap.get_matcap_textures(context, getattr(settings, "custom_matcap", ""))
+        shader.uniform_sampler("matcapDiffuse", diffuse_texture)
+        shader.uniform_sampler("matcapSpecular", specular_texture)
+        shader.uniform_sampler(
+            "coneTileHits",
+            self._cone_hit_texture if self._cone_stats["active"] else self._ensure_dummy_rgba_texture(),
+        )
+        shader.uniform_sampler("outlineData", outline_texture)
+        batch.draw(shader)
+
+    def _blit_offscreen(self):
+        shader = self._ensure_blit_shader()
+        batch = self._ensure_batch()
+        shader.uniform_sampler("colorTex", self._offscreen_color_texture)
+        shader.uniform_sampler("depthTex", self._offscreen_depth_texture)
+        batch.draw(shader)
+
+    def _draw_outline_pass(self, context):
+        if self._offscreen_outline_texture is None or self._offscreen_depth_texture is None:
+            return
+        settings = runtime.scene_settings(getattr(context, "scene", None))
+        if settings is not None and float(getattr(settings, "outline_opacity", 1.0)) <= 0.0:
+            return
+        shader = self._ensure_outline_shader()
+        batch = self._ensure_batch()
+        default_color, selected_color, active_color = self._outline_theme_colors(context)
+        shader.uniform_float("defaultOutlineColor", default_color)
+        shader.uniform_float("selectedOutlineColor", selected_color)
+        shader.uniform_float("activeOutlineColor", active_color)
+        shader.uniform_sampler("idTex", self._offscreen_outline_texture)
+        batch.draw(shader)
 
     def _ensure_topology_textures(self, settings, compiled):
         topology_key = pruning.topology_key(settings, compiled)
@@ -390,6 +722,64 @@ class MathOPSV2GPUViewport:
         self._pruning_stats = {"active": False, "cells": 0, "ms": 0.0}
         self._max_active_count = 0
 
+    def _disable_cone_prepass(self):
+        self._cone_stats = {"active": False, "tiles": 0, "ms": 0.0}
+
+    def _ensure_cone_texture(self, render_width: int, render_height: int):
+        tile_width = max(1, int(math.ceil(float(render_width) / 8.0)))
+        tile_height = max(1, int(math.ceil(float(render_height) / 8.0)))
+        texture_key = (tile_width, tile_height)
+        if self._cone_texture_key == texture_key and self._cone_hit_texture is not None:
+            return tile_width, tile_height
+        self._cone_hit_texture = self._create_rgba_texture(texture_key)
+        self._cone_texture_key = texture_key
+        return tile_width, tile_height
+
+    def _update_cone_prepass(
+        self,
+        settings,
+        compiled,
+        scene_texture,
+        params_ubo,
+        inv_view_projection,
+        render_width,
+        render_height,
+    ):
+        self._disable_cone_prepass()
+        if not bool(getattr(settings, "cone_prepass_enabled", False)):
+            return
+        if self._final_active_nodes is None:
+            return
+        if int(compiled.get("primitive_count", 0)) <= 0 or int(compiled.get("instruction_count", 0)) <= 0:
+            return
+
+        tile_width, tile_height = self._ensure_cone_texture(render_width, render_height)
+        shader = self._ensure_cone_compute_shader()
+        dummy = self._ensure_dummy_scalar_texture()
+        start = time.perf_counter()
+
+        shader.uniform_float("invViewProjectionMatrix", inv_view_projection)
+        shader.uniform_float("screenSizePx", (float(render_width), float(render_height)))
+        shader.uniform_float("coneAperture", float(max(getattr(settings, "cone_aperture", 1.25), 0.01)))
+        shader.uniform_int("coneSteps", [max(1, int(getattr(settings, "cone_steps", 16)))])
+        shader.uniform_block("mathops", params_ubo)
+        shader.uniform_sampler("sceneData", scene_texture)
+        shader.uniform_sampler("pruneActiveNodes", self._final_active_nodes or dummy)
+        shader.uniform_sampler("pruneCellOffsets", self._final_cell_offsets or dummy)
+        shader.uniform_sampler("pruneCellCounts", self._final_cell_counts or dummy)
+        shader.uniform_sampler("pruneCellErrors", self._final_cell_errors or dummy)
+        shader.image("coneTileHints", self._cone_hit_texture)
+
+        group_size = cone_prepass.LOCAL_GROUP_SIZE
+        dispatch_x = int(math.ceil(float(tile_width) / float(group_size[0])))
+        dispatch_y = int(math.ceil(float(tile_height) / float(group_size[1])))
+        gpu.compute.dispatch(shader, dispatch_x, dispatch_y, 1)
+        self._cone_stats = {
+            "active": True,
+            "tiles": tile_width * tile_height,
+            "ms": (time.perf_counter() - start) * 1000.0,
+        }
+
     def _update_pruning(self, settings, compiled, scene_texture):
         self._pruning_stats = {"active": False, "cells": 0, "ms": 0.0}
         if not pruning.should_build(settings, compiled):
@@ -471,13 +861,21 @@ class MathOPSV2GPUViewport:
         grid_size = float(pruning.final_grid_size(settings)) if pruning_enabled else 0.0
         view_matrix = region_data.view_matrix
         is_orthographic = not bool(region_data.is_perspective)
+        view_flags = 0
+        if is_orthographic:
+            view_flags |= 1
+        if bool(self._cone_stats["active"]):
+            view_flags |= 2
+        if bool(getattr(settings, "disable_surface_shading", False)):
+            view_flags |= 4
+        background_color = runtime.scene_background_color(getattr(settings, "id_data", None))
 
         viz_max = float(max(int(getattr(settings, "colormap_max", 25)), 1))
         data = [
             float(camera_position[0]),
             float(camera_position[1]),
             float(camera_position[2]),
-            1.0 if is_orthographic else 0.0,
+            float(view_flags),
             float(settings.surface_epsilon),
             float(settings.max_distance),
             float(settings.max_steps),
@@ -487,9 +885,9 @@ class MathOPSV2GPUViewport:
             viz_max,
             1.0 if show_specular else 0.0,
             float(compiled.get("warp_row_count", 0)),
-            0.0,
-            0.0,
-            0.0,
+            float(background_color[0]),
+            float(background_color[1]),
+            float(background_color[2]),
             float(bounds_min[0]),
             float(bounds_min[1]),
             float(bounds_min[2]),
@@ -536,39 +934,84 @@ class MathOPSV2GPUViewport:
             runtime.clear_error()
 
         scene_texture = self._ensure_scene_texture(compiled)
+        outline_texture = self._ensure_outline_data_texture(context, compiled)
         try:
             self._update_pruning(settings, compiled, scene_texture)
         except Exception:
             self._disable_pruning()
 
-        shader = self._ensure_draw_shader()
-        batch = self._ensure_batch()
+        overlay.suppress_space_overlays(getattr(context, "space_data", None), scene)
         region_data = context.region_data
         inv_view_projection = region_data.perspective_matrix.inverted()
+        view_projection = region_data.perspective_matrix
         camera_position = region_data.view_matrix.inverted().translation
         shading = getattr(getattr(context, "space_data", None), "shading", None)
         show_specular = bool(getattr(shading, "show_specular_highlight", True))
         params_ubo = self._ensure_params_ubo(settings, compiled, camera_position, region_data, show_specular)
 
+        region = getattr(context, "region", None)
+        pixel_size = float(getattr(getattr(context.preferences, "system", None), "pixel_size", 1.0))
+        render_width = max(1, int(getattr(region, "width", 1) * pixel_size))
+        render_height = max(1, int(getattr(region, "height", 1) * pixel_size))
+        try:
+            self._update_cone_prepass(
+                settings,
+                compiled,
+                scene_texture,
+                params_ubo,
+                inv_view_projection,
+                render_width,
+                render_height,
+            )
+        except Exception as exc:
+            self._disable_cone_prepass()
+            runtime.set_error(f"Cone prepass failed: {exc}")
+        params_ubo = self._ensure_params_ubo(settings, compiled, camera_position, region_data, show_specular)
+        if not self._ensure_offscreen(render_width, render_height):
+            raise RuntimeError("MathOPS viewport outline buffers are unavailable")
+
+        with self._offscreen.bind():
+            gpu.state.depth_test_set("ALWAYS")
+            gpu.state.depth_mask_set(True)
+            gpu.state.blend_set("NONE")
+            self._clear_texture(self._offscreen_color_texture, "FLOAT", runtime.scene_background_color(scene))
+            self._clear_texture(self._offscreen_outline_texture, "FLOAT", (0.0,))
+            self._offscreen.clear(depth=1.0, stencil=0)
+            self._draw_scene_pass(context, settings, scene_texture, outline_texture, params_ubo, inv_view_projection, view_projection)
+
+        gpu.state.depth_test_set("ALWAYS")
+        gpu.state.depth_mask_set(True)
+        gpu.state.blend_set("NONE")
+        self._blit_offscreen()
+
+        if self._should_draw_custom_grid(context, settings):
+            gpu.state.depth_test_set("NONE")
+            gpu.state.depth_mask_set(False)
+            gpu.state.blend_set("ALPHA")
+            self._grid_renderer.draw(
+                context,
+                render_width,
+                render_height,
+                region_data.view_matrix,
+                region_data.window_matrix,
+                self._offscreen_depth_texture,
+            )
+
+        gpu.state.depth_test_set("NONE")
+        gpu.state.depth_mask_set(False)
+        gpu.state.blend_set("ALPHA")
+        self._draw_outline_pass(context)
+
         gpu.state.depth_test_set("NONE")
         gpu.state.depth_mask_set(False)
         gpu.state.blend_set("NONE")
-
-        shader.uniform_float("invViewProjectionMatrix", inv_view_projection)
-        shader.uniform_block("mathops", params_ubo)
-        shader.uniform_sampler("sceneData", scene_texture)
-        shader.uniform_sampler("pruneActiveNodes", self._final_active_nodes or self._ensure_dummy_scalar_texture())
-        shader.uniform_sampler("pruneCellOffsets", self._final_cell_offsets or self._ensure_dummy_scalar_texture())
-        shader.uniform_sampler("pruneCellCounts", self._final_cell_counts or self._ensure_dummy_scalar_texture())
-        shader.uniform_sampler("pruneCellErrors", self._final_cell_errors or self._ensure_dummy_scalar_texture())
-        diffuse_texture, specular_texture = matcap.get_matcap_textures(context, getattr(settings, "custom_matcap", ""))
-        shader.uniform_sampler("matcapDiffuse", diffuse_texture)
-        shader.uniform_sampler("matcapSpecular", specular_texture)
-        batch.draw(shader)
 
         compiled["pruning_active"] = bool(self._pruning_stats["active"])
         compiled["pruning_cells"] = int(self._pruning_stats["cells"])
         compiled["pruning_sequences"] = int(self._max_active_count)
         compiled["pruning_ms"] = float(self._pruning_stats["ms"])
         compiled["pruning_pending"] = False
+        compiled["cone_prepass_active"] = bool(self._cone_stats["active"])
+        compiled["cone_tiles"] = int(self._cone_stats["tiles"])
+        compiled["cone_ms"] = float(self._cone_stats["ms"])
         return compiled

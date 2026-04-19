@@ -11,6 +11,17 @@ COMPUTE_SOURCE = """\
 #define PRIMITIVE_STRIDE %d
 #define STACK_DEPTH %d
 #define MIRROR_WARP_PACK_SCALE 256
+#define WARP_ROWS_PER_ENTRY 4
+#define WARP_KIND_MIRROR 1
+#define WARP_KIND_GRID 2
+#define WARP_KIND_RADIAL 3
+#define MIRROR_AXIS_X 1
+#define MIRROR_AXIS_Y 2
+#define MIRROR_AXIS_Z 4
+#define MIRROR_SIDE_X 8
+#define MIRROR_SIDE_Y 16
+#define MIRROR_SIDE_Z 32
+#define WARP_PI 3.14159265358979323846
 
 ivec2 linearCoord(ivec2 size, int index)
 {
@@ -161,35 +172,142 @@ float sabs(float x, float k)
   return k * (0.25 + 1.5 * t2 - t3 + 0.25 * t4);
 }
 
+float foldFiniteGridAxis(float axisValue, float origin, float primitiveCenter, float spacing, int count, float blend)
+{
+  if (count <= 1 || spacing <= 1e-6) {
+    return axisValue;
+  }
+  float base = (primitiveCenter - origin) / spacing;
+  float centerOffset = 0.5 * float(count - 1);
+  float shifted = (axisValue - origin) / spacing - base + centerOffset;
+  float id = clamp(round(shifted), 0.0, float(count - 1));
+  float local = shifted - id;
+  float dR = (0.5 - local) * spacing;
+  float pullR = dR - sabs(dR, blend);
+  float dL = (0.5 + local) * spacing;
+  float pullL = dL - sabs(dL, blend);
+  if (id < 0.5) {
+    pullL = 0.0;
+  }
+  if (id > float(count) - 1.5) {
+    pullR = 0.0;
+  }
+  local += (pullR - pullL) / spacing;
+  return origin + (local + base) * spacing;
+}
+
+vec3 worldToPrimitiveLocal(vec4 row0, vec4 row1, vec4 row2, vec3 worldPoint)
+{
+  vec4 world = vec4(worldPoint, 1.0);
+  return vec3(dot(row0, world), dot(row1, world), dot(row2, world));
+}
+
+vec3 primitiveLocalToWorld(vec4 row0, vec4 row1, vec4 row2, vec3 localPoint)
+{
+  vec3 basisX = vec3(row0.x, row1.x, row2.x);
+  vec3 basisY = vec3(row0.y, row1.y, row2.y);
+  vec3 basisZ = vec3(row0.z, row1.z, row2.z);
+  vec3 origin = -(basisX * row0.w + basisY * row1.w + basisZ * row2.w);
+  return origin + (basisX * localPoint.x) + (basisY * localPoint.y) + (basisZ * localPoint.z);
+}
+
+vec3 applyRadialArray(vec3 worldPoint, vec3 origin, vec3 primitiveCenter, float radius, int count, float blend)
+{
+  if (count <= 1 || radius <= 1e-6) {
+    return worldPoint;
+  }
+  vec3 q = worldPoint - origin;
+  vec3 baseOffset = primitiveCenter - origin + vec3(radius, 0.0, 0.0);
+  float baseAngle = atan(baseOffset.y, baseOffset.x);
+  float baseRadius = max(length(baseOffset.xy), 1e-4);
+  float sector = (2.0 * WARP_PI) / float(count);
+  float angle = atan(q.y, q.x);
+  float angleRel = mod(angle - baseAngle + WARP_PI, 2.0 * WARP_PI) - WARP_PI;
+  float normA = angleRel / sector;
+  float id = round(normA);
+  float local = normA - id;
+  bool mirrored = fract(abs(id) * 0.5) > 0.25;
+  bool odd = (count %% 2) != 0;
+  bool atDefect = odd && (abs(angleRel) > WARP_PI - sector * 0.5);
+  if (atDefect) {
+    local = abs(local);
+  }
+  else if (mirrored) {
+    local = -local;
+  }
+  float arc = sector * baseRadius;
+  float dR = (0.5 - local) * arc;
+  float pullR = dR - sabs(dR, blend);
+  float dL = (0.5 + local) * arc;
+  float pullL = dL - sabs(dL, blend);
+  local += (pullR - pullL) / arc;
+  float foldA = local * sector + baseAngle;
+  float r = length(q.xy);
+  vec3 qFold = vec3(r * cos(foldA), r * sin(foldA), q.z);
+  return primitiveCenter + (qFold - baseOffset);
+}
+
 vec3 toLocalPoint(int primitiveIndex, vec3 worldPoint)
 {
   int baseRow = primitiveIndex * PRIMITIVE_STRIDE;
+  vec4 row0 = loadSceneRow(baseRow + 1);
+  vec4 row1 = loadSceneRow(baseRow + 2);
+  vec4 row2 = loadSceneRow(baseRow + 3);
   int packedWarpInfo = int(loadSceneRow(baseRow + 4).w + 0.5);
   int warpBase = primitiveCount * PRIMITIVE_STRIDE;
   int warpOffset = packedWarpInfo / MIRROR_WARP_PACK_SCALE;
   int warpCount = packedWarpInfo - warpOffset * MIRROR_WARP_PACK_SCALE;
   vec3 warpedPoint = worldPoint;
   for (int index = 0; index < warpCount; index++) {
-    vec4 warpHeader = loadSceneRow(warpBase + warpOffset + index * 2);
-    vec4 warpTail = loadSceneRow(warpBase + warpOffset + index * 2 + 1);
-    int flags = int(warpHeader.x + 0.5);
-    float blend = max(warpHeader.y, 0.0);
-    vec3 origin = vec3(warpHeader.z, warpHeader.w, warpTail.x);
-    if ((flags & 1) != 0) {
-      warpedPoint.x = origin.x + sabs(warpedPoint.x - origin.x, blend);
+    int warpRow = warpBase + warpOffset + index * WARP_ROWS_PER_ENTRY;
+    vec4 warp0 = loadSceneRow(warpRow);
+    vec4 warp1 = loadSceneRow(warpRow + 1);
+    vec4 warp2 = loadSceneRow(warpRow + 2);
+    vec4 warp3 = loadSceneRow(warpRow + 3);
+    int warpKind = int(warp0.x + 0.5);
+    if (warpKind == WARP_KIND_MIRROR) {
+      int flags = int(warp0.y + 0.5);
+      float blend = max(warp0.z, 0.0);
+      vec3 origin = warp1.xyz;
+      if ((flags & MIRROR_AXIS_X) != 0) {
+        float side = ((flags & MIRROR_SIDE_X) != 0) ? 1.0 : -1.0;
+        warpedPoint.x = origin.x + side * sabs(side * (warpedPoint.x - origin.x), blend);
+      }
+      if ((flags & MIRROR_AXIS_Y) != 0) {
+        float side = ((flags & MIRROR_SIDE_Y) != 0) ? 1.0 : -1.0;
+        warpedPoint.y = origin.y + side * sabs(side * (warpedPoint.y - origin.y), blend);
+      }
+      if ((flags & MIRROR_AXIS_Z) != 0) {
+        float side = ((flags & MIRROR_SIDE_Z) != 0) ? 1.0 : -1.0;
+        warpedPoint.z = origin.z + side * sabs(side * (warpedPoint.z - origin.z), blend);
+      }
+      continue;
     }
-    if ((flags & 2) != 0) {
-      warpedPoint.y = origin.y + sabs(warpedPoint.y - origin.y, blend);
+    if (warpKind == WARP_KIND_GRID) {
+      vec3 localPoint = worldToPrimitiveLocal(row0, row1, row2, warpedPoint);
+      ivec3 counts = ivec3(int(warp0.y + 0.5), int(warp0.z + 0.5), int(warp0.w + 0.5));
+      vec3 spacing = abs(warp1.xyz);
+      float blend = max(warp1.w, 0.0);
+      vec3 origin = worldToPrimitiveLocal(row0, row1, row2, warp2.xyz);
+      vec3 primitiveCenter = worldToPrimitiveLocal(row0, row1, row2, warp3.xyz);
+      localPoint.x = foldFiniteGridAxis(localPoint.x, origin.x, primitiveCenter.x, spacing.x, counts.x, blend);
+      localPoint.y = foldFiniteGridAxis(localPoint.y, origin.y, primitiveCenter.y, spacing.y, counts.y, blend);
+      localPoint.z = foldFiniteGridAxis(localPoint.z, origin.z, primitiveCenter.z, spacing.z, counts.z, blend);
+      warpedPoint = primitiveLocalToWorld(row0, row1, row2, localPoint);
+      continue;
     }
-    if ((flags & 4) != 0) {
-      warpedPoint.z = origin.z + sabs(warpedPoint.z - origin.z, blend);
+    if (warpKind == WARP_KIND_RADIAL) {
+      vec3 localPoint = worldToPrimitiveLocal(row0, row1, row2, warpedPoint);
+      int count = int(warp0.y + 0.5);
+      float blend = max(warp0.z, 0.0);
+      float radius = max(warp0.w, 0.0);
+      vec3 origin = worldToPrimitiveLocal(row0, row1, row2, warp1.xyz);
+      vec3 primitiveCenter = worldToPrimitiveLocal(row0, row1, row2, warp2.xyz);
+      localPoint = applyRadialArray(localPoint, origin, primitiveCenter, radius, count, blend);
+      warpedPoint = primitiveLocalToWorld(row0, row1, row2, localPoint);
     }
   }
-  vec4 world = vec4(warpedPoint, 1.0);
-  vec4 row0 = loadSceneRow(baseRow + 1);
-  vec4 row1 = loadSceneRow(baseRow + 2);
-  vec4 row2 = loadSceneRow(baseRow + 3);
-  return vec3(dot(row0, world), dot(row1, world), dot(row2, world));
+  return worldToPrimitiveLocal(row0, row1, row2, warpedPoint);
 }
 
 float sdEllipsoid(vec3 p, vec3 r)
@@ -223,6 +341,7 @@ float evalPrimitive(int primitiveIndex, vec3 worldPoint)
   vec4 meta = loadSceneRow(baseRow);
   vec3 localPoint = toLocalPoint(primitiveIndex, worldPoint);
   vec3 scale = primitiveScale(primitiveIndex);
+  float minScale = max(min(scale.x, min(scale.y, scale.z)), 1e-6);
   int primitiveType = int(meta.x + 0.5);
   if (primitiveType == 0) {
     return sdEllipsoid(localPoint, vec3(meta.y) * scale);
@@ -231,13 +350,10 @@ float evalPrimitive(int primitiveIndex, vec3 worldPoint)
     return sdBox(localPoint, meta.yzw * scale);
   }
   if (primitiveType == 2) {
-    float radialScale = max(0.5 * (scale.x + scale.y), 1e-6);
-    return sdCylinder(localPoint, meta.y * radialScale, meta.z * scale.z);
+    return sdCylinder(localPoint / scale, meta.y, meta.z) * minScale;
   }
   if (primitiveType == 3) {
-    float radialScale = max(0.5 * (scale.x + scale.z), 1e-6);
-    float minorScale = max(min(radialScale, scale.y), 1e-6);
-    return sdTorus(localPoint, vec2(meta.y * radialScale, meta.z * minorScale));
+    return sdTorus(localPoint / scale, vec2(meta.y, meta.z)) * minScale;
   }
   return 1e20;
 }
@@ -384,7 +500,7 @@ void computePruning(vec3 cellCenter, vec3 cellSize, int cellIndex)
       float blend = max(instruction.w, 0.0);
       distanceValue = evalSignedBinary(kind, leftValue, rightValue, blend);
       int currentState = NODESTATE_ACTIVE;
-      if (abs(leftValue - rightValue) > (2.0 * cellRadius + blend)) {
+      if (kind != 2 && abs(leftValue - rightValue) > (2.0 * cellRadius + blend)) {
         currentState = NODESTATE_SKIPPED;
         float signedLeft = opSign(kind) * leftValue;
         float signedRight = opSign(kind) * rightValue;
