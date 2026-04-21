@@ -13,7 +13,7 @@
 
 namespace {
 
-constexpr int kPrimitiveStride = 5;
+constexpr int kPrimitiveStride = 8;
 constexpr int kMaxStack = 256;
 constexpr int kWarpRowsPerEntry = 9;
 constexpr int kWarpPackScale = 256;
@@ -66,18 +66,39 @@ struct Vec4 {
     double w = 0.0;
 };
 
+struct Vec2 {
+    double x = 0.0;
+    double y = 0.0;
+
+    Vec2 operator+(const Vec2& other) const {
+        return {x + other.x, y + other.y};
+    }
+
+    Vec2 operator-(const Vec2& other) const {
+        return {x - other.x, y - other.y};
+    }
+
+    Vec2 operator*(double scalar) const {
+        return {x * scalar, y * scalar};
+    }
+};
+
 struct Primitive {
     Vec4 meta;
     Vec4 row0;
     Vec4 row1;
     Vec4 row2;
     Vec3 scale;
+    Vec4 extra0;
+    Vec4 extra1;
+    Vec4 extra2;
     int warp_offset = 0;
     int warp_count = 0;
 };
 
 struct CompiledScene {
     std::vector<Primitive> primitives;
+    std::vector<Vec4> polygon_rows;
     std::vector<Vec4> warp_rows;
     std::vector<Vec4> instructions;
 };
@@ -111,6 +132,11 @@ double dot(const Vec3& a, const Vec3& b)
     return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
+double dot(const Vec2& a, const Vec2& b)
+{
+    return a.x * b.x + a.y * b.y;
+}
+
 double length_sq(const Vec3& v)
 {
     return dot(v, v);
@@ -119,6 +145,11 @@ double length_sq(const Vec3& v)
 double length(const Vec3& v)
 {
     return std::sqrt(length_sq(v));
+}
+
+double length(const Vec2& v)
+{
+    return std::sqrt(dot(v, v));
 }
 
 Vec3 normalize(const Vec3& v)
@@ -179,11 +210,12 @@ double fract(double x)
 }
 
 CompiledScene build_scene(const std::vector<std::array<float, 4>>& primitive_rows,
+                          const std::vector<std::array<float, 4>>& polygon_rows,
                           const std::vector<std::array<float, 4>>& warp_rows,
                           const std::vector<std::array<float, 4>>& instruction_rows)
 {
     if ((primitive_rows.size() % kPrimitiveStride) != 0) {
-        throw std::runtime_error("Primitive row count must be a multiple of 5");
+        throw std::runtime_error("Primitive row count must be a multiple of 8");
     }
 
     CompiledScene scene;
@@ -195,6 +227,9 @@ CompiledScene build_scene(const std::vector<std::array<float, 4>>& primitive_row
         const auto& row1 = primitive_rows[i + 2];
         const auto& row2 = primitive_rows[i + 3];
         const auto& scale = primitive_rows[i + 4];
+        const auto& extra0 = primitive_rows[i + 5];
+        const auto& extra1 = primitive_rows[i + 6];
+        const auto& extra2 = primitive_rows[i + 7];
         primitive.meta = {meta[0], meta[1], meta[2], meta[3]};
         primitive.row0 = {row0[0], row0[1], row0[2], row0[3]};
         primitive.row1 = {row1[0], row1[1], row1[2], row1[3]};
@@ -204,10 +239,18 @@ CompiledScene build_scene(const std::vector<std::array<float, 4>>& primitive_row
             std::max<double>(scale[1], 1.0e-6),
             std::max<double>(scale[2], 1.0e-6),
         };
+        primitive.extra0 = {extra0[0], extra0[1], extra0[2], extra0[3]};
+        primitive.extra1 = {extra1[0], extra1[1], extra1[2], extra1[3]};
+        primitive.extra2 = {extra2[0], extra2[1], extra2[2], extra2[3]};
         const int packed_warp = std::max(0, static_cast<int>(std::lround(scale[3])));
         primitive.warp_offset = packed_warp / kWarpPackScale;
         primitive.warp_count = packed_warp - primitive.warp_offset * kWarpPackScale;
         scene.primitives.push_back(primitive);
+    }
+
+    scene.polygon_rows.reserve(polygon_rows.size());
+    for (const auto& row : polygon_rows) {
+        scene.polygon_rows.push_back({row[0], row[1], row[2], row[3]});
     }
 
     scene.warp_rows.reserve(warp_rows.size());
@@ -462,6 +505,96 @@ double sd_box(const Vec3& p, const Vec3& b)
     return length(positive) + std::min(std::max(q.x, std::max(q.y, q.z)), 0.0);
 }
 
+double sd_round_box_2d(const Vec2& p, const Vec2& b, const Vec4& r)
+{
+    const double rx = (p.x > 0.0) ? r.x : r.z;
+    const double ry = (p.x > 0.0) ? r.y : r.w;
+    const double rc = (p.y > 0.0) ? rx : ry;
+    const Vec2 q{std::abs(p.x) - b.x + rc, std::abs(p.y) - b.y + rc};
+    const Vec2 positive{std::max(q.x, 0.0), std::max(q.y, 0.0)};
+    return std::min(std::max(q.x, q.y), 0.0) + length(positive) - rc;
+}
+
+double sd_chamfer_box_2d(const Vec2& p, const Vec2& b, const Vec4& r)
+{
+    const double rx = (p.x > 0.0) ? r.x : r.z;
+    const double ry = (p.x > 0.0) ? r.y : r.w;
+    const double rc = (p.y > 0.0) ? rx : ry;
+    const Vec2 q{std::abs(p.x) - b.x, std::abs(p.y) - b.y};
+    if (rc < 0.001) {
+        const Vec2 positive{std::max(q.x, 0.0), std::max(q.y, 0.0)};
+        return length(positive) + std::min(std::max(q.x, q.y), 0.0);
+    }
+    const double d_cham = (q.x + q.y + rc) * 0.70710678;
+    const double d_box = std::max(q.x, q.y);
+    const double d = std::max(d_box, d_cham);
+    if (d <= 0.0) {
+        return d;
+    }
+    if (d_box <= 0.0) {
+        return d_cham;
+    }
+    if (q.y <= -rc || q.x <= -rc) {
+        const Vec2 positive{std::max(q.x, 0.0), std::max(q.y, 0.0)};
+        return length(positive);
+    }
+    const double t = (-q.x + q.y + rc) / (2.0 * rc);
+    if (t <= 0.0) {
+        return length(q - Vec2{0.0, -rc});
+    }
+    if (t >= 1.0) {
+        return length(q - Vec2{-rc, 0.0});
+    }
+    return d_cham;
+}
+
+double sd_advanced_box(const Vec3& p,
+                       const Vec3& size,
+                       const Vec4& corners,
+                       const double edge_top,
+                       const double edge_bottom,
+                       const double taper,
+                       const int corner_mode,
+                       const int edge_mode)
+{
+    const double taper_z = std::max(size.z, 0.001);
+    const double zn = clampd(p.z / taper_z, -1.0, 1.0);
+    const double mix_value = (zn + 1.0) * 0.5;
+    const double tap_top = std::max(taper, 0.0);
+    const double tap_bottom = std::max(-taper, 0.0);
+    const double tap_factor = std::max(1.0 - tap_top * mix_value - tap_bottom * (1.0 - mix_value), 0.001);
+    const Vec2 size_xy{size.x * tap_factor, size.y * tap_factor};
+    const double slope = std::sqrt(size.x * size.x + size.y * size.y) * (tap_top + tap_bottom) / (2.0 * taper_z);
+    const double lipschitz = std::sqrt(1.0 + slope * slope);
+    const double max_radius = std::min(size_xy.x, size_xy.y);
+    const Vec4 scaled_corners{corners.x * max_radius, corners.y * max_radius, corners.z * max_radius, corners.w * max_radius};
+    const double d2d = (corner_mode == 0) ? sd_round_box_2d({p.x, p.y}, size_xy, scaled_corners) : sd_chamfer_box_2d({p.x, p.y}, size_xy, scaled_corners);
+    const double max_face_radius = std::min(size_xy.x, size_xy.y);
+    const double dz = std::abs(p.z) - size.z;
+    const double edge_radius = ((p.z > 0.0) ? edge_top : edge_bottom) * std::min(max_face_radius, size.z);
+    if (edge_radius > 0.001) {
+        if (edge_mode == 0) {
+            const double dd0 = d2d + edge_radius;
+            const double dd1 = dz + edge_radius;
+            return (std::min(std::max(dd0, dd1), 0.0) + std::sqrt(std::max(dd0, 0.0) * std::max(dd0, 0.0) + std::max(dd1, 0.0) * std::max(dd1, 0.0)) - edge_radius) / lipschitz;
+        }
+        const double base = std::max(d2d, dz);
+        const double cham = (d2d + dz + edge_radius) * 0.70710678;
+        const double dd = std::max(base, cham);
+        if (dd <= 0.0) { return dd / lipschitz; }
+        if (d2d <= 0.0 && dz <= 0.0) { return cham / lipschitz; }
+        if (dz <= -edge_radius) { return d2d / lipschitz; }
+        if (d2d <= -edge_radius) { return dz / lipschitz; }
+        const double tc2 = (-d2d + dz + edge_radius) / (2.0 * edge_radius);
+        if (tc2 <= 0.0) { return std::hypot(d2d, dz + edge_radius) / lipschitz; }
+        if (tc2 >= 1.0) { return std::hypot(d2d + edge_radius, dz) / lipschitz; }
+        return cham / lipschitz;
+    }
+    const double dd0 = std::max(d2d, 0.0);
+    const double dd1 = std::max(dz, 0.0);
+    return (std::sqrt(dd0 * dd0 + dd1 * dd1) + std::min(std::max(d2d, dz), 0.0)) / lipschitz;
+}
+
 double sd_cylinder(const Vec3& p, double radius, double half_height)
 {
     const double d0 = std::abs(std::sqrt(p.x * p.x + p.y * p.y)) - radius;
@@ -471,11 +604,326 @@ double sd_cylinder(const Vec3& p, double radius, double half_height)
     return std::min(std::max(d0, d1), 0.0) + std::sqrt(outside_x * outside_x + outside_y * outside_y);
 }
 
+double sd_advanced_cylinder(const Vec3& p,
+                            const double radius,
+                            const double half_height,
+                            const double bevel_top,
+                            const double bevel_bottom,
+                            const double taper,
+                            const int bevel_mode)
+{
+    const double taper_h = std::max(half_height, 0.001);
+    const double zn = clampd(p.z / taper_h, -1.0, 1.0);
+    const double mix_value = (zn + 1.0) * 0.5;
+    const double tap_top = std::max(taper, 0.0);
+    const double tap_bottom = std::max(-taper, 0.0);
+    const double tap_factor = std::max(1.0 - tap_top * mix_value - tap_bottom * (1.0 - mix_value), 0.001);
+    const double scaled_radius = radius * tap_factor;
+    const double slope = radius * (tap_top + tap_bottom) / (2.0 * taper_h);
+    const double lipschitz = std::sqrt(1.0 + slope * slope);
+    const double d2d = std::sqrt(p.x * p.x + p.y * p.y) - scaled_radius;
+    const double dz = std::abs(p.z) - half_height;
+    const double edge_bevel = (p.z > 0.0) ? bevel_top : bevel_bottom;
+    const double edge_radius = std::min(std::max(edge_bevel, 0.0), std::max(std::min(scaled_radius, half_height) - 0.001, 0.0));
+    if (edge_radius > 0.001) {
+        if (bevel_mode == 0) {
+            const double dd0 = d2d + edge_radius;
+            const double dd1 = dz + edge_radius;
+            return (std::min(std::max(dd0, dd1), 0.0) + std::sqrt(std::max(dd0, 0.0) * std::max(dd0, 0.0) + std::max(dd1, 0.0) * std::max(dd1, 0.0)) - edge_radius) / lipschitz;
+        }
+        const double base = std::max(d2d, dz);
+        const double cham = (d2d + dz + edge_radius) * 0.70710678;
+        const double dd = std::max(base, cham);
+        if (dd <= 0.0) { return dd / lipschitz; }
+        if (d2d <= 0.0 && dz <= 0.0) { return cham / lipschitz; }
+        if (dz <= -edge_radius) { return d2d / lipschitz; }
+        if (d2d <= -edge_radius) { return dz / lipschitz; }
+        const double tc2 = (-d2d + dz + edge_radius) / (2.0 * edge_radius);
+        if (tc2 <= 0.0) { return std::hypot(d2d, dz + edge_radius) / lipschitz; }
+        if (tc2 >= 1.0) { return std::hypot(d2d + edge_radius, dz) / lipschitz; }
+        return cham / lipschitz;
+    }
+    const double dd0 = std::max(d2d, 0.0);
+    const double dd1 = std::max(dz, 0.0);
+    return (std::sqrt(dd0 * dd0 + dd1 * dd1) + std::min(std::max(d2d, dz), 0.0)) / lipschitz;
+}
+
 double sd_torus(const Vec3& p, double major_radius, double minor_radius)
 {
-    const double qx = std::sqrt(p.x * p.x + p.z * p.z) - major_radius;
-    const double qy = p.y;
+    const double qx = std::sqrt(p.x * p.x + p.y * p.y) - major_radius;
+    const double qy = p.z;
     return std::sqrt(qx * qx + qy * qy) - minor_radius;
+}
+
+double sd_capped_torus(Vec3 p, double half_angle, double major_radius, double minor_radius)
+{
+    p.x = std::abs(p.x);
+    const Vec2 sc{std::sin(half_angle), std::cos(half_angle)};
+    const double k = ((sc.y * p.x) > (sc.x * p.y)) ? (p.x * sc.x + p.y * sc.y) : std::sqrt(p.x * p.x + p.y * p.y);
+    return std::sqrt(dot(p, p) + major_radius * major_radius - 2.0 * major_radius * k) - minor_radius;
+}
+
+double sd_cone(const Vec3& p, double bottom_radius, double top_radius, double half_height)
+{
+    const double qx = std::sqrt(p.x * p.x + p.y * p.y);
+    const double qy = p.z;
+    const Vec2 q{qx, qy};
+    const Vec2 k1{top_radius, half_height};
+    const Vec2 k2{top_radius - bottom_radius, 2.0 * half_height};
+    const Vec2 ca{q.x - std::min(q.x, (q.y < 0.0) ? bottom_radius : top_radius), std::abs(q.y) - half_height};
+    const double denom = std::max(dot(k2, k2), 1.0e-12);
+    const double t = clampd(dot(k1 - q, k2) / denom, 0.0, 1.0);
+    const Vec2 cb = q - k1 + (k2 * t);
+    const double sign = (cb.x < 0.0 && ca.y < 0.0) ? -1.0 : 1.0;
+    return sign * std::sqrt(std::min(dot(ca, ca), dot(cb, cb)));
+}
+
+double sd_advanced_cone(const Vec3& p,
+                        const double bottom_radius,
+                        const double top_radius,
+                        const double half_height,
+                        const double bevel,
+                        const int bevel_mode)
+{
+    const double radial = std::sqrt(p.x * p.x + p.y * p.y);
+    const Vec2 edge{top_radius - bottom_radius, 2.0 * half_height};
+    const double edge_len = std::max(length(edge), 1.0e-12);
+    const double dside = (edge.y * (radial - bottom_radius) - edge.x * (p.z + half_height)) / edge_len;
+    const double dz = std::abs(p.z) - half_height;
+    const double edge_radius = std::min(std::max(bevel, 0.0), std::max(half_height - 0.001, 0.0));
+    if (edge_radius > 0.001) {
+        if (bevel_mode == 0) {
+            const double dd0 = dside + edge_radius;
+            const double dd1 = dz + edge_radius;
+            return std::min(std::max(dd0, dd1), 0.0) + std::sqrt(std::max(dd0, 0.0) * std::max(dd0, 0.0) + std::max(dd1, 0.0) * std::max(dd1, 0.0)) - edge_radius;
+        }
+        const double base = std::max(dside, dz);
+        const double cham = (dside + dz + edge_radius) * 0.70710678;
+        const double dd = std::max(base, cham);
+        if (dd <= 0.0) { return dd; }
+        if (dside <= 0.0 && dz <= 0.0) { return cham; }
+        if (dz <= -edge_radius) { return dside; }
+        if (dside <= -edge_radius) { return dz; }
+        const double tc2 = (-dside + dz + edge_radius) / (2.0 * edge_radius);
+        if (tc2 <= 0.0) { return std::hypot(dside, dz + edge_radius); }
+        if (tc2 >= 1.0) { return std::hypot(dside + edge_radius, dz); }
+        return cham;
+    }
+    return sd_cone(p, bottom_radius, top_radius, half_height);
+}
+
+double sd_round_cone(const Vec3& p, double bottom_radius, double top_radius, double half_height)
+{
+    const Vec2 q{std::sqrt(p.x * p.x + p.y * p.y), p.z + half_height};
+    const double total_height = std::max(2.0 * half_height, 1.0e-6);
+    if (std::abs(bottom_radius - top_radius) >= total_height) {
+        return (bottom_radius >= top_radius) ? (length(q) - bottom_radius) : (length(q - Vec2{0.0, total_height}) - top_radius);
+    }
+    const double slope = (bottom_radius - top_radius) / total_height;
+    const double axis = std::sqrt(std::max(1.0 - slope * slope, 1.0e-12));
+    const double k = -slope * q.x + axis * q.y;
+    if (k <= 0.0) {
+        return length(q) - bottom_radius;
+    }
+    if (k >= axis * total_height) {
+        return length(q - Vec2{0.0, total_height}) - top_radius;
+    }
+    return axis * q.x + slope * q.y - bottom_radius;
+}
+
+Vec2 capsule_end_radii(double radius, double taper)
+{
+    const double tap_top = std::max(taper, 0.0);
+    const double tap_bottom = std::max(-taper, 0.0);
+    return {radius * std::max(1.0 - tap_bottom, 0.0), radius * std::max(1.0 - tap_top, 0.0)};
+}
+
+double sd_capsule(const Vec3& p, double radius, double half_height, double taper)
+{
+    const Vec2 radii = capsule_end_radii(radius, taper);
+    return sd_round_cone(p, radii.x, radii.y, half_height);
+}
+
+double sd_regular_polygon_2d(Vec2 p, double radius, int sides)
+{
+    const int safe_sides = std::max(sides, 3);
+    const double angle_step = kPi / static_cast<double>(safe_sides);
+    const double inner_radius = radius * std::cos(angle_step);
+    const double half_edge = radius * std::sin(angle_step);
+    p = {-p.y, p.x};
+    const double sector = angle_step * std::floor((std::atan2(p.y, p.x) + angle_step) / angle_step / 2.0) * 2.0;
+    const Vec2 cs{std::cos(sector), std::sin(sector)};
+    p = {cs.x * p.x + cs.y * p.y, -cs.y * p.x + cs.x * p.y};
+    const Vec2 projected{inner_radius, clampd(p.y, -half_edge, half_edge)};
+    const Vec2 diff = p - projected;
+    return length(diff) * ((p.x - inner_radius) >= 0.0 ? 1.0 : -1.0);
+}
+
+double sd_star_polygon_2d(Vec2 p, double radius, int sides, double star)
+{
+    if (star < 0.001) {
+        return sd_regular_polygon_2d(p, radius, sides);
+    }
+    const int safe_sides = std::max(sides, 3);
+    const double angle_step = kPi / static_cast<double>(safe_sides);
+    const double inner_radius = radius * std::cos(angle_step) * std::max(1.0 - star, 0.01);
+    const double angle = std::atan2(p.y, p.x);
+    const double sector = std::floor((angle + angle_step) / (2.0 * angle_step)) * 2.0 * angle_step;
+    const Vec2 cs{std::cos(sector), std::sin(sector)};
+    Vec2 q{cs.x * p.x + cs.y * p.y, -cs.y * p.x + cs.x * p.y};
+    q.y = std::abs(q.y);
+    const Vec2 a{radius, 0.0};
+    const Vec2 b{inner_radius * std::cos(angle_step), inner_radius * std::sin(angle_step)};
+    const Vec2 ab = b - a;
+    const double denom = std::max(dot(ab, ab), 1.0e-12);
+    const double t = clampd(dot(q - a, ab) / denom, 0.0, 1.0);
+    const Vec2 proj = a + (ab * t);
+    const double dist = length(q - proj);
+    const double cross_value = ab.x * (q.y - a.y) - ab.y * (q.x - a.x);
+    return (cross_value > 0.0) ? -dist : dist;
+}
+
+Vec2 load_polygon_point(const CompiledScene& scene, int index)
+{
+    if (index < 0 || index >= static_cast<int>(scene.polygon_rows.size())) {
+        return {0.0, 0.0};
+    }
+    const Vec4& row = scene.polygon_rows[static_cast<std::size_t>(index)];
+    return {row.x, row.y};
+}
+
+double segment_distance_2d(const Vec2& p, const Vec2& a, const Vec2& b)
+{
+    const Vec2 edge = b - a;
+    const double edge_len_sq = std::max(dot(edge, edge), 1.0e-12);
+    const double t = clampd(dot(p - a, edge) / edge_len_sq, 0.0, 1.0);
+    return length((p - a) - (edge * t));
+}
+
+double sd_polygon_2d(const CompiledScene& scene, const Vec2& p, int point_offset, int point_count)
+{
+    if (point_count < 3) {
+        return 1.0e20;
+    }
+    double d = 1.0e20;
+    int winding = 0;
+    for (int i = 0; i < point_count; ++i) {
+        const Vec2 a = load_polygon_point(scene, point_offset + i);
+        const Vec2 b = load_polygon_point(scene, point_offset + ((i + 1) % point_count));
+        d = std::min(d, segment_distance_2d(p, a, b));
+        const Vec2 edge = b - a;
+        const Vec2 rel = p - a;
+        const double cross_value = edge.x * rel.y - edge.y * rel.x;
+        if (a.y <= p.y && b.y > p.y && cross_value > 0.0) {
+            ++winding;
+        }
+        if (a.y > p.y && b.y <= p.y && cross_value < 0.0) {
+            --winding;
+        }
+    }
+    return (winding != 0) ? -d : d;
+}
+
+double sd_prism(double distance_2d, double z, double half_height)
+{
+    const double dz = std::abs(z) - half_height;
+    const double outside_x = std::max(distance_2d, 0.0);
+    const double outside_y = std::max(dz, 0.0);
+    return std::min(std::max(distance_2d, dz), 0.0) + std::sqrt(outside_x * outside_x + outside_y * outside_y);
+}
+
+double sd_advanced_ngon(const Vec3& p,
+                        const double radius,
+                        const double half_height,
+                        const int sides,
+                        const double corner,
+                        const double edge_top,
+                        const double edge_bottom,
+                        const double taper,
+                        const int edge_mode,
+                        const double star)
+{
+    const double taper_h = std::max(half_height, 0.001);
+    const double zn = clampd(p.z / taper_h, -1.0, 1.0);
+    const double mix_value = (zn + 1.0) * 0.5;
+    const double tap_top = std::max(taper, 0.0);
+    const double tap_bottom = std::max(-taper, 0.0);
+    const double tap_factor = std::max(1.0 - tap_top * mix_value - tap_bottom * (1.0 - mix_value), 0.001);
+    const double scaled_radius = radius * tap_factor;
+    const double slope = radius * (tap_top + tap_bottom) / (2.0 * taper_h);
+    const double lipschitz = std::sqrt(1.0 + slope * slope);
+    const double an = kPi / static_cast<double>(std::max(sides, 3));
+    const double apothem = scaled_radius * std::cos(an);
+    const double bevel_radius = corner * apothem;
+    const double inner_radius = scaled_radius - bevel_radius / std::max(std::cos(an), 0.001);
+    const double d2d = ((star > 0.001) ? sd_star_polygon_2d({p.x, p.y}, inner_radius, sides, star) : sd_regular_polygon_2d({p.x, p.y}, inner_radius, sides)) - bevel_radius;
+    const double dz = std::abs(p.z) - half_height;
+    const double edge_radius = ((p.z > 0.0) ? edge_top : edge_bottom) * std::min(apothem, half_height);
+    if (edge_radius > 0.001) {
+        if (edge_mode == 0) {
+            const double dd0 = d2d + edge_radius;
+            const double dd1 = dz + edge_radius;
+            return (std::min(std::max(dd0, dd1), 0.0) + std::sqrt(std::max(dd0, 0.0) * std::max(dd0, 0.0) + std::max(dd1, 0.0) * std::max(dd1, 0.0)) - edge_radius) / lipschitz;
+        }
+        const double base = std::max(d2d, dz);
+        const double cham = (d2d + dz + edge_radius) * 0.70710678;
+        const double dd = std::max(base, cham);
+        if (dd <= 0.0) { return dd / lipschitz; }
+        if (d2d <= 0.0 && dz <= 0.0) { return cham / lipschitz; }
+        if (dz <= -edge_radius) { return d2d / lipschitz; }
+        if (d2d <= -edge_radius) { return dz / lipschitz; }
+        const double tc2 = (-d2d + dz + edge_radius) / (2.0 * edge_radius);
+        if (tc2 <= 0.0) { return std::hypot(d2d, dz + edge_radius) / lipschitz; }
+        if (tc2 >= 1.0) { return std::hypot(d2d + edge_radius, dz) / lipschitz; }
+        return cham / lipschitz;
+    }
+    const double dd0 = std::max(d2d, 0.0);
+    const double dd1 = std::max(dz, 0.0);
+    return (std::sqrt(dd0 * dd0 + dd1 * dd1) + std::min(std::max(d2d, dz), 0.0)) / lipschitz;
+}
+
+double sd_advanced_polygon(const CompiledScene& scene,
+                           const Vec3& p,
+                           const double half_height,
+                           const int point_offset,
+                           const int point_count,
+                           const double edge_top,
+                           const double edge_bottom,
+                           const double taper,
+                           const int edge_mode)
+{
+    const double taper_h = std::max(half_height, 0.001);
+    const double zn = clampd(p.z / taper_h, -1.0, 1.0);
+    const double mix_value = (zn + 1.0) * 0.5;
+    const double tap_top = std::max(taper, 0.0);
+    const double tap_bottom = std::max(-taper, 0.0);
+    const double tap_factor = std::max(1.0 - tap_top * mix_value - tap_bottom * (1.0 - mix_value), 0.001);
+    const double slope = (tap_top + tap_bottom) / (2.0 * taper_h);
+    const double lipschitz = std::sqrt(1.0 + slope * slope);
+    const double d2d = sd_polygon_2d(scene, {p.x / tap_factor, p.y / tap_factor}, point_offset, point_count) * tap_factor;
+    const double dz = std::abs(p.z) - half_height;
+    const double edge_radius = ((p.z > 0.0) ? edge_top : edge_bottom) * half_height;
+    if (edge_radius > 0.001) {
+        if (edge_mode == 0) {
+            const double dd0 = d2d + edge_radius;
+            const double dd1 = dz + edge_radius;
+            return (std::min(std::max(dd0, dd1), 0.0) + std::sqrt(std::max(dd0, 0.0) * std::max(dd0, 0.0) + std::max(dd1, 0.0) * std::max(dd1, 0.0)) - edge_radius) / lipschitz;
+        }
+        const double base = std::max(d2d, dz);
+        const double cham = (d2d + dz + edge_radius) * 0.70710678;
+        const double dd = std::max(base, cham);
+        if (dd <= 0.0) { return dd / lipschitz; }
+        if (d2d <= 0.0 && dz <= 0.0) { return cham / lipschitz; }
+        if (dz <= -edge_radius) { return d2d / lipschitz; }
+        if (d2d <= -edge_radius) { return dz / lipschitz; }
+        const double tc2 = (-d2d + dz + edge_radius) / (2.0 * edge_radius);
+        if (tc2 <= 0.0) { return std::hypot(d2d, dz + edge_radius) / lipschitz; }
+        if (tc2 >= 1.0) { return std::hypot(d2d + edge_radius, dz) / lipschitz; }
+        return cham / lipschitz;
+    }
+    const double dd0 = std::max(d2d, 0.0);
+    const double dd1 = std::max(dz, 0.0);
+    return (std::sqrt(dd0 * dd0 + dd1 * dd1) + std::min(std::max(d2d, dz), 0.0)) / lipschitz;
 }
 
 double kernel(double x, double k)
@@ -527,17 +975,61 @@ double eval_primitive(const CompiledScene& scene, int primitive_index, const Vec
     const Vec3 scale = primitive.scale;
     const double min_scale = std::max(min_component(scale), 1.0e-6);
     const int primitive_type = static_cast<int>(std::lround(primitive.meta.x));
+    const double bevel = std::max(primitive.extra0.x, 0.0);
+    double post_bevel = bevel;
     if (primitive_type == 0) {
-        return sd_ellipsoid(local_point, {primitive.meta.y * scale.x, primitive.meta.y * scale.y, primitive.meta.y * scale.z}) * distance_scale;
+        return (sd_ellipsoid(local_point, {primitive.meta.y * scale.x, primitive.meta.y * scale.y, primitive.meta.y * scale.z}) - bevel) * distance_scale;
     }
     if (primitive_type == 1) {
-        return sd_box(local_point, {primitive.meta.y * scale.x, primitive.meta.z * scale.y, primitive.meta.w * scale.z}) * distance_scale;
+        const Vec3 size{primitive.meta.y * scale.x, primitive.meta.z * scale.y, primitive.meta.w * scale.z};
+        const double detail_sum = primitive.extra0.y + primitive.extra0.z + primitive.extra0.w + primitive.extra1.x + primitive.extra1.y + primitive.extra1.z + std::abs(primitive.extra1.w);
+        const double distance = (detail_sum > 0.001)
+            ? sd_advanced_box(local_point, size, {primitive.extra0.y, primitive.extra0.z, primitive.extra0.w, primitive.extra1.x}, primitive.extra1.y, primitive.extra1.z, primitive.extra1.w, static_cast<int>(std::lround(primitive.extra2.x)), static_cast<int>(std::lround(primitive.extra2.y)))
+            : sd_box(local_point, size);
+        return (distance - bevel) * distance_scale;
     }
     if (primitive_type == 2) {
-        return sd_cylinder({local_point.x / scale.x, local_point.y / scale.y, local_point.z / scale.z}, primitive.meta.y, primitive.meta.z) * min_scale * distance_scale;
+        const Vec3 scaled_point{local_point.x / scale.x, local_point.y / scale.y, local_point.z / scale.z};
+        const double bevel_top = std::max(primitive.extra0.x, 0.0);
+        const double bevel_bottom = std::max(primitive.extra0.y, 0.0);
+        const double distance = ((std::max(bevel_top, bevel_bottom) + std::abs(primitive.extra0.z)) > 0.001)
+            ? sd_advanced_cylinder(scaled_point, primitive.meta.y, primitive.meta.z, bevel_top, bevel_bottom, primitive.extra0.z, static_cast<int>(std::lround(primitive.extra0.w)))
+            : sd_cylinder(scaled_point, primitive.meta.y, primitive.meta.z);
+        return distance * min_scale * distance_scale;
     }
     if (primitive_type == 3) {
-        return sd_torus({local_point.x / scale.x, local_point.y / scale.y, local_point.z / scale.z}, primitive.meta.y, primitive.meta.z) * min_scale * distance_scale;
+        const Vec3 scaled_point{local_point.x / scale.x, local_point.y / scale.y, local_point.z / scale.z};
+        const double angle = clampd(primitive.extra0.y, 0.0, kPi * 2.0);
+        const double distance = ((kPi * 2.0 - angle) > 0.001)
+            ? sd_capped_torus(scaled_point, angle * 0.5, primitive.meta.y, primitive.meta.z)
+            : sd_torus(scaled_point, primitive.meta.y, primitive.meta.z);
+        return distance * min_scale * distance_scale;
+    }
+    if (primitive_type == 4) {
+        const Vec3 scaled_point{local_point.x / scale.x, local_point.y / scale.y, local_point.z / scale.z};
+        const double distance = (bevel > 0.001)
+            ? sd_advanced_cone(scaled_point, primitive.meta.y, primitive.meta.z, primitive.meta.w, bevel, static_cast<int>(std::lround(primitive.extra0.y)))
+            : sd_cone(scaled_point, primitive.meta.y, primitive.meta.z, primitive.meta.w);
+        return distance * min_scale * distance_scale;
+    }
+    if (primitive_type == 5) {
+        return sd_capsule({local_point.x / scale.x, local_point.y / scale.y, local_point.z / scale.z}, primitive.meta.y, primitive.meta.z, primitive.extra0.y) * min_scale * distance_scale;
+    }
+    if (primitive_type == 6) {
+        const Vec3 scaled_point{local_point.x / scale.x, local_point.y / scale.y, local_point.z / scale.z};
+        const double detail_sum = primitive.extra0.y + primitive.extra0.z + primitive.extra0.w + std::abs(primitive.extra1.x) + primitive.extra1.z;
+        const double distance = (detail_sum > 0.001)
+            ? sd_advanced_ngon(scaled_point, primitive.meta.y, primitive.meta.z, static_cast<int>(std::lround(primitive.meta.w)), primitive.extra0.y, primitive.extra0.z, primitive.extra0.w, primitive.extra1.x, static_cast<int>(std::lround(primitive.extra1.y)), primitive.extra1.z)
+            : sd_prism(sd_regular_polygon_2d({scaled_point.x, scaled_point.y}, primitive.meta.y, static_cast<int>(std::lround(primitive.meta.w))), scaled_point.z, primitive.meta.z);
+        return distance * min_scale * distance_scale;
+    }
+    if (primitive_type == 7) {
+        const Vec3 scaled_point{local_point.x / scale.x, local_point.y / scale.y, local_point.z / scale.z};
+        const double detail_sum = primitive.extra0.y + primitive.extra0.z + std::abs(primitive.extra0.w);
+        const double distance = (detail_sum > 0.001)
+            ? sd_advanced_polygon(scene, scaled_point, primitive.meta.w, static_cast<int>(std::lround(primitive.meta.y)), static_cast<int>(std::lround(primitive.meta.z)), primitive.extra0.y, primitive.extra0.z, primitive.extra0.w, static_cast<int>(std::lround(primitive.extra1.x)))
+            : sd_prism(sd_polygon_2d(scene, {scaled_point.x, scaled_point.y}, static_cast<int>(std::lround(primitive.meta.y)), static_cast<int>(std::lround(primitive.meta.z))), scaled_point.z, primitive.meta.w);
+        return (distance - post_bevel) * min_scale * distance_scale;
     }
     return 1.0e20;
 }
@@ -880,6 +1372,7 @@ QEFData build_dual_contour_qef(const CompiledScene& scene,
 }
 
 MeshResult extract_dual_contour_impl(const std::vector<std::array<float, 4>>& primitive_rows,
+                                     const std::vector<std::array<float, 4>>& polygon_rows,
                                      const std::vector<std::array<float, 4>>& warp_rows,
                                      const std::vector<std::array<float, 4>>& instruction_rows,
                                      const std::array<float, 3>& bounds_min_in,
@@ -890,7 +1383,7 @@ MeshResult extract_dual_contour_impl(const std::vector<std::array<float, 4>>& pr
         throw std::runtime_error("Resolution must be at least 2");
     }
 
-    const CompiledScene scene = build_scene(primitive_rows, warp_rows, instruction_rows);
+    const CompiledScene scene = build_scene(primitive_rows, polygon_rows, warp_rows, instruction_rows);
     if (scene.primitives.empty() || scene.instructions.empty()) {
         return {};
     }
@@ -1096,6 +1589,7 @@ MeshResult extract_dual_contour_impl(const std::vector<std::array<float, 4>>& pr
 }
 
 MeshResult extract_iso_simplex_impl(const std::vector<std::array<float, 4>>& primitive_rows,
+                                    const std::vector<std::array<float, 4>>& polygon_rows,
                                     const std::vector<std::array<float, 4>>& warp_rows,
                                     const std::vector<std::array<float, 4>>& instruction_rows,
                                     const std::array<float, 3>& bounds_min_in,
@@ -1106,7 +1600,7 @@ MeshResult extract_iso_simplex_impl(const std::vector<std::array<float, 4>>& pri
         throw std::runtime_error("Resolution must be at least 2");
     }
 
-    const CompiledScene scene = build_scene(primitive_rows, warp_rows, instruction_rows);
+    const CompiledScene scene = build_scene(primitive_rows, polygon_rows, warp_rows, instruction_rows);
     if (scene.primitives.empty() || scene.instructions.empty()) {
         return {};
     }
@@ -1419,12 +1913,13 @@ PyObject* mesh_result_to_python(const MeshResult& mesh)
 PyObject* py_extract_dual_contour_mesh(PyObject*, PyObject* args)
 {
     PyObject* primitive_rows_obj = nullptr;
+    PyObject* polygon_rows_obj = nullptr;
     PyObject* warp_rows_obj = nullptr;
     PyObject* instruction_rows_obj = nullptr;
     PyObject* bounds_min_obj = nullptr;
     PyObject* bounds_max_obj = nullptr;
     int resolution = 0;
-    if (!PyArg_ParseTuple(args, "OOOOOi", &primitive_rows_obj, &warp_rows_obj,
+    if (!PyArg_ParseTuple(args, "OOOOOOi", &primitive_rows_obj, &polygon_rows_obj, &warp_rows_obj,
                           &instruction_rows_obj, &bounds_min_obj, &bounds_max_obj,
                           &resolution)) {
         return nullptr;
@@ -1432,6 +1927,7 @@ PyObject* py_extract_dual_contour_mesh(PyObject*, PyObject* args)
 
     try {
         const auto primitive_rows = parse_rows(primitive_rows_obj, "primitive_rows");
+        const auto polygon_rows = parse_rows(polygon_rows_obj, "polygon_rows");
         const auto warp_rows = parse_rows(warp_rows_obj, "warp_rows");
         const auto instruction_rows = parse_rows(instruction_rows_obj, "instruction_rows");
         const auto bounds_min = parse_bounds(bounds_min_obj, "bounds_min");
@@ -1440,7 +1936,7 @@ PyObject* py_extract_dual_contour_mesh(PyObject*, PyObject* args)
         PyThreadState* state = PyEval_SaveThread();
         MeshResult mesh;
         try {
-            mesh = extract_dual_contour_impl(primitive_rows, warp_rows, instruction_rows,
+            mesh = extract_dual_contour_impl(primitive_rows, polygon_rows, warp_rows, instruction_rows,
                                              bounds_min, bounds_max, resolution);
         } catch (...) {
             PyEval_RestoreThread(state);
@@ -1457,12 +1953,13 @@ PyObject* py_extract_dual_contour_mesh(PyObject*, PyObject* args)
 PyObject* py_extract_iso_simplex_mesh(PyObject*, PyObject* args)
 {
     PyObject* primitive_rows_obj = nullptr;
+    PyObject* polygon_rows_obj = nullptr;
     PyObject* warp_rows_obj = nullptr;
     PyObject* instruction_rows_obj = nullptr;
     PyObject* bounds_min_obj = nullptr;
     PyObject* bounds_max_obj = nullptr;
     int resolution = 0;
-    if (!PyArg_ParseTuple(args, "OOOOOi", &primitive_rows_obj, &warp_rows_obj,
+    if (!PyArg_ParseTuple(args, "OOOOOOi", &primitive_rows_obj, &polygon_rows_obj, &warp_rows_obj,
                           &instruction_rows_obj, &bounds_min_obj, &bounds_max_obj,
                           &resolution)) {
         return nullptr;
@@ -1470,6 +1967,7 @@ PyObject* py_extract_iso_simplex_mesh(PyObject*, PyObject* args)
 
     try {
         const auto primitive_rows = parse_rows(primitive_rows_obj, "primitive_rows");
+        const auto polygon_rows = parse_rows(polygon_rows_obj, "polygon_rows");
         const auto warp_rows = parse_rows(warp_rows_obj, "warp_rows");
         const auto instruction_rows = parse_rows(instruction_rows_obj, "instruction_rows");
         const auto bounds_min = parse_bounds(bounds_min_obj, "bounds_min");
@@ -1478,7 +1976,7 @@ PyObject* py_extract_iso_simplex_mesh(PyObject*, PyObject* args)
         PyThreadState* state = PyEval_SaveThread();
         MeshResult mesh;
         try {
-            mesh = extract_iso_simplex_impl(primitive_rows, warp_rows, instruction_rows,
+            mesh = extract_iso_simplex_impl(primitive_rows, polygon_rows, warp_rows, instruction_rows,
                                             bounds_min, bounds_max, resolution);
         } catch (...) {
             PyEval_RestoreThread(state);

@@ -70,10 +70,14 @@ def _format_vec(values):
 
 
 def _draw_object_node(layout, node):
+    sdf_tree._ensure_object_node_sockets(node)
     box = layout.box()
     box.label(text="Initializer", icon="OBJECT_DATA")
     box.prop(node, "name", text="Node")
     box.prop(node, "primitive_type", text="Type")
+    primitive_type = str(node.primitive_type or "sphere")
+    if primitive_type == "polygon":
+        sdf_tree.ensure_polygon_defaults(node)
     transform_socket = sdf_tree.node_input_socket(node, "Transform")
     if transform_socket is not None and transform_socket.is_linked:
         _draw_socket_input(box, transform_socket)
@@ -81,6 +85,74 @@ def _draw_object_node(layout, node):
         box.label(text="Transform: viewport handle")
     for socket_name in sdf_tree.object_parameter_socket_names(node):
         _draw_socket_input(box, sdf_tree.node_input_socket(node, socket_name))
+    if primitive_type == "box":
+        box.prop(node, "bevel")
+    elif primitive_type == "cylinder":
+        row = box.row(align=True)
+        row.prop(node, "cylinder_bevel_top")
+        row.prop(node, "cylinder_bevel_bottom")
+        row = box.row(align=True)
+        row.prop(node, "cylinder_taper")
+        row.prop(node, "cylinder_bevel_mode", text="")
+    elif primitive_type == "cone":
+        row = box.row(align=True)
+        row.prop(node, "bevel")
+        row.prop(node, "cone_bevel_mode", text="")
+    if primitive_type == "torus":
+        box.prop(node, "torus_angle", text="Angle")
+    elif primitive_type == "capsule":
+        box.prop(node, "capsule_taper")
+    elif primitive_type == "box":
+        box.prop(node, "box_corners")
+        row = box.row(align=True)
+        row.prop(node, "box_edge_top")
+        row.prop(node, "box_edge_bottom")
+        box.prop(node, "box_taper")
+        row = box.row(align=True)
+        row.prop(node, "box_corner_mode")
+        row.prop(node, "box_edge_mode")
+    elif primitive_type == "ngon":
+        row = box.row(align=True)
+        row.prop(node, "ngon_sides", text="Sides")
+        row.prop(node, "ngon_star")
+        box.prop(node, "ngon_corner")
+        row = box.row(align=True)
+        row.prop(node, "ngon_edge_top")
+        row.prop(node, "ngon_edge_bottom")
+        row = box.row(align=True)
+        row.prop(node, "ngon_taper")
+        row.prop(node, "ngon_edge_mode")
+    elif primitive_type == "polygon":
+        box.prop(node, "polygon_interpolation")
+        row = box.row(align=True)
+        row.prop(node, "polygon_edge_top")
+        row.prop(node, "polygon_edge_bottom")
+        box.prop(node, "polygon_taper")
+        box.prop(node, "polygon_edge_mode")
+        box.prop(node, "polygon_is_line")
+        if node.polygon_is_line:
+            box.prop(node, "polygon_line_thickness")
+        target = runtime.object_identity(getattr(node, "target", None))
+        if runtime.is_polygon_curve_proxy(target):
+            box.label(text=f"Curve Points: {len(node.polygon_points)}")
+            box.label(text="Edit the curve points and handles in Edit Mode", icon="INFO")
+        else:
+            box.label(text="Edit points in viewport", icon="INFO")
+            for index, point in enumerate(sdf_tree.polygon_point_data(node, ensure_default=True)):
+                row = box.row(align=True)
+                item = node.polygon_points[index]
+                row.prop(item, "co", index=0, text=f"P{index + 1} X")
+                row.prop(item, "co", index=1, text="Y")
+                row.prop(item, "corner", text="R")
+            row = box.row(align=True)
+            operator = row.operator("mathops_v2.polygon_point_add", text="Add Point", icon="ADD")
+            operator.tree_name = node.id_data.name
+            operator.node_name = node.name
+            remove = row.row(align=True)
+            remove.enabled = len(node.polygon_points) > (2 if node.polygon_is_line else 3)
+            operator = remove.operator("mathops_v2.polygon_point_remove", text="Remove", icon="REMOVE")
+            operator.tree_name = node.id_data.name
+            operator.node_name = node.name
     if getattr(node, "target", None) is not None:
         box.prop(node.target, "name", text="Handle")
     box.prop(node, "proxy_id", text="Proxy ID")
@@ -260,7 +332,7 @@ class MATHOPS_V2_PT_render_settings(Panel):
 
         layout.separator()
         layout.label(text=f"Graph: {summary['tree_name']}")
-        layout.label(text=f"Proxy Empties: {summary['proxy_count']}")
+        layout.label(text=f"Proxy Handles: {summary['proxy_count']}")
         if tree is not None:
             layout.label(text=f"Active Graph: {tree.name}", icon="NODETREE")
 

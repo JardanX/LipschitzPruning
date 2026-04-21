@@ -1,6 +1,6 @@
 import bpy
 from bpy.app.handlers import persistent
-from bpy.props import BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, CollectionProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty, PointerProperty, StringProperty
 
 from . import runtime
 from .nodes import sdf_tree
@@ -12,6 +12,10 @@ PRIMITIVE_ITEMS = (
     ("box", "Box", "Box SDF proxy"),
     ("cylinder", "Cylinder", "Cylinder SDF proxy"),
     ("torus", "Torus", "Torus SDF proxy"),
+    ("cone", "Cone", "Cone SDF proxy"),
+    ("capsule", "Capsule", "Capsule SDF proxy"),
+    ("ngon", "N-Gon", "Regular polygon prism SDF proxy"),
+    ("polygon", "Polygon", "Polygon prism SDF proxy"),
 )
 
 
@@ -19,6 +23,11 @@ def _tag_redraw(_self=None, context=None):
     runtime.clear_error()
     runtime.note_interaction()
     runtime.tag_redraw(context)
+
+
+def _update_primitive_type(self, context):
+    sdf_tree.ensure_polygon_defaults(self)
+    _tag_redraw(self, context)
 
 
 def _poll_tree(_self, tree):
@@ -93,8 +102,10 @@ class MathOPSV2ObjectSettings(bpy.types.PropertyGroup):
     proxy_id: StringProperty(default="", options={"HIDDEN"})
     source_tree_name: StringProperty(default="", options={"HIDDEN"})
     source_node_name: StringProperty(default="", options={"HIDDEN"})
-    primitive_type: EnumProperty(items=PRIMITIVE_ITEMS, default="sphere", update=_tag_redraw)
+    primitive_type: EnumProperty(items=PRIMITIVE_ITEMS, default="sphere", update=_update_primitive_type)
     radius: FloatProperty(name="Radius", default=0.5, min=0.001, update=_tag_redraw)
+    cone_top_radius: FloatProperty(name="Top Radius", default=0.0, min=0.0, update=_tag_redraw)
+    cone_bottom_radius: FloatProperty(name="Bottom Radius", default=0.5, min=0.0, update=_tag_redraw)
     size: FloatVectorProperty(
         name="Half Size",
         size=3,
@@ -106,6 +117,36 @@ class MathOPSV2ObjectSettings(bpy.types.PropertyGroup):
     height: FloatProperty(name="Height", default=1.0, min=0.001, update=_tag_redraw)
     major_radius: FloatProperty(name="Major Radius", default=0.75, min=0.001, update=_tag_redraw)
     minor_radius: FloatProperty(name="Minor Radius", default=0.25, min=0.001, update=_tag_redraw)
+    bevel: FloatProperty(name="Bevel", default=0.0, min=0.0, update=_tag_redraw)
+    cylinder_bevel_top: FloatProperty(name="Bevel Top", default=0.0, min=0.0, update=_tag_redraw)
+    cylinder_bevel_bottom: FloatProperty(name="Bevel Bottom", default=0.0, min=0.0, update=_tag_redraw)
+    cylinder_taper: FloatProperty(name="Taper", default=0.0, min=-1.0, max=1.0, update=_tag_redraw)
+    cylinder_bevel_mode: EnumProperty(name="Bevel Mode", items=sdf_tree.BLEND_MODE_ITEMS, default="SMOOTH", update=_tag_redraw)
+    cone_bevel_mode: EnumProperty(name="Bevel Mode", items=sdf_tree.BLEND_MODE_ITEMS, default="SMOOTH", update=_tag_redraw)
+    capsule_taper: FloatProperty(name="Taper", default=0.0, min=-1.0, max=1.0, update=_tag_redraw)
+    torus_angle: FloatProperty(name="Angle", default=6.283185307179586, min=0.0, max=6.283185307179586, subtype="ANGLE", update=_tag_redraw)
+    box_corners: FloatVectorProperty(name="Corner Bevels", size=4, default=(0.0, 0.0, 0.0, 0.0), min=0.0, max=1.0, update=_tag_redraw)
+    box_edge_top: FloatProperty(name="Edge Top", default=0.0, min=0.0, max=1.0, update=_tag_redraw)
+    box_edge_bottom: FloatProperty(name="Edge Bottom", default=0.0, min=0.0, max=1.0, update=_tag_redraw)
+    box_taper: FloatProperty(name="Taper", default=0.0, min=-1.0, max=1.0, update=_tag_redraw)
+    box_corner_mode: EnumProperty(name="Corners", items=sdf_tree.BLEND_MODE_ITEMS, default="SMOOTH", update=_tag_redraw)
+    box_edge_mode: EnumProperty(name="Edges", items=sdf_tree.BLEND_MODE_ITEMS, default="SMOOTH", update=_tag_redraw)
+    ngon_sides: IntProperty(name="Sides", default=6, min=3, soft_max=32, update=_tag_redraw)
+    ngon_corner: FloatProperty(name="Bevel", default=0.0, min=0.0, max=1.0, update=_tag_redraw)
+    ngon_edge_top: FloatProperty(name="Edge Top", default=0.0, min=0.0, max=1.0, update=_tag_redraw)
+    ngon_edge_bottom: FloatProperty(name="Edge Bottom", default=0.0, min=0.0, max=1.0, update=_tag_redraw)
+    ngon_taper: FloatProperty(name="Taper", default=0.0, min=-1.0, max=1.0, update=_tag_redraw)
+    ngon_edge_mode: EnumProperty(name="Edges", items=sdf_tree.BLEND_MODE_ITEMS, default="SMOOTH", update=_tag_redraw)
+    ngon_star: FloatProperty(name="Star", default=0.0, min=0.0, max=1.0, update=_tag_redraw)
+    polygon_points: CollectionProperty(type=sdf_tree.MathOPSV2PolygonPoint)
+    polygon_active_index: IntProperty(default=0, options={"HIDDEN"})
+    polygon_interpolation: EnumProperty(name="Interpolation", items=sdf_tree.POLYGON_INTERPOLATION_ITEMS, default="VECTOR", update=_tag_redraw)
+    polygon_edge_top: FloatProperty(name="Edge Top", default=0.0, min=0.0, max=1.0, update=_tag_redraw)
+    polygon_edge_bottom: FloatProperty(name="Edge Bottom", default=0.0, min=0.0, max=1.0, update=_tag_redraw)
+    polygon_taper: FloatProperty(name="Taper", default=0.0, min=-1.0, max=1.0, update=_tag_redraw)
+    polygon_edge_mode: EnumProperty(name="Edges", items=sdf_tree.BLEND_MODE_ITEMS, default="SMOOTH", update=_tag_redraw)
+    polygon_is_line: BoolProperty(name="Line", default=False, update=_tag_redraw)
+    polygon_line_thickness: FloatProperty(name="Thickness", default=0.1, min=0.001, update=_tag_redraw)
 
 
 class MathOPSV2SceneSettings(bpy.types.PropertyGroup):

@@ -3,7 +3,7 @@ import uuid
 
 import bpy
 import nodeitems_utils
-from bpy.props import BoolProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty, PointerProperty, StringProperty
+from bpy.props import BoolProperty, CollectionProperty, EnumProperty, FloatProperty, FloatVectorProperty, IntProperty, PointerProperty, StringProperty
 from bpy.types import Node, NodeSocket, NodeTree
 from mathutils import Euler, Matrix, Vector
 from nodeitems_utils import NodeCategory, NodeItem
@@ -23,6 +23,10 @@ _PRIMITIVE_TYPE_TO_ID = {
     "box": 1.0,
     "cylinder": 2.0,
     "torus": 3.0,
+    "cone": 4.0,
+    "capsule": 5.0,
+    "ngon": 6.0,
+    "polygon": 7.0,
 }
 
 _CSG_OPERATION_TO_ID = {
@@ -36,6 +40,10 @@ _NODE_PRIMITIVE_ITEMS = (
     ("box", "Box", "Box SDF proxy"),
     ("cylinder", "Cylinder", "Cylinder SDF proxy"),
     ("torus", "Torus", "Torus SDF proxy"),
+    ("cone", "Cone", "Cone SDF proxy"),
+    ("capsule", "Capsule", "Capsule SDF proxy"),
+    ("ngon", "N-Gon", "Regular polygon prism SDF proxy"),
+    ("polygon", "Polygon", "Polygon prism SDF proxy"),
 )
 
 _NODE_PRIMITIVE_LABELS = {
@@ -45,6 +53,64 @@ _NODE_PRIMITIVE_LABELS = {
 _IDENTITY_LOCATION = (0.0, 0.0, 0.0)
 _IDENTITY_ROTATION = (0.0, 0.0, 0.0)
 _IDENTITY_SCALE = (1.0, 1.0, 1.0)
+_BEZIER_CIRCLE_HANDLE = 0.5522847498307936
+_DEFAULT_POLYGON_POINTS = (
+    (0.0, 1.0),
+    (1.0, 0.0),
+    (0.0, -1.0),
+    (-1.0, 0.0),
+)
+
+BLEND_MODE_ITEMS = (
+    ("SMOOTH", "Smooth", "Smooth rounding"),
+    ("CHAMFER", "Chamfer", "Chamfer 45-degree cut"),
+)
+
+POLYGON_INTERPOLATION_ITEMS = (
+    ("VECTOR", "Vector", "Straight segments between control points"),
+    ("BEZIER", "Bezier", "Bezier interpolation with editable handles"),
+)
+
+_DIRECT_FLOAT_ATTRS = (
+    "bevel",
+    "cylinder_taper",
+    "capsule_taper",
+    "torus_angle",
+    "box_edge_top",
+    "box_edge_bottom",
+    "box_taper",
+    "ngon_corner",
+    "ngon_edge_top",
+    "ngon_edge_bottom",
+    "ngon_taper",
+    "ngon_star",
+    "polygon_edge_top",
+    "polygon_edge_bottom",
+    "polygon_taper",
+    "polygon_line_thickness",
+)
+
+_DIRECT_VECTOR_ATTRS = (
+    "box_corners",
+)
+
+_DIRECT_INT_ATTRS = (
+    "ngon_sides",
+)
+
+_DIRECT_BOOL_ATTRS = (
+    "polygon_is_line",
+)
+
+_DIRECT_ENUM_ATTRS = (
+    "cylinder_bevel_mode",
+    "cone_bevel_mode",
+    "box_corner_mode",
+    "box_edge_mode",
+    "ngon_edge_mode",
+    "polygon_interpolation",
+    "polygon_edge_mode",
+)
 
 _MIRROR_AXIS_X = 1
 _MIRROR_AXIS_Y = 2
@@ -68,6 +134,8 @@ _SOCKET_LOCATION = "Location"
 _SOCKET_ROTATION = "Rotation"
 _SOCKET_SCALE = "Scale"
 _SOCKET_RADIUS = "Radius"
+_SOCKET_TOP_RADIUS = "Top Radius"
+_SOCKET_BOTTOM_RADIUS = "Bottom Radius"
 _SOCKET_HALF_SIZE = "Half Size"
 _SOCKET_HEIGHT = "Height"
 _SOCKET_MAJOR_RADIUS = "Major Radius"
@@ -75,14 +143,536 @@ _SOCKET_MINOR_RADIUS = "Minor Radius"
 _SOCKET_BLEND = "Blend"
 
 _object_node_updates_suppressed = 0
+_polygon_point_item_updates_suppressed = 0
 _branch_frame_sync_suppressed = 0
+_object_node_free_cleanup_suppressed = 0
 _BRANCH_FRAME_TAG = "_mathops_v2_branch_frame"
+_polygon_sample_cache = {}
 
 
 def _tag_redraw(_self=None, context=None):
     runtime.clear_error()
     runtime.note_interaction()
     runtime.tag_redraw(context)
+
+
+def default_polygon_points():
+    return tuple((float(point[0]), float(point[1]), 0.0) for point in _DEFAULT_POLYGON_POINTS)
+
+
+def default_polygon_control_points():
+    handle = float(_BEZIER_CIRCLE_HANDLE)
+    return (
+        (0.0, 1.0, 0.0, -handle, 1.0, handle, 1.0),
+        (1.0, 0.0, 0.0, 1.0, handle, 1.0, -handle),
+        (0.0, -1.0, 0.0, handle, -1.0, -handle, -1.0),
+        (-1.0, 0.0, 0.0, -1.0, -handle, -1.0, handle),
+    )
+
+
+def _polygon_interpolation(owner):
+    return str(getattr(owner, "polygon_interpolation", "VECTOR") or "VECTOR").strip().upper()
+
+
+def _polygon_min_point_count(owner):
+    return 2 if bool(getattr(owner, "polygon_is_line", False)) else 3
+
+
+def polygon_control_point_data(owner, ensure_default=False):
+    primitive_type = str(getattr(owner, "primitive_type", "") or "").strip().lower()
+    raw_points = getattr(owner, "polygon_points", ()) or ()
+    points = []
+    for point in raw_points:
+        co = getattr(point, "co", point)
+        if hasattr(point, "corner"):
+            corner = getattr(point, "corner", 0.0)
+        elif len(point) > 2:
+            corner = point[2]
+        else:
+            corner = 0.0
+        if hasattr(point, "handle_left"):
+            handle_left = getattr(point, "handle_left", co)
+        elif len(point) > 4:
+            handle_left = (point[3], point[4])
+        else:
+            handle_left = co
+        if hasattr(point, "handle_right"):
+            handle_right = getattr(point, "handle_right", co)
+        elif len(point) > 6:
+            handle_right = (point[5], point[6])
+        else:
+            handle_right = co
+        try:
+            points.append(
+                (
+                    float(co[0]),
+                    float(co[1]),
+                    float(corner),
+                    float(handle_left[0]),
+                    float(handle_left[1]),
+                    float(handle_right[0]),
+                    float(handle_right[1]),
+                )
+            )
+        except Exception:
+            continue
+    if ensure_default and primitive_type == "polygon" and len(points) < _polygon_min_point_count(owner):
+        return default_polygon_control_points()
+    return tuple(points)
+
+
+def polygon_point_data(owner, ensure_default=False):
+    return tuple((point[0], point[1], point[2]) for point in polygon_control_point_data(owner, ensure_default=ensure_default))
+
+
+def polygon_point_coords(owner, ensure_default=False):
+    return tuple((point[0], point[1]) for point in polygon_point_data(owner, ensure_default=ensure_default))
+
+
+def set_polygon_points(owner, coords):
+    points = getattr(owner, "polygon_points", None)
+    if points is None or not hasattr(points, "add"):
+        return False
+
+    current = polygon_control_point_data(owner)
+    target = []
+    for index, point in enumerate(coords):
+        x = float(point[0])
+        y = float(point[1])
+        corner = float(point[2]) if len(point) > 2 else 0.0
+        if len(point) > 6:
+            handle_left = (float(point[3]), float(point[4]))
+            handle_right = (float(point[5]), float(point[6]))
+        elif index < len(current):
+            dx = x - float(current[index][0])
+            dy = y - float(current[index][1])
+            handle_left = (float(current[index][3]) + dx, float(current[index][4]) + dy)
+            handle_right = (float(current[index][5]) + dx, float(current[index][6]) + dy)
+        else:
+            handle_left = (x, y)
+            handle_right = (x, y)
+        target.append((x, y, corner, float(handle_left[0]), float(handle_left[1]), float(handle_right[0]), float(handle_right[1])))
+    target = tuple(target)
+    if current == target:
+        return False
+
+    with suppress_polygon_point_item_updates():
+        while len(points) > 0:
+            points.remove(len(points) - 1)
+        for x, y, corner, handle_left_x, handle_left_y, handle_right_x, handle_right_y in target:
+            item = points.add()
+            item.co = (float(x), float(y))
+            if hasattr(item, "corner"):
+                item.corner = float(corner)
+            if hasattr(item, "handle_left"):
+                item.handle_left = (float(handle_left_x), float(handle_left_y))
+            if hasattr(item, "handle_right"):
+                item.handle_right = (float(handle_right_x), float(handle_right_y))
+    active_index = min(max(int(getattr(owner, "polygon_active_index", 0)), 0), max(len(points) - 1, 0))
+    if hasattr(owner, "polygon_active_index") and int(getattr(owner, "polygon_active_index", 0)) != active_index:
+        owner.polygon_active_index = active_index
+    return True
+
+
+def _expanded_polygon_line_points(points, half_thickness):
+    count = len(points)
+    if count < 2 or half_thickness <= 0.0:
+        return points
+
+    vertices = [Vector((point[0], point[1])) for point in points]
+    left_side = [Vector((0.0, 0.0)) for _index in range(count)]
+    right_side = [Vector((0.0, 0.0)) for _index in range(count)]
+
+    for index in range(count):
+        normal_prev = Vector((0.0, 0.0))
+        normal_next = Vector((0.0, 0.0))
+        if index > 0:
+            delta = (vertices[index] - vertices[index - 1]).normalized()
+            normal_prev = Vector((-delta.y, delta.x))
+        if index < count - 1:
+            delta = (vertices[index + 1] - vertices[index]).normalized()
+            normal_next = Vector((-delta.y, delta.x))
+
+        if index == 0:
+            left_side[index] = vertices[index] + normal_next * half_thickness
+            right_side[index] = vertices[index] - normal_next * half_thickness
+        elif index == count - 1:
+            left_side[index] = vertices[index] + normal_prev * half_thickness
+            right_side[index] = vertices[index] - normal_prev * half_thickness
+        else:
+            miter = (normal_prev + normal_next)
+            if miter.length < 1.0e-6:
+                miter = normal_next.copy()
+            else:
+                miter.normalize()
+            dot_value = miter.dot(normal_prev)
+            if abs(dot_value) < 0.1:
+                dot_value = 0.1 if dot_value >= 0.0 else -0.1
+            miter_length = max(min(half_thickness / dot_value, half_thickness * 3.0), -half_thickness * 3.0)
+            left_side[index] = vertices[index] + miter * miter_length
+            right_side[index] = vertices[index] - miter * miter_length
+
+    expanded = []
+    for point in left_side:
+        expanded.append((float(point.x), float(point.y), 0.0))
+    for point in reversed(right_side):
+        expanded.append((float(point.x), float(point.y), 0.0))
+    return tuple(expanded)
+
+
+def _bezier_point(p0, p1, p2, p3, t):
+    inv_t = 1.0 - t
+    return (
+        (inv_t * inv_t * inv_t * p0)
+        + (3.0 * inv_t * inv_t * t * p1)
+        + (3.0 * inv_t * t * t * p2)
+        + (t * t * t * p3)
+    )
+
+
+def _sample_polygon_control_points(control_points, interpolation, is_line=False, resolution=1):
+    if not control_points:
+        return ()
+
+    if interpolation != "BEZIER" or len(control_points) < 2:
+        return tuple((float(point[0]), float(point[1]), float(point[2])) for point in control_points)
+
+    steps = max(int(resolution), 1)
+    count = len(control_points)
+    segment_count = max(count - 1, 0) if is_line else count
+    sampled = [(float(control_points[0][0]), float(control_points[0][1]), float(control_points[0][2]))]
+    for index in range(segment_count):
+        start = control_points[index]
+        end = control_points[index + 1] if is_line else control_points[(index + 1) % count]
+        p0 = float(start[0])
+        p1 = float(start[5])
+        p2 = float(end[3])
+        p3 = float(end[0])
+        q0 = float(start[1])
+        q1 = float(start[6])
+        q2 = float(end[4])
+        q3 = float(end[1])
+        for step in range(1, steps + 1):
+            if not is_line and index == segment_count - 1 and step == steps:
+                continue
+            t = float(step) / float(steps)
+            sampled.append(
+                (
+                    float(_bezier_point(p0, p1, p2, p3, t)),
+                    float(_bezier_point(q0, q1, q2, q3, t)),
+                    0.0,
+                )
+            )
+    return tuple(sampled)
+
+
+def _polygon_curve_resolution(obj, interpolation="VECTOR"):
+    try:
+        obj = runtime.object_identity(obj)
+        curve = None if obj is None else getattr(obj, "data", None)
+        if curve is not None and hasattr(curve, "resolution_u"):
+            return min(max(int(getattr(curve, "resolution_u", 1)), 1), 12)
+    except ReferenceError:
+        pass
+    return 12 if str(interpolation or "VECTOR").strip().upper() == "BEZIER" else 1
+
+
+def _polygon_sample_cache_key(owner, target):
+    target_key = runtime.object_key(target)
+    if target_key:
+        return ("curve", target_key)
+    return ("owner", runtime.safe_pointer(owner))
+
+
+def effective_polygon_control_point_data(owner, ensure_default=False):
+    target = runtime.object_identity(getattr(owner, "target", None))
+    if runtime.is_polygon_curve_proxy(target):
+        return polygon_curve_control_point_data(target, ensure_default=ensure_default)
+    return polygon_control_point_data(owner, ensure_default=ensure_default)
+
+
+def effective_polygon_point_data(owner, ensure_default=False):
+    control_points = effective_polygon_control_point_data(owner, ensure_default=ensure_default)
+    target = runtime.object_identity(getattr(owner, "target", None))
+    if runtime.is_polygon_curve_proxy(target):
+        interpolation = polygon_curve_interpolation(target)
+        resolution = _polygon_curve_resolution(target, interpolation)
+    else:
+        interpolation = _polygon_interpolation(owner)
+        resolution = 16 if interpolation == "BEZIER" else 1
+    is_line = bool(getattr(owner, "polygon_is_line", False))
+    line_thickness = max(float(getattr(owner, "polygon_line_thickness", 0.1)) * 0.5, 0.0)
+    cache_key = _polygon_sample_cache_key(owner, target)
+    signature = (control_points, interpolation, is_line, line_thickness, int(resolution))
+    cached = _polygon_sample_cache.get(cache_key)
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+    points = _sample_polygon_control_points(control_points, interpolation, is_line=is_line, resolution=resolution)
+    if not is_line:
+        result = points
+    else:
+        result = _expanded_polygon_line_points(points, line_thickness)
+    if len(_polygon_sample_cache) > 256:
+        _polygon_sample_cache.clear()
+    _polygon_sample_cache[cache_key] = (signature, result)
+    if not is_line:
+        return points
+    return result
+
+
+def ensure_polygon_defaults(owner):
+    primitive_type = str(getattr(owner, "primitive_type", "") or "").strip().lower()
+    if primitive_type != "polygon":
+        return False
+    points = polygon_point_data(owner)
+    if len(points) >= _polygon_min_point_count(owner):
+        return False
+    return set_polygon_points(owner, default_polygon_control_points())
+
+
+def polygon_curve_control_point_data(obj, ensure_default=False):
+    try:
+        obj = runtime.object_identity(obj)
+        if obj is None or getattr(obj, "type", "") != "CURVE":
+            return default_polygon_control_points() if ensure_default else ()
+        if hasattr(obj, "update_from_editmode") and str(getattr(obj, "mode", "") or "") == "EDIT":
+            try:
+                obj.update_from_editmode()
+            except Exception:
+                pass
+        curve = getattr(obj, "data", None)
+        splines = () if curve is None else getattr(curve, "splines", ())
+        spline = None if len(splines) == 0 else splines[0]
+        if spline is None:
+            return default_polygon_control_points() if ensure_default else ()
+
+        points = []
+        if getattr(spline, "type", "") == "BEZIER":
+            for point in getattr(spline, "bezier_points", ()):
+                points.append(
+                    (
+                        float(point.co.x),
+                        float(point.co.y),
+                        0.0,
+                        float(point.handle_left.x),
+                        float(point.handle_left.y),
+                        float(point.handle_right.x),
+                        float(point.handle_right.y),
+                    )
+                )
+        else:
+            for point in getattr(spline, "points", ()):
+                co = point.co
+                weight = float(co[3]) if len(co) > 3 else 1.0
+                if abs(weight) <= 1.0e-6:
+                    weight = 1.0
+                x = float(co[0] / weight)
+                y = float(co[1] / weight)
+                points.append((x, y, 0.0, x, y, x, y))
+        if ensure_default and len(points) < 2:
+            return default_polygon_control_points()
+        return tuple(points)
+    except ReferenceError:
+        return default_polygon_control_points() if ensure_default else ()
+
+
+def polygon_curve_point_data(obj, ensure_default=False):
+    return tuple((point[0], point[1], point[2]) for point in polygon_curve_control_point_data(obj, ensure_default=ensure_default))
+
+
+def polygon_curve_interpolation(obj):
+    try:
+        obj = runtime.object_identity(obj)
+        if obj is None or getattr(obj, "type", "") != "CURVE":
+            return "VECTOR"
+        curve = getattr(obj, "data", None)
+        splines = () if curve is None else getattr(curve, "splines", ())
+        spline = None if len(splines) == 0 else splines[0]
+        if spline is None:
+            return "VECTOR"
+        if getattr(spline, "type", "") != "BEZIER":
+            return "VECTOR"
+        for point in getattr(spline, "bezier_points", ()):
+            if str(getattr(point, "handle_left_type", "VECTOR") or "VECTOR") != "VECTOR":
+                return "BEZIER"
+            if str(getattr(point, "handle_right_type", "VECTOR") or "VECTOR") != "VECTOR":
+                return "BEZIER"
+        return "VECTOR"
+    except ReferenceError:
+        return "VECTOR"
+
+
+def polygon_curve_is_line(obj):
+    try:
+        obj = runtime.object_identity(obj)
+        if obj is None or getattr(obj, "type", "") != "CURVE":
+            return False
+        curve = getattr(obj, "data", None)
+        splines = () if curve is None else getattr(curve, "splines", ())
+        spline = None if len(splines) == 0 else splines[0]
+        if spline is None:
+            return False
+        return not bool(getattr(spline, "use_cyclic_u", True))
+    except ReferenceError:
+        return False
+
+
+def _recenter_polygon_curve_proxy(obj, control_points, interpolation, is_line=False, resolution=1):
+    sampled = _sample_polygon_control_points(control_points, interpolation, is_line=is_line, resolution=resolution)
+    if not sampled:
+        return False, control_points
+    min_x = min(float(point[0]) for point in sampled)
+    max_x = max(float(point[0]) for point in sampled)
+    min_y = min(float(point[1]) for point in sampled)
+    max_y = max(float(point[1]) for point in sampled)
+    center = Vector(((min_x + max_x) * 0.5, (min_y + max_y) * 0.5, 0.0))
+    if center.length <= 1.0e-6:
+        return False, control_points
+    shifted = []
+    for point in control_points:
+        shifted.append(
+            (
+                float(point[0]) - center.x,
+                float(point[1]) - center.y,
+                float(point[2]),
+                float(point[3]) - center.x,
+                float(point[4]) - center.y,
+                float(point[5]) - center.x,
+                float(point[6]) - center.y,
+            )
+        )
+    world_offset = obj.matrix_world.to_3x3() @ center
+    _apply_matrix_to_object(obj, Matrix.Translation(world_offset))
+    return True, tuple(shifted)
+
+
+def sync_polygon_curve_proxy(obj, coords=(), is_line=False, interpolation="VECTOR"):
+    try:
+        obj = runtime.object_identity(obj)
+        if obj is None or getattr(obj, "type", "") != "CURVE":
+            return False
+
+        changed = False
+        if obj.rotation_mode != "XYZ":
+            obj.rotation_mode = "XYZ"
+            changed = True
+        if obj.show_name:
+            obj.show_name = False
+            changed = True
+        if obj.show_in_front:
+            obj.show_in_front = False
+            changed = True
+        if not obj.hide_render:
+            obj.hide_render = True
+            changed = True
+
+        curve = getattr(obj, "data", None)
+        if curve is None:
+            return changed
+        if getattr(curve, "dimensions", "3D") != "2D":
+            curve.dimensions = "2D"
+            changed = True
+        if hasattr(curve, "fill_mode") and getattr(curve, "fill_mode", "FULL") != "NONE":
+            curve.fill_mode = "NONE"
+            changed = True
+        interpolation = str(interpolation or "VECTOR").strip().upper()
+        target_resolution = 1 if interpolation == "VECTOR" else 32
+        if hasattr(curve, "resolution_u") and int(getattr(curve, "resolution_u", target_resolution)) != target_resolution:
+            curve.resolution_u = target_resolution
+            changed = True
+        if hasattr(curve, "render_resolution_u") and int(getattr(curve, "render_resolution_u", target_resolution)) != target_resolution:
+            curve.render_resolution_u = target_resolution
+            changed = True
+
+        target_points = tuple(
+            (
+                float(point[0]),
+                float(point[1]),
+                float(point[2]) if len(point) > 2 else 0.0,
+                float(point[3]) if len(point) > 6 else float(point[0]),
+                float(point[4]) if len(point) > 6 else float(point[1]),
+                float(point[5]) if len(point) > 6 else float(point[0]),
+                float(point[6]) if len(point) > 6 else float(point[1]),
+            )
+            for point in (coords or default_polygon_control_points())
+        )
+        if len(target_points) < 2:
+            target_points = default_polygon_control_points()
+
+        recentered, target_points = _recenter_polygon_curve_proxy(
+            obj,
+            target_points,
+            interpolation,
+            is_line=bool(is_line),
+            resolution=target_resolution,
+        )
+        changed = recentered or changed
+
+        splines = getattr(curve, "splines", None)
+        if splines is None:
+            return changed
+
+        spline = None if len(splines) == 0 else splines[0]
+        needs_rebuild = len(splines) != 1 or spline is None
+        if not needs_rebuild:
+            spline_type = str(getattr(spline, "type", "") or "")
+            if spline_type == "BEZIER":
+                needs_rebuild = len(getattr(spline, "bezier_points", ())) != len(target_points)
+            elif spline_type == "POLY":
+                needs_rebuild = len(getattr(spline, "points", ())) != len(target_points)
+            else:
+                needs_rebuild = True
+
+        if needs_rebuild:
+            for existing in tuple(splines):
+                splines.remove(existing)
+            spline = splines.new("BEZIER")
+            if len(target_points) > 1:
+                spline.bezier_points.add(len(target_points) - 1)
+            changed = True
+
+        if getattr(spline, "type", "") == "BEZIER":
+            for point, target in zip(spline.bezier_points, target_points):
+                target_co = (float(target[0]), float(target[1]), 0.0)
+                if _float_seq_changed(tuple(point.co), target_co):
+                    point.co = target_co
+                    changed = True
+                target_left = (float(target[3]), float(target[4]), 0.0)
+                if _float_seq_changed(tuple(point.handle_left), target_left):
+                    point.handle_left = target_left
+                    changed = True
+                target_right = (float(target[5]), float(target[6]), 0.0)
+                if _float_seq_changed(tuple(point.handle_right), target_right):
+                    point.handle_right = target_right
+                    changed = True
+                if interpolation == "VECTOR":
+                    if str(getattr(point, "handle_left_type", "VECTOR") or "VECTOR") != "VECTOR":
+                        point.handle_left_type = "VECTOR"
+                        changed = True
+                    if str(getattr(point, "handle_right_type", "VECTOR") or "VECTOR") != "VECTOR":
+                        point.handle_right_type = "VECTOR"
+                        changed = True
+                else:
+                    if str(getattr(point, "handle_left_type", "FREE") or "FREE") == "VECTOR":
+                        point.handle_left_type = "FREE"
+                        changed = True
+                    if str(getattr(point, "handle_right_type", "FREE") or "FREE") == "VECTOR":
+                        point.handle_right_type = "FREE"
+                        changed = True
+        else:
+            for point, target in zip(spline.points, target_points):
+                target_co = (float(target[0]), float(target[1]), 0.0, 1.0)
+                if _float_seq_changed(tuple(point.co), target_co):
+                    point.co = target_co
+                    changed = True
+
+        cyclic = not bool(is_line)
+        if bool(getattr(spline, "use_cyclic_u", True)) != cyclic:
+            spline.use_cyclic_u = cyclic
+            changed = True
+        return changed
+    except ReferenceError:
+        return False
 
 
 @contextmanager
@@ -96,6 +686,16 @@ def suppress_object_node_updates():
 
 
 @contextmanager
+def suppress_polygon_point_item_updates():
+    global _polygon_point_item_updates_suppressed
+    _polygon_point_item_updates_suppressed += 1
+    try:
+        yield
+    finally:
+        _polygon_point_item_updates_suppressed -= 1
+
+
+@contextmanager
 def suppress_branch_frame_sync():
     global _branch_frame_sync_suppressed
     _branch_frame_sync_suppressed += 1
@@ -103,6 +703,16 @@ def suppress_branch_frame_sync():
         yield
     finally:
         _branch_frame_sync_suppressed -= 1
+
+
+@contextmanager
+def suppress_object_node_free_cleanup():
+    global _object_node_free_cleanup_suppressed
+    _object_node_free_cleanup_suppressed += 1
+    try:
+        yield
+    finally:
+        _object_node_free_cleanup_suppressed -= 1
 
 
 def _detach_proxy_binding(node):
@@ -205,7 +815,16 @@ def _update_object_node_transform(self, context):
 def _update_object_node_payload(self, context):
     if _object_node_updates_suppressed > 0:
         return
+    ensure_polygon_defaults(self)
     _ensure_object_node_sockets(self)
+    with suppress_object_node_updates():
+        _set_socket_float_default(_input_socket(self, _SOCKET_RADIUS, MathOPSV2FloatSocket.bl_idname), getattr(self, "radius", 0.5))
+        _set_socket_float_default(_input_socket(self, _SOCKET_TOP_RADIUS, MathOPSV2FloatSocket.bl_idname), _cone_top_radius_value(self))
+        _set_socket_float_default(_input_socket(self, _SOCKET_BOTTOM_RADIUS, MathOPSV2FloatSocket.bl_idname), _cone_bottom_radius_value(self))
+        _set_socket_vector_default(_input_socket(self, _SOCKET_HALF_SIZE, MathOPSV2VectorSocket.bl_idname), getattr(self, "size", (0.5, 0.5, 0.5)))
+        _set_socket_float_default(_input_socket(self, _SOCKET_HEIGHT, MathOPSV2FloatSocket.bl_idname), getattr(self, "height", 1.0))
+        _set_socket_float_default(_input_socket(self, _SOCKET_MAJOR_RADIUS, MathOPSV2FloatSocket.bl_idname), getattr(self, "major_radius", 0.75))
+        _set_socket_float_default(_input_socket(self, _SOCKET_MINOR_RADIUS, MathOPSV2FloatSocket.bl_idname), getattr(self, "minor_radius", 0.25))
     ensure_object_node_id(self)
     sync_node_to_proxy(self)
     _mark_tree_dirty(getattr(self, "id_data", None), static=True, context=context)
@@ -259,6 +878,66 @@ def _update_transform_node_data(self, context):
     _tag_redraw(self, context)
 
 
+def _property_is_explicit(owner, attribute):
+    checker = getattr(owner, "is_property_set", None)
+    if checker is None:
+        return False
+    try:
+        return bool(checker(attribute))
+    except Exception:
+        return False
+
+
+def _cone_top_radius_value(owner):
+    return max(0.0, float(getattr(owner, "cone_top_radius", 0.0))) if _property_is_explicit(owner, "cone_top_radius") else 0.0
+
+
+def _cone_bottom_radius_value(owner):
+    if _property_is_explicit(owner, "cone_bottom_radius"):
+        return max(0.0, float(getattr(owner, "cone_bottom_radius", 0.5)))
+    return max(0.0, float(getattr(owner, "radius", 0.5)))
+
+
+def _cylinder_bevel_top_value(owner):
+    if _property_is_explicit(owner, "cylinder_bevel_top"):
+        return max(0.0, float(getattr(owner, "cylinder_bevel_top", 0.0)))
+    return max(0.0, float(getattr(owner, "bevel", 0.0)))
+
+
+def _cylinder_bevel_bottom_value(owner):
+    if _property_is_explicit(owner, "cylinder_bevel_bottom"):
+        return max(0.0, float(getattr(owner, "cylinder_bevel_bottom", 0.0)))
+    return max(0.0, float(getattr(owner, "bevel", 0.0)))
+
+
+def _capsule_end_radii(radius, taper):
+    tap_top, tap_bottom = _split_taper(taper)
+    return max(float(radius) * max(1.0 - tap_bottom, 0.0), 0.0), max(float(radius) * max(1.0 - tap_top, 0.0), 0.0)
+
+
+def _migrate_cylinder_bevel_fields(owner):
+    if str(getattr(owner, "primitive_type", "") or "") != "cylinder":
+        return
+    if _property_is_explicit(owner, "cylinder_bevel_top") or _property_is_explicit(owner, "cylinder_bevel_bottom"):
+        return
+    legacy_bevel = max(0.0, float(getattr(owner, "bevel", 0.0)))
+    if legacy_bevel <= 0.0:
+        return
+    setattr(owner, "cylinder_bevel_top", legacy_bevel)
+    setattr(owner, "cylinder_bevel_bottom", legacy_bevel)
+
+
+def _sync_object_node_parameter_attrs_from_sockets(node):
+    with suppress_object_node_updates():
+        node.radius = _float_socket_value(_input_socket(node, _SOCKET_RADIUS, MathOPSV2FloatSocket.bl_idname), getattr(node, "radius", 0.5), min_value=0.001)
+        node.cone_top_radius = _float_socket_value(_input_socket(node, _SOCKET_TOP_RADIUS, MathOPSV2FloatSocket.bl_idname), _cone_top_radius_value(node), min_value=0.0)
+        node.cone_bottom_radius = _float_socket_value(_input_socket(node, _SOCKET_BOTTOM_RADIUS, MathOPSV2FloatSocket.bl_idname), _cone_bottom_radius_value(node), min_value=0.0)
+        node.size = _vector_socket_value(_input_socket(node, _SOCKET_HALF_SIZE, MathOPSV2VectorSocket.bl_idname), getattr(node, "size", (0.5, 0.5, 0.5)), _sanitized_scale)
+        node.height = _float_socket_value(_input_socket(node, _SOCKET_HEIGHT, MathOPSV2FloatSocket.bl_idname), getattr(node, "height", 1.0), min_value=0.001)
+        node.major_radius = _float_socket_value(_input_socket(node, _SOCKET_MAJOR_RADIUS, MathOPSV2FloatSocket.bl_idname), getattr(node, "major_radius", 0.75), min_value=0.001)
+        node.minor_radius = _float_socket_value(_input_socket(node, _SOCKET_MINOR_RADIUS, MathOPSV2FloatSocket.bl_idname), getattr(node, "minor_radius", 0.25), min_value=0.001)
+
+
 def _update_socket_value(self, context):
     if _object_node_updates_suppressed > 0:
         return
@@ -271,7 +950,13 @@ def _update_socket_value(self, context):
             with suppress_object_node_updates():
                 self.default_value = 0.0
     if node_idname == runtime.OBJECT_NODE_IDNAME:
-        _update_object_node_payload(node, context)
+        _sync_object_node_parameter_attrs_from_sockets(node)
+        ensure_polygon_defaults(node)
+        _ensure_object_node_sockets(node)
+        ensure_object_node_id(node)
+        sync_node_to_proxy(node)
+        _mark_tree_dirty(getattr(node, "id_data", None), static=True, context=context)
+        _tag_redraw(node, context)
         return
     if node_idname == TRANSFORM_NODE_IDNAME:
         _update_transform_node_data(node, context)
@@ -366,6 +1051,56 @@ class MathOPSV2EulerSocket(NodeSocket):
         return (0.54, 0.64, 0.92, 1.0)
 
 
+def _polygon_point_owner(point_item):
+    id_data = getattr(point_item, "id_data", None)
+    if id_data is None:
+        return None
+    try:
+        path = point_item.path_from_id()
+    except Exception:
+        return None
+    marker = ".polygon_points["
+    if marker not in path:
+        return None
+    owner_path = path.split(marker, 1)[0]
+    try:
+        return id_data.path_resolve(owner_path)
+    except Exception:
+        return None
+
+
+def _update_polygon_point_item(point_item, context):
+    if _polygon_point_item_updates_suppressed > 0:
+        return
+    owner = _polygon_point_owner(point_item)
+    if owner is None:
+        return
+    scene = getattr(context, "scene", None) or getattr(bpy.context, "scene", None)
+    if getattr(owner, "bl_idname", "") == runtime.OBJECT_NODE_IDNAME:
+        sync_node_to_proxy(owner, include_transform=False)
+    else:
+        source_tree_name = str(getattr(owner, "source_tree_name", "") or "")
+        source_node_name = str(getattr(owner, "source_node_name", "") or "")
+        if source_tree_name and source_node_name:
+            tree = bpy.data.node_groups.get(source_tree_name)
+            if tree is not None:
+                node = tree.nodes.get(source_node_name)
+                if node is not None:
+                    sync_proxy_to_node(node)
+    if scene is not None:
+        runtime.mark_scene_static_dirty(scene)
+    runtime.clear_error()
+    runtime.note_interaction()
+    runtime.tag_redraw(context)
+
+
+class MathOPSV2PolygonPoint(bpy.types.PropertyGroup):
+    co: FloatVectorProperty(size=2, default=(0.0, 0.0), update=_update_polygon_point_item)
+    corner: FloatProperty(default=0.0, min=0.0, update=_update_polygon_point_item)
+    handle_left: FloatVectorProperty(size=2, default=(0.0, 0.0), update=_update_polygon_point_item)
+    handle_right: FloatVectorProperty(size=2, default=(0.0, 0.0), update=_update_polygon_point_item)
+
+
 class MathOPSV2NodeTree(NodeTree):
     bl_idname = runtime.TREE_IDNAME
     bl_label = "MathOPS SDF"
@@ -436,6 +1171,8 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
         update=_update_object_node_transform,
     )
     radius: FloatProperty(name="Radius", default=0.5, min=0.001, update=_update_object_node_payload)
+    cone_top_radius: FloatProperty(name="Top Radius", default=0.0, min=0.0, update=_update_object_node_payload)
+    cone_bottom_radius: FloatProperty(name="Bottom Radius", default=0.5, min=0.0, update=_update_object_node_payload)
     size: FloatVectorProperty(
         name="Half Size",
         size=3,
@@ -447,8 +1184,39 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
     height: FloatProperty(name="Height", default=1.0, min=0.001, update=_update_object_node_payload)
     major_radius: FloatProperty(name="Major Radius", default=0.75, min=0.001, update=_update_object_node_payload)
     minor_radius: FloatProperty(name="Minor Radius", default=0.25, min=0.001, update=_update_object_node_payload)
+    bevel: FloatProperty(name="Bevel", default=0.0, min=0.0, update=_update_object_node_payload)
+    cylinder_bevel_top: FloatProperty(name="Bevel Top", default=0.0, min=0.0, update=_update_object_node_payload)
+    cylinder_bevel_bottom: FloatProperty(name="Bevel Bottom", default=0.0, min=0.0, update=_update_object_node_payload)
+    cylinder_taper: FloatProperty(name="Taper", default=0.0, min=-1.0, max=1.0, update=_update_object_node_payload)
+    cylinder_bevel_mode: EnumProperty(name="Bevel Mode", items=BLEND_MODE_ITEMS, default="SMOOTH", update=_update_object_node_payload)
+    cone_bevel_mode: EnumProperty(name="Bevel Mode", items=BLEND_MODE_ITEMS, default="SMOOTH", update=_update_object_node_payload)
+    capsule_taper: FloatProperty(name="Taper", default=0.0, min=-1.0, max=1.0, update=_update_object_node_payload)
+    torus_angle: FloatProperty(name="Angle", default=6.283185307179586, min=0.0, max=6.283185307179586, subtype="ANGLE", update=_update_object_node_payload)
+    box_corners: FloatVectorProperty(name="Corner Bevels", size=4, default=(0.0, 0.0, 0.0, 0.0), min=0.0, max=1.0, update=_update_object_node_payload)
+    box_edge_top: FloatProperty(name="Edge Top", default=0.0, min=0.0, max=1.0, update=_update_object_node_payload)
+    box_edge_bottom: FloatProperty(name="Edge Bottom", default=0.0, min=0.0, max=1.0, update=_update_object_node_payload)
+    box_taper: FloatProperty(name="Taper", default=0.0, min=-1.0, max=1.0, update=_update_object_node_payload)
+    box_corner_mode: EnumProperty(name="Corners", items=BLEND_MODE_ITEMS, default="SMOOTH", update=_update_object_node_payload)
+    box_edge_mode: EnumProperty(name="Edges", items=BLEND_MODE_ITEMS, default="SMOOTH", update=_update_object_node_payload)
+    ngon_sides: IntProperty(name="Sides", default=6, min=3, soft_max=32, update=_update_object_node_payload)
+    ngon_corner: FloatProperty(name="Bevel", default=0.0, min=0.0, max=1.0, update=_update_object_node_payload)
+    ngon_edge_top: FloatProperty(name="Edge Top", default=0.0, min=0.0, max=1.0, update=_update_object_node_payload)
+    ngon_edge_bottom: FloatProperty(name="Edge Bottom", default=0.0, min=0.0, max=1.0, update=_update_object_node_payload)
+    ngon_taper: FloatProperty(name="Taper", default=0.0, min=-1.0, max=1.0, update=_update_object_node_payload)
+    ngon_edge_mode: EnumProperty(name="Edges", items=BLEND_MODE_ITEMS, default="SMOOTH", update=_update_object_node_payload)
+    ngon_star: FloatProperty(name="Star", default=0.0, min=0.0, max=1.0, update=_update_object_node_payload)
+    polygon_points: CollectionProperty(type=MathOPSV2PolygonPoint)
+    polygon_active_index: IntProperty(default=0, options={"HIDDEN"})
+    polygon_interpolation: EnumProperty(name="Interpolation", items=POLYGON_INTERPOLATION_ITEMS, default="VECTOR", update=_update_object_node_payload)
+    polygon_edge_top: FloatProperty(name="Edge Top", default=0.0, min=0.0, max=1.0, update=_update_object_node_payload)
+    polygon_edge_bottom: FloatProperty(name="Edge Bottom", default=0.0, min=0.0, max=1.0, update=_update_object_node_payload)
+    polygon_taper: FloatProperty(name="Taper", default=0.0, min=-1.0, max=1.0, update=_update_object_node_payload)
+    polygon_edge_mode: EnumProperty(name="Edges", items=BLEND_MODE_ITEMS, default="SMOOTH", update=_update_object_node_payload)
+    polygon_is_line: BoolProperty(name="Line", default=False, update=_update_object_node_payload)
+    polygon_line_thickness: FloatProperty(name="Thickness", default=0.1, min=0.001, update=_update_object_node_payload)
 
     def init(self, _context):
+        ensure_polygon_defaults(self)
         _ensure_object_node_sockets(self)
         ensure_object_node_id(self)
 
@@ -472,6 +1240,8 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
         )
         if remove_target and bool(getattr(settings, "enabled", False)):
             settings.enabled = False
+        if _object_node_free_cleanup_suppressed > 0:
+            return
 
         def _cleanup_after_delete():
             if remove_target:
@@ -489,7 +1259,62 @@ class MathOPSV2ObjectNode(_MathOPSV2NodeBase):
         bpy.app.timers.register(_cleanup_after_delete, first_interval=0.0)
 
     def draw_buttons(self, _context, layout):
+        _ensure_object_node_sockets(self)
         layout.prop(self, "primitive_type", text="Type")
+        primitive_type = str(self.primitive_type or "sphere")
+        if primitive_type == "box":
+            layout.prop(self, "bevel")
+        elif primitive_type == "cylinder":
+            row = layout.row(align=True)
+            row.prop(self, "cylinder_bevel_top")
+            row.prop(self, "cylinder_bevel_bottom")
+            row = layout.row(align=True)
+            row.prop(self, "cylinder_taper")
+            row.prop(self, "cylinder_bevel_mode", text="")
+        elif primitive_type == "cone":
+            row = layout.row(align=True)
+            row.prop(self, "bevel")
+            row.prop(self, "cone_bevel_mode", text="")
+        if primitive_type == "torus":
+            layout.prop(self, "torus_angle", text="Angle")
+        elif primitive_type == "capsule":
+            layout.prop(self, "capsule_taper")
+        elif primitive_type == "box":
+            layout.prop(self, "box_corners")
+            row = layout.row(align=True)
+            row.prop(self, "box_edge_top")
+            row.prop(self, "box_edge_bottom")
+            layout.prop(self, "box_taper")
+            row = layout.row(align=True)
+            row.prop(self, "box_corner_mode")
+            row.prop(self, "box_edge_mode")
+        elif primitive_type == "ngon":
+            row = layout.row(align=True)
+            row.prop(self, "ngon_sides", text="Sides")
+            row.prop(self, "ngon_star")
+            layout.prop(self, "ngon_corner")
+            row = layout.row(align=True)
+            row.prop(self, "ngon_edge_top")
+            row.prop(self, "ngon_edge_bottom")
+            row = layout.row(align=True)
+            row.prop(self, "ngon_taper")
+            row.prop(self, "ngon_edge_mode")
+        elif primitive_type == "polygon":
+            layout.label(text=f"Points: {len(self.polygon_points)}")
+            layout.prop(self, "polygon_interpolation")
+            row = layout.row(align=True)
+            row.prop(self, "polygon_edge_top")
+            row.prop(self, "polygon_edge_bottom")
+            layout.prop(self, "polygon_taper")
+            layout.prop(self, "polygon_edge_mode")
+            layout.prop(self, "polygon_is_line")
+            if self.polygon_is_line:
+                layout.prop(self, "polygon_line_thickness")
+            target = runtime.object_identity(getattr(self, "target", None))
+            if runtime.is_polygon_curve_proxy(target):
+                layout.label(text="Edit points and handles on the curve", icon="INFO")
+            else:
+                layout.label(text="Edit points from the inspector", icon="INFO")
         if self.target is None:
             row = layout.row(align=True)
             row.label(text="No viewport handle")
@@ -912,9 +1737,11 @@ def _set_socket_vector_default(socket, value, epsilon=1.0e-6):
 def _sync_object_node_socket_visibility(node):
     primitive_type = str(getattr(node, "primitive_type", "sphere") or "sphere").strip().lower()
     visibility = {
-        _SOCKET_RADIUS: primitive_type in {"sphere", "cylinder"},
+        _SOCKET_RADIUS: primitive_type in {"sphere", "cylinder", "capsule", "ngon"},
+        _SOCKET_TOP_RADIUS: primitive_type == "cone",
+        _SOCKET_BOTTOM_RADIUS: primitive_type == "cone",
         _SOCKET_HALF_SIZE: primitive_type == "box",
-        _SOCKET_HEIGHT: primitive_type == "cylinder",
+        _SOCKET_HEIGHT: primitive_type in {"cylinder", "cone", "capsule", "ngon", "polygon"},
         _SOCKET_MAJOR_RADIUS: primitive_type == "torus",
         _SOCKET_MINOR_RADIUS: primitive_type == "torus",
     }
@@ -991,14 +1818,21 @@ def _ensure_object_node_sockets(node):
         return node
     _ensure_named_input_socket(node, MathOPSV2TransformSocket.bl_idname, _SOCKET_TRANSFORM)
     radius_socket, radius_created = _ensure_named_input_socket(node, MathOPSV2FloatSocket.bl_idname, _SOCKET_RADIUS)
+    bottom_radius_socket, bottom_radius_created = _ensure_named_input_socket(node, MathOPSV2FloatSocket.bl_idname, _SOCKET_BOTTOM_RADIUS)
+    top_radius_socket, top_radius_created = _ensure_named_input_socket(node, MathOPSV2FloatSocket.bl_idname, _SOCKET_TOP_RADIUS)
     size_socket, size_created = _ensure_named_input_socket(node, MathOPSV2VectorSocket.bl_idname, _SOCKET_HALF_SIZE)
     height_socket, height_created = _ensure_named_input_socket(node, MathOPSV2FloatSocket.bl_idname, _SOCKET_HEIGHT)
     major_socket, major_created = _ensure_named_input_socket(node, MathOPSV2FloatSocket.bl_idname, _SOCKET_MAJOR_RADIUS)
     minor_socket, minor_created = _ensure_named_input_socket(node, MathOPSV2FloatSocket.bl_idname, _SOCKET_MINOR_RADIUS)
     _ensure_named_output_socket(node, MathOPSV2SDFSocket.bl_idname, "SDF")
     with suppress_object_node_updates():
+        _migrate_cylinder_bevel_fields(node)
         if radius_created:
             _set_socket_float_default(radius_socket, getattr(node, "radius", 0.5))
+        if top_radius_created:
+            _set_socket_float_default(top_radius_socket, _cone_top_radius_value(node))
+        if bottom_radius_created:
+            _set_socket_float_default(bottom_radius_socket, _cone_bottom_radius_value(node))
         if size_created:
             _set_socket_vector_default(size_socket, getattr(node, "size", (0.5, 0.5, 0.5)))
         if height_created:
@@ -1621,11 +2455,12 @@ def deduplicate_initializer_nodes(tree):
     if not duplicates:
         return False
 
-    for node in duplicates:
-        if runtime.safe_pointer(node) == 0:
-            continue
-        _detach_proxy_binding(node)
-        tree.nodes.remove(node)
+    with suppress_object_node_free_cleanup():
+        for node in duplicates:
+            if runtime.safe_pointer(node) == 0:
+                continue
+            _detach_proxy_binding(node)
+            tree.nodes.remove(node)
 
     cleanup_graph_structure(tree)
     scene = _scene_for_tree(tree)
@@ -2156,6 +2991,40 @@ def _set_float_attr(owner, attribute, value, epsilon=1.0e-6):
         setattr(owner, attribute, target)
 
 
+def _set_int_attr(owner, attribute, value):
+    current = int(getattr(owner, attribute))
+    target = int(value)
+    if current != target:
+        setattr(owner, attribute, target)
+
+
+def _set_bool_attr(owner, attribute, value):
+    current = bool(getattr(owner, attribute))
+    target = bool(value)
+    if current != target:
+        setattr(owner, attribute, target)
+
+
+def _set_string_attr(owner, attribute, value):
+    current = str(getattr(owner, attribute, "") or "")
+    target = str(value or "")
+    if current != target:
+        setattr(owner, attribute, target)
+
+
+def _copy_direct_attrs(source, target):
+    for attribute in _DIRECT_FLOAT_ATTRS:
+        _set_float_attr(target, attribute, float(getattr(source, attribute, 0.0)))
+    for attribute in _DIRECT_VECTOR_ATTRS:
+        _set_float_vector_attr(target, attribute, tuple(float(component) for component in getattr(source, attribute, (0.0, 0.0, 0.0, 0.0))))
+    for attribute in _DIRECT_INT_ATTRS:
+        _set_int_attr(target, attribute, int(getattr(source, attribute, 0)))
+    for attribute in _DIRECT_BOOL_ATTRS:
+        _set_bool_attr(target, attribute, bool(getattr(source, attribute, False)))
+    for attribute in _DIRECT_ENUM_ATTRS:
+        _set_string_attr(target, attribute, str(getattr(source, attribute, "") or ""))
+
+
 def _float_socket_value(socket, fallback, min_value=0.0):
     value = fallback if socket is None else getattr(socket, "default_value", fallback)
     return max(float(min_value), float(value))
@@ -2179,16 +3048,25 @@ def _node_socket_vector(node, socket_name, attribute, fallback, sanitizer, visit
     return sanitizer(getattr(node, attribute, fallback))
 
 
+def primitive_supports_bevel(primitive_type):
+    primitive_type = str(primitive_type or "sphere").strip().lower()
+    return primitive_type in {"box", "cylinder", "cone"}
+
+
 def object_parameter_socket_names(node):
     primitive_type = str(getattr(node, "primitive_type", "sphere") or "sphere").strip().lower()
     if primitive_type == "sphere":
         return (_SOCKET_RADIUS,)
     if primitive_type == "box":
         return (_SOCKET_HALF_SIZE,)
-    if primitive_type == "cylinder":
+    if primitive_type in {"cylinder", "capsule", "ngon"}:
         return (_SOCKET_RADIUS, _SOCKET_HEIGHT)
+    if primitive_type == "cone":
+        return (_SOCKET_BOTTOM_RADIUS, _SOCKET_TOP_RADIUS, _SOCKET_HEIGHT)
     if primitive_type == "torus":
         return (_SOCKET_MAJOR_RADIUS, _SOCKET_MINOR_RADIUS)
+    if primitive_type == "polygon":
+        return (_SOCKET_HEIGHT,)
     return ()
 
 
@@ -2200,10 +3078,18 @@ def _node_transform_values(node):
 def _configure_proxy_display(obj):
     if obj.rotation_mode != "XYZ":
         obj.rotation_mode = "XYZ"
-    if obj.empty_display_type != "PLAIN_AXES":
-        obj.empty_display_type = "PLAIN_AXES"
-    if abs(float(obj.empty_display_size) - 0.01) > 1.0e-6:
-        obj.empty_display_size = 0.01
+    if getattr(obj, "type", "") == "EMPTY":
+        if obj.empty_display_type != "PLAIN_AXES":
+            obj.empty_display_type = "PLAIN_AXES"
+        if abs(float(obj.empty_display_size) - 0.01) > 1.0e-6:
+            obj.empty_display_size = 0.01
+    elif getattr(obj, "type", "") == "CURVE":
+        curve = getattr(obj, "data", None)
+        if curve is not None:
+            if getattr(curve, "dimensions", "3D") != "2D":
+                curve.dimensions = "2D"
+            if hasattr(curve, "fill_mode") and getattr(curve, "fill_mode", "FULL") != "NONE":
+                curve.fill_mode = "NONE"
     if obj.show_name:
         obj.show_name = False
     if obj.show_in_front:
@@ -2216,6 +3102,7 @@ def _mirror_node_to_proxy_settings(node, obj):
     settings = runtime.object_settings(obj)
     if settings is None:
         return None
+    ensure_polygon_defaults(node)
     proxy_id = ensure_object_node_id(node)
     if not settings.enabled:
         settings.enabled = True
@@ -2231,10 +3118,18 @@ def _mirror_node_to_proxy_settings(node, obj):
     if str(settings.primitive_type or "") != primitive_type:
         settings.primitive_type = primitive_type
     _set_float_attr(settings, "radius", _node_socket_float(node, _SOCKET_RADIUS, "radius", 0.5, min_value=0.001))
+    _set_float_attr(settings, "cone_top_radius", _node_socket_float(node, _SOCKET_TOP_RADIUS, "cone_top_radius", _cone_top_radius_value(node), min_value=0.0))
+    _set_float_attr(settings, "cone_bottom_radius", _node_socket_float(node, _SOCKET_BOTTOM_RADIUS, "cone_bottom_radius", _cone_bottom_radius_value(node), min_value=0.0))
+    _set_float_attr(settings, "cylinder_bevel_top", _cylinder_bevel_top_value(node))
+    _set_float_attr(settings, "cylinder_bevel_bottom", _cylinder_bevel_bottom_value(node))
     _set_float_vector_attr(settings, "size", _node_socket_vector(node, _SOCKET_HALF_SIZE, "size", (0.5, 0.5, 0.5), _sanitized_scale))
     _set_float_attr(settings, "height", _node_socket_float(node, _SOCKET_HEIGHT, "height", 1.0, min_value=0.001))
     _set_float_attr(settings, "major_radius", _node_socket_float(node, _SOCKET_MAJOR_RADIUS, "major_radius", 0.75, min_value=0.001))
     _set_float_attr(settings, "minor_radius", _node_socket_float(node, _SOCKET_MINOR_RADIUS, "minor_radius", 0.25, min_value=0.001))
+    _copy_direct_attrs(node, settings)
+    _set_int_attr(settings, "ngon_sides", max(3, int(getattr(node, "ngon_sides", 6))))
+    set_polygon_points(settings, polygon_control_point_data(node, ensure_default=True))
+    _set_int_attr(settings, "polygon_active_index", int(getattr(node, "polygon_active_index", 0)))
     return settings
 
 
@@ -2248,9 +3143,17 @@ def sync_node_to_proxy(node, include_transform=True):
             node.target = target
 
     _ensure_object_node_sockets(node)
+    ensure_polygon_defaults(node)
     ensure_object_node_id(node)
     _configure_proxy_display(target)
     _mirror_node_to_proxy_settings(node, target)
+    if str(getattr(node, "primitive_type", "") or "") == "polygon" and getattr(target, "type", "") == "CURVE":
+        sync_polygon_curve_proxy(
+            target,
+            polygon_control_point_data(node, ensure_default=True),
+            is_line=bool(getattr(node, "polygon_is_line", False)),
+            interpolation=_polygon_interpolation(node),
+        )
     if include_transform:
         transform_owner = _proxy_transform_owner(node)
         location, rotation, scale = _resolved_transform_values(transform_owner, prefer_proxy=False)
@@ -2271,6 +3174,31 @@ def sync_proxy_to_node(node):
 
     _ensure_object_node_sockets(node)
     changed = False
+    settings = runtime.object_settings(target)
+    if settings is not None and str(getattr(settings, "primitive_type", "sphere") or "sphere") == "polygon" and getattr(target, "type", "") == "CURVE":
+        curve_interpolation = polygon_curve_interpolation(target)
+        curve_is_line = polygon_curve_is_line(target)
+        curve_points = polygon_curve_control_point_data(target, ensure_default=True)
+        recentered, centered_points = _recenter_polygon_curve_proxy(
+            target,
+            curve_points,
+            curve_interpolation,
+            is_line=curve_is_line,
+            resolution=_polygon_curve_resolution(target, curve_interpolation),
+        )
+        if recentered:
+            sync_polygon_curve_proxy(target, centered_points, is_line=curve_is_line, interpolation=curve_interpolation)
+            curve_points = centered_points
+            changed = True
+        if polygon_control_point_data(settings, ensure_default=True) != curve_points:
+            set_polygon_points(settings, curve_points)
+            changed = True
+        if bool(getattr(settings, "polygon_is_line", False)) != curve_is_line:
+            settings.polygon_is_line = curve_is_line
+            changed = True
+        if _polygon_interpolation(settings) != curve_interpolation:
+            settings.polygon_interpolation = curve_interpolation
+            changed = True
     transform_owner = _proxy_transform_owner(node)
     transform_source = transform_source_node(node)
     target_location = tuple(float(component) for component in target.location)
@@ -2281,6 +3209,82 @@ def sync_proxy_to_node(node):
     else:
         changed = _write_transform_values(transform_owner, location=target_location, rotation=target_rotation, scale=target_scale) or changed
     with suppress_object_node_updates():
+        if settings is not None:
+            primitive_type = str(getattr(settings, "primitive_type", "sphere") or "sphere")
+            if str(getattr(node, "primitive_type", "sphere") or "sphere") != primitive_type:
+                node.primitive_type = primitive_type
+                changed = True
+            ensure_polygon_defaults(node)
+            current_points = polygon_control_point_data(node)
+            target_points = polygon_control_point_data(settings, ensure_default=(primitive_type == "polygon"))
+            if current_points != target_points:
+                set_polygon_points(node, target_points)
+                changed = True
+            target_active_index = max(0, int(getattr(settings, "polygon_active_index", 0)))
+            if int(getattr(node, "polygon_active_index", 0)) != target_active_index:
+                node.polygon_active_index = target_active_index
+                changed = True
+            if int(getattr(node, "ngon_sides", 6)) != max(3, int(getattr(settings, "ngon_sides", 6))):
+                node.ngon_sides = max(3, int(getattr(settings, "ngon_sides", 6)))
+                changed = True
+            if abs(float(getattr(node, "radius", 0.5)) - float(getattr(settings, "radius", 0.5))) > 1.0e-6:
+                node.radius = float(getattr(settings, "radius", 0.5))
+                changed = True
+            target_cone_top_radius = _cone_top_radius_value(settings)
+            if abs(float(getattr(node, "cone_top_radius", 0.0)) - target_cone_top_radius) > 1.0e-6:
+                node.cone_top_radius = target_cone_top_radius
+                changed = True
+            target_cone_bottom_radius = _cone_bottom_radius_value(settings)
+            if abs(float(getattr(node, "cone_bottom_radius", 0.5)) - target_cone_bottom_radius) > 1.0e-6:
+                node.cone_bottom_radius = target_cone_bottom_radius
+                changed = True
+            target_cylinder_bevel_top = _cylinder_bevel_top_value(settings)
+            if abs(float(getattr(node, "cylinder_bevel_top", 0.0)) - target_cylinder_bevel_top) > 1.0e-6:
+                node.cylinder_bevel_top = target_cylinder_bevel_top
+                changed = True
+            target_cylinder_bevel_bottom = _cylinder_bevel_bottom_value(settings)
+            if abs(float(getattr(node, "cylinder_bevel_bottom", 0.0)) - target_cylinder_bevel_bottom) > 1.0e-6:
+                node.cylinder_bevel_bottom = target_cylinder_bevel_bottom
+                changed = True
+            if _float_seq_changed(tuple(getattr(node, "size", (0.5, 0.5, 0.5))), tuple(float(component) for component in getattr(settings, "size", (0.5, 0.5, 0.5)))):
+                node.size = tuple(float(component) for component in getattr(settings, "size", (0.5, 0.5, 0.5)))
+                changed = True
+            if abs(float(getattr(node, "height", 1.0)) - float(getattr(settings, "height", 1.0))) > 1.0e-6:
+                node.height = float(getattr(settings, "height", 1.0))
+                changed = True
+            if abs(float(getattr(node, "major_radius", 0.75)) - float(getattr(settings, "major_radius", 0.75))) > 1.0e-6:
+                node.major_radius = float(getattr(settings, "major_radius", 0.75))
+                changed = True
+            if abs(float(getattr(node, "minor_radius", 0.25)) - float(getattr(settings, "minor_radius", 0.25))) > 1.0e-6:
+                node.minor_radius = float(getattr(settings, "minor_radius", 0.25))
+                changed = True
+            for attribute in _DIRECT_FLOAT_ATTRS:
+                target_value = float(getattr(settings, attribute, 0.0))
+                if abs(float(getattr(node, attribute, 0.0)) - target_value) > 1.0e-6:
+                    setattr(node, attribute, target_value)
+                    changed = True
+            for attribute in _DIRECT_VECTOR_ATTRS:
+                target_value = tuple(float(component) for component in getattr(settings, attribute, (0.0, 0.0, 0.0, 0.0)))
+                if _float_seq_changed(tuple(float(component) for component in getattr(node, attribute, target_value)), target_value):
+                    setattr(node, attribute, target_value)
+                    changed = True
+            for attribute in _DIRECT_BOOL_ATTRS:
+                target_value = bool(getattr(settings, attribute, False))
+                if bool(getattr(node, attribute, False)) != target_value:
+                    setattr(node, attribute, target_value)
+                    changed = True
+            for attribute in _DIRECT_ENUM_ATTRS:
+                target_value = str(getattr(settings, attribute, "") or "")
+                if str(getattr(node, attribute, "") or "") != target_value:
+                    setattr(node, attribute, target_value)
+                    changed = True
+            _set_socket_float_default(_input_socket(node, _SOCKET_RADIUS, MathOPSV2FloatSocket.bl_idname), getattr(node, "radius", 0.5))
+            _set_socket_float_default(_input_socket(node, _SOCKET_TOP_RADIUS, MathOPSV2FloatSocket.bl_idname), _cone_top_radius_value(node))
+            _set_socket_float_default(_input_socket(node, _SOCKET_BOTTOM_RADIUS, MathOPSV2FloatSocket.bl_idname), _cone_bottom_radius_value(node))
+            _set_socket_vector_default(_input_socket(node, _SOCKET_HALF_SIZE, MathOPSV2VectorSocket.bl_idname), getattr(node, "size", (0.5, 0.5, 0.5)))
+            _set_socket_float_default(_input_socket(node, _SOCKET_HEIGHT, MathOPSV2FloatSocket.bl_idname), getattr(node, "height", 1.0))
+            _set_socket_float_default(_input_socket(node, _SOCKET_MAJOR_RADIUS, MathOPSV2FloatSocket.bl_idname), getattr(node, "major_radius", 0.75))
+            _set_socket_float_default(_input_socket(node, _SOCKET_MINOR_RADIUS, MathOPSV2FloatSocket.bl_idname), getattr(node, "minor_radius", 0.25))
         if not bool(getattr(node, "use_proxy", False)):
             node.use_proxy = True
             changed = True
@@ -2299,6 +3303,7 @@ def sync_proxy_to_node(node):
                 node.sdf_scale = target_scale
                 changed = True
     if changed:
+        _sync_object_node_socket_visibility(node)
         if runtime.safe_pointer(transform_owner) == runtime.safe_pointer(node) and transform_source is not None:
             _sync_tree_proxy_transforms(getattr(node, "id_data", None), source_node=transform_source)
         elif runtime.safe_pointer(transform_owner) != runtime.safe_pointer(node):
@@ -2309,23 +3314,38 @@ def sync_proxy_to_node(node):
 def _adopt_proxy_data(node, obj):
     obj = runtime.object_identity(obj)
     settings = runtime.object_settings(obj)
+    if settings is not None and str(getattr(settings, "primitive_type", "") or "") == "polygon" and getattr(obj, "type", "") == "CURVE":
+        set_polygon_points(settings, polygon_curve_control_point_data(obj, ensure_default=True))
+        settings.polygon_is_line = polygon_curve_is_line(obj)
+        settings.polygon_interpolation = polygon_curve_interpolation(obj)
     with suppress_object_node_updates():
         if settings is not None:
             proxy_id = str(settings.proxy_id or "")
             node.proxy_id = proxy_id or uuid.uuid4().hex
             node.primitive_type = str(settings.primitive_type or "sphere")
             node.radius = float(settings.radius)
+            node.cone_top_radius = _cone_top_radius_value(settings)
+            node.cone_bottom_radius = _cone_bottom_radius_value(settings)
+            node.cylinder_bevel_top = _cylinder_bevel_top_value(settings)
+            node.cylinder_bevel_bottom = _cylinder_bevel_bottom_value(settings)
             node.size = tuple(float(component) for component in settings.size)
             node.height = float(settings.height)
             node.major_radius = float(settings.major_radius)
             node.minor_radius = float(settings.minor_radius)
+            _copy_direct_attrs(settings, node)
+            node.ngon_sides = max(3, int(getattr(settings, "ngon_sides", 6)))
+            set_polygon_points(node, polygon_control_point_data(settings, ensure_default=(str(getattr(settings, "primitive_type", "") or "") == "polygon")))
+            node.polygon_active_index = max(0, int(getattr(settings, "polygon_active_index", 0)))
             _set_socket_float_default(_input_socket(node, _SOCKET_RADIUS, MathOPSV2FloatSocket.bl_idname), settings.radius)
+            _set_socket_float_default(_input_socket(node, _SOCKET_TOP_RADIUS, MathOPSV2FloatSocket.bl_idname), _cone_top_radius_value(settings))
+            _set_socket_float_default(_input_socket(node, _SOCKET_BOTTOM_RADIUS, MathOPSV2FloatSocket.bl_idname), _cone_bottom_radius_value(settings))
             _set_socket_vector_default(_input_socket(node, _SOCKET_HALF_SIZE, MathOPSV2VectorSocket.bl_idname), settings.size)
             _set_socket_float_default(_input_socket(node, _SOCKET_HEIGHT, MathOPSV2FloatSocket.bl_idname), settings.height)
             _set_socket_float_default(_input_socket(node, _SOCKET_MAJOR_RADIUS, MathOPSV2FloatSocket.bl_idname), settings.major_radius)
             _set_socket_float_default(_input_socket(node, _SOCKET_MINOR_RADIUS, MathOPSV2FloatSocket.bl_idname), settings.minor_radius)
         else:
             ensure_object_node_id(node)
+            ensure_polygon_defaults(node)
         node.sdf_location = tuple(float(component) for component in obj.location)
         node.sdf_rotation = tuple(float(component) for component in obj.rotation_euler)
         node.sdf_scale = tuple(float(component) for component in obj.scale)
@@ -2334,7 +3354,7 @@ def _adopt_proxy_data(node, obj):
     _sync_object_node_socket_visibility(node)
 
 
-def attach_proxy_to_node(node, obj, adopt_proxy=False):
+def attach_proxy_to_node(node, obj, adopt_proxy=False, tag_redraw=True):
     obj = runtime.object_identity(obj)
     _ensure_object_node_sockets(node)
     if adopt_proxy:
@@ -2345,49 +3365,76 @@ def attach_proxy_to_node(node, obj, adopt_proxy=False):
             node.use_proxy = True
             node.target = obj
         sync_node_to_proxy(node, include_transform=True)
-    runtime.tag_redraw()
+    if tag_redraw:
+        runtime.tag_redraw()
     return obj
 
 
 def add_proxy_to_tree(scene, obj):
-    obj = runtime.object_identity(obj)
+    tree, nodes = add_proxies_to_tree(scene, (obj,))
+    return tree, (None if not nodes else nodes[0])
+
+
+def add_proxies_to_tree(scene, objects):
+    scene = runtime.scene_identity(scene)
     tree = ensure_scene_tree(scene)
     output = _ensure_output_node(tree)
     existing_root = _linked_source_node(output.inputs[0])
-    settings = runtime.object_settings(obj)
-    proxy_id = "" if settings is None else str(getattr(settings, "proxy_id", "") or "")
-    existing_node = find_initializer_node(tree, obj=obj, proxy_id=proxy_id)
-    if existing_node is not None:
-        if runtime.safe_pointer(getattr(existing_node, "target", None)) != runtime.safe_pointer(obj):
-            attach_proxy_to_node(existing_node, obj, adopt_proxy=True)
-        return tree, existing_node
+    linked_nodes = []
+    new_nodes = []
+    seen_targets = set()
 
-    object_node = tree.nodes.new(runtime.OBJECT_NODE_IDNAME)
-    attach_proxy_to_node(object_node, obj, adopt_proxy=True)
+    for raw_obj in objects:
+        obj = runtime.object_identity(raw_obj)
+        obj_key = runtime.object_key(obj)
+        if not obj_key or obj_key in seen_targets:
+            continue
+        seen_targets.add(obj_key)
+        settings = runtime.object_settings(obj)
+        proxy_id = "" if settings is None else str(getattr(settings, "proxy_id", "") or "")
+        existing_node = find_initializer_node(tree, obj=obj, proxy_id=proxy_id)
+        if existing_node is not None:
+            if runtime.safe_pointer(getattr(existing_node, "target", None)) != runtime.safe_pointer(obj):
+                attach_proxy_to_node(existing_node, obj, adopt_proxy=True, tag_redraw=False)
+            linked_nodes.append(existing_node)
+            continue
+        object_node = tree.nodes.new(runtime.OBJECT_NODE_IDNAME)
+        attach_proxy_to_node(object_node, obj, adopt_proxy=True, tag_redraw=False)
+        new_nodes.append(object_node)
+        linked_nodes.append(object_node)
+
+    if not new_nodes:
+        return tree, linked_nodes
+
     runtime.mark_scene_static_dirty(scene)
-    if existing_root is None:
-        object_node.location = (120.0, 0.0)
-        output.location = (400.0, 0.0)
-        tree.links.new(object_node.outputs[0], output.inputs[0])
-        _safe_sync_branch_frames(tree)
-        _auto_arrange_tree(tree)
-        runtime.tag_redraw()
-        return tree, object_node
+    if existing_root is not None and output.inputs[0].is_linked and output.inputs[0].links:
+        tree.links.remove(output.inputs[0].links[0])
 
-    old_link = output.inputs[0].links[0]
-    tree.links.remove(old_link)
-    csg_node = tree.nodes.new(runtime.CSG_NODE_IDNAME)
-    csg_node.operation = "UNION"
-    csg_node.location = (existing_root.location.x + 260.0, existing_root.location.y)
-    object_node.location = (existing_root.location.x, existing_root.location.y - 220.0)
-    output.location = (csg_node.location.x + 280.0, csg_node.location.y)
-    tree.links.new(_surface_output_socket(existing_root), csg_node.inputs[0])
-    tree.links.new(object_node.outputs[0], csg_node.inputs[1])
-    tree.links.new(csg_node.outputs[0], output.inputs[0])
+    current_root = existing_root
+    next_y = 0.0 if existing_root is None else existing_root.location.y - 220.0
+    for index, object_node in enumerate(new_nodes):
+        if current_root is None:
+            object_node.location = (120.0, 0.0)
+            current_root = object_node
+            next_y = -220.0
+            continue
+
+        object_node.location = (current_root.location.x, next_y)
+        csg_node = tree.nodes.new(runtime.CSG_NODE_IDNAME)
+        csg_node.operation = "UNION"
+        csg_node.location = (current_root.location.x + 260.0, current_root.location.y)
+        tree.links.new(_surface_output_socket(current_root), csg_node.inputs[0])
+        tree.links.new(object_node.outputs[0], csg_node.inputs[1])
+        current_root = csg_node
+        next_y -= 220.0
+
+    if current_root is not None:
+        output.location = (current_root.location.x + 280.0, current_root.location.y)
+        tree.links.new(_surface_output_socket(current_root), output.inputs[0])
     _safe_sync_branch_frames(tree)
     _auto_arrange_tree(tree)
     runtime.tag_redraw()
-    return tree, object_node
+    return tree, linked_nodes
 
 
 def _node_transform_matrix(node):
@@ -2397,30 +3444,211 @@ def _node_transform_matrix(node):
     return Matrix.LocRotScale(location, rotation, None)
 
 
-def _primitive_parameters_from_node(node):
+def _append_polygon_rows(node, polygon_rows):
+    use_bezier = (
+        not bool(getattr(node, "polygon_is_line", False))
+        and _polygon_interpolation(node) == "BEZIER"
+    )
+    point_offset = len(polygon_rows)
+    if use_bezier:
+        control_points = effective_polygon_control_point_data(node, ensure_default=True)
+        for x, y, _corner, handle_left_x, handle_left_y, handle_right_x, handle_right_y in control_points:
+            polygon_rows.append((float(x), float(y), float(handle_right_x), float(handle_right_y)))
+            polygon_rows.append((float(handle_left_x), float(handle_left_y), 0.0, 0.0))
+        return point_offset, len(control_points), control_points
+    points = effective_polygon_point_data(node, ensure_default=True)
+    for x, y, _corner in points:
+        polygon_rows.append((float(x), float(y), 0.0, 0.0))
+    return point_offset, len(points), points
+
+
+def _mode_to_id(mode):
+    return 1.0 if str(mode or "SMOOTH") == "CHAMFER" else 0.0
+
+
+def _split_taper(value):
+    taper = float(value)
+    return max(taper, 0.0), max(-taper, 0.0)
+
+
+def _safe_cone_radii(bottom_radius, top_radius):
+    bottom = max(0.0, float(bottom_radius))
+    top = max(0.0, float(top_radius))
+    if max(bottom, top) <= 1.0e-6:
+        bottom = 0.001
+    return bottom, top
+
+
+def _primitive_extra_data(node, primitive_type):
+    extra = {"bevel": max(0.0, float(getattr(node, "bevel", 0.0))) if primitive_supports_bevel(primitive_type) else 0.0}
+    if primitive_type == "cylinder":
+        extra.update(
+            {
+                "cylinder_bevel_top": _cylinder_bevel_top_value(node),
+                "cylinder_bevel_bottom": _cylinder_bevel_bottom_value(node),
+                "cylinder_taper": float(getattr(node, "cylinder_taper", 0.0)),
+                "cylinder_bevel_mode": str(getattr(node, "cylinder_bevel_mode", "SMOOTH") or "SMOOTH"),
+            }
+        )
+    elif primitive_type == "cone":
+        extra["cone_bevel_mode"] = str(getattr(node, "cone_bevel_mode", "SMOOTH") or "SMOOTH")
+    elif primitive_type == "capsule":
+        extra["capsule_taper"] = float(getattr(node, "capsule_taper", 0.0))
+    elif primitive_type == "torus":
+        extra["torus_angle"] = max(0.0, min(6.283185307179586, float(getattr(node, "torus_angle", 6.283185307179586))))
+    elif primitive_type == "box":
+        extra.update(
+            {
+                "box_corners": tuple(float(component) for component in getattr(node, "box_corners", (0.0, 0.0, 0.0, 0.0))),
+                "box_edge_top": float(getattr(node, "box_edge_top", 0.0)),
+                "box_edge_bottom": float(getattr(node, "box_edge_bottom", 0.0)),
+                "box_taper": float(getattr(node, "box_taper", 0.0)),
+                "box_corner_mode": str(getattr(node, "box_corner_mode", "SMOOTH") or "SMOOTH"),
+                "box_edge_mode": str(getattr(node, "box_edge_mode", "SMOOTH") or "SMOOTH"),
+            }
+        )
+    elif primitive_type == "ngon":
+        extra.update(
+            {
+                "ngon_corner": float(getattr(node, "ngon_corner", 0.0)),
+                "ngon_edge_top": float(getattr(node, "ngon_edge_top", 0.0)),
+                "ngon_edge_bottom": float(getattr(node, "ngon_edge_bottom", 0.0)),
+                "ngon_taper": float(getattr(node, "ngon_taper", 0.0)),
+                "ngon_edge_mode": str(getattr(node, "ngon_edge_mode", "SMOOTH") or "SMOOTH"),
+                "ngon_star": float(getattr(node, "ngon_star", 0.0)),
+            }
+        )
+    elif primitive_type == "polygon":
+        extra.update(
+            {
+                "polygon_edge_top": float(getattr(node, "polygon_edge_top", 0.0)),
+                "polygon_edge_bottom": float(getattr(node, "polygon_edge_bottom", 0.0)),
+                "polygon_taper": float(getattr(node, "polygon_taper", 0.0)),
+                "polygon_interpolation": "BEZIER" if (_polygon_interpolation(node) == "BEZIER" and not bool(getattr(node, "polygon_is_line", False))) else "VECTOR",
+                "polygon_edge_mode": str(getattr(node, "polygon_edge_mode", "SMOOTH") or "SMOOTH"),
+                "polygon_is_line": bool(getattr(node, "polygon_is_line", False)),
+                "polygon_line_thickness": float(getattr(node, "polygon_line_thickness", 0.1)),
+            }
+        )
+    return extra
+
+
+def _primitive_extra_rows(primitive_type, extra):
+    row5 = [float(extra.get("effective_bevel", extra.get("bevel", 0.0))), 0.0, 0.0, 0.0]
+    row6 = [0.0, 0.0, 0.0, 0.0]
+    row7 = [0.0, 0.0, 0.0, 0.0]
+    if primitive_type == "cylinder":
+        row5[0] = float(extra.get("cylinder_bevel_top", 0.0))
+        row5[1] = float(extra.get("cylinder_bevel_bottom", 0.0))
+        row5[2] = float(extra.get("cylinder_taper", 0.0))
+        row5[3] = _mode_to_id(extra.get("cylinder_bevel_mode", "SMOOTH"))
+    elif primitive_type == "cone":
+        row5[0] = float(extra.get("bevel", 0.0))
+        row5[1] = _mode_to_id(extra.get("cone_bevel_mode", "SMOOTH"))
+    elif primitive_type == "capsule":
+        row5[1] = float(extra.get("capsule_taper", 0.0))
+    elif primitive_type == "torus":
+        row5[1] = float(extra.get("torus_angle", 6.283185307179586))
+    elif primitive_type == "box":
+        corners = tuple(float(component) for component in extra.get("box_corners", (0.0, 0.0, 0.0, 0.0)))
+        row5[1:] = corners[:3]
+        row6[0] = corners[3] if len(corners) > 3 else 0.0
+        row6[1] = float(extra.get("box_edge_top", 0.0))
+        row6[2] = float(extra.get("box_edge_bottom", 0.0))
+        row6[3] = float(extra.get("box_taper", 0.0))
+        row7[0] = _mode_to_id(extra.get("box_corner_mode", "SMOOTH"))
+        row7[1] = _mode_to_id(extra.get("box_edge_mode", "SMOOTH"))
+    elif primitive_type == "ngon":
+        row5[1] = float(extra.get("ngon_corner", 0.0))
+        row5[2] = float(extra.get("ngon_edge_top", 0.0))
+        row5[3] = float(extra.get("ngon_edge_bottom", 0.0))
+        row6[0] = float(extra.get("ngon_taper", 0.0))
+        row6[1] = _mode_to_id(extra.get("ngon_edge_mode", "SMOOTH"))
+        row6[2] = float(extra.get("ngon_star", 0.0))
+    elif primitive_type == "polygon":
+        row5[1] = float(extra.get("polygon_edge_top", 0.0))
+        row5[2] = float(extra.get("polygon_edge_bottom", 0.0))
+        row5[3] = float(extra.get("polygon_taper", 0.0))
+        row6[0] = _mode_to_id(extra.get("polygon_edge_mode", "SMOOTH"))
+        row6[1] = 1.0 if bool(extra.get("polygon_is_line", False)) else 0.0
+        row6[2] = float(extra.get("polygon_line_thickness", 0.1))
+        row6[3] = 1.0 if str(extra.get("polygon_interpolation", "VECTOR") or "VECTOR") == "BEZIER" else 0.0
+    return tuple(row5), tuple(row6), tuple(row7)
+
+
+def _effective_bevel(bevel, *dimensions):
+    bevel_value = max(0.0, float(bevel))
+    if bevel_value <= 0.0:
+        return 0.0
+    positive = [max(0.0, float(value)) for value in dimensions if float(value) > 0.0]
+    if not positive:
+        return 0.0
+    return min(bevel_value, max(min(positive) - 0.001, 0.0))
+
+
+def _render_meta_with_bevel(primitive_type, raw_meta, bevel):
+    render_meta = list(raw_meta)
+    effective_bevel = 0.0
+    if primitive_type == "box":
+        effective_bevel = _effective_bevel(bevel, raw_meta[1], raw_meta[2], raw_meta[3])
+        render_meta[1] = max(raw_meta[1] - effective_bevel, 0.001)
+        render_meta[2] = max(raw_meta[2] - effective_bevel, 0.001)
+        render_meta[3] = max(raw_meta[3] - effective_bevel, 0.001)
+    return tuple(render_meta), effective_bevel
+
+
+def _primitive_parameters_from_node(node, polygon_rows=None):
     primitive_type = str(node.primitive_type or "sphere").strip().lower()
-    meta = [0.0, 0.0, 0.0, 0.0]
-    meta[0] = _PRIMITIVE_TYPE_TO_ID.get(primitive_type, 0.0)
+    raw_meta = [0.0, 0.0, 0.0, 0.0]
+    raw_meta[0] = _PRIMITIVE_TYPE_TO_ID.get(primitive_type, 0.0)
     if primitive_type == "sphere":
-        meta[1] = _node_socket_float(node, _SOCKET_RADIUS, "radius", 0.5, min_value=0.001)
+        raw_meta[1] = _node_socket_float(node, _SOCKET_RADIUS, "radius", 0.5, min_value=0.001)
     elif primitive_type == "box":
         size = _node_socket_vector(node, _SOCKET_HALF_SIZE, "size", (0.5, 0.5, 0.5), _sanitized_scale)
-        meta[1] = float(size[0])
-        meta[2] = float(size[1])
-        meta[3] = float(size[2])
+        raw_meta[1] = float(size[0])
+        raw_meta[2] = float(size[1])
+        raw_meta[3] = float(size[2])
     elif primitive_type == "cylinder":
-        meta[1] = _node_socket_float(node, _SOCKET_RADIUS, "radius", 0.5, min_value=0.001)
-        meta[2] = _node_socket_float(node, _SOCKET_HEIGHT, "height", 1.0, min_value=0.001) * 0.5
+        raw_meta[1] = _node_socket_float(node, _SOCKET_RADIUS, "radius", 0.5, min_value=0.001)
+        raw_meta[2] = _node_socket_float(node, _SOCKET_HEIGHT, "height", 1.0, min_value=0.001) * 0.5
     elif primitive_type == "torus":
-        meta[1] = _node_socket_float(node, _SOCKET_MAJOR_RADIUS, "major_radius", 0.75, min_value=0.001)
-        meta[2] = _node_socket_float(node, _SOCKET_MINOR_RADIUS, "minor_radius", 0.25, min_value=0.001)
+        raw_meta[1] = _node_socket_float(node, _SOCKET_MAJOR_RADIUS, "major_radius", 0.75, min_value=0.001)
+        raw_meta[2] = _node_socket_float(node, _SOCKET_MINOR_RADIUS, "minor_radius", 0.25, min_value=0.001)
+    elif primitive_type == "cone":
+        legacy_bottom = _node_socket_float(node, _SOCKET_RADIUS, "radius", 0.5, min_value=0.0)
+        bottom_socket = _input_socket(node, _SOCKET_BOTTOM_RADIUS, MathOPSV2FloatSocket.bl_idname)
+        bottom_radius = _node_socket_float(node, _SOCKET_BOTTOM_RADIUS, "cone_bottom_radius", _cone_bottom_radius_value(node), min_value=0.0)
+        top_radius = _node_socket_float(node, _SOCKET_TOP_RADIUS, "cone_top_radius", _cone_top_radius_value(node), min_value=0.0)
+        if not _property_is_explicit(node, "cone_bottom_radius") and not bool(getattr(bottom_socket, "is_linked", False)):
+            bottom_radius = legacy_bottom
+        bottom_radius, top_radius = _safe_cone_radii(bottom_radius, top_radius)
+        raw_meta[1] = bottom_radius
+        raw_meta[2] = top_radius
+        raw_meta[3] = _node_socket_float(node, _SOCKET_HEIGHT, "height", 1.0, min_value=0.001) * 0.5
+    elif primitive_type == "capsule":
+        raw_meta[1] = _node_socket_float(node, _SOCKET_RADIUS, "radius", 0.5, min_value=0.001)
+        raw_meta[2] = _node_socket_float(node, _SOCKET_HEIGHT, "height", 1.0, min_value=0.001) * 0.5
+    elif primitive_type == "ngon":
+        raw_meta[1] = _node_socket_float(node, _SOCKET_RADIUS, "radius", 0.5, min_value=0.001)
+        raw_meta[2] = _node_socket_float(node, _SOCKET_HEIGHT, "height", 1.0, min_value=0.001) * 0.5
+        raw_meta[3] = float(max(3, int(getattr(node, "ngon_sides", 6))))
+    elif primitive_type == "polygon":
+        half_height = _node_socket_float(node, _SOCKET_HEIGHT, "height", 1.0, min_value=0.001) * 0.5
+        point_offset, point_count, _points = _append_polygon_rows(node, polygon_rows if polygon_rows is not None else [])
+        raw_meta[1] = float(point_offset)
+        raw_meta[2] = float(point_count)
+        raw_meta[3] = half_height
     else:
         raise RuntimeError(f"Unsupported primitive type '{primitive_type}'")
     _location, _rotation, scale = _node_transform_values(node)
-    return primitive_type, tuple(meta), scale
+    extra = _primitive_extra_data(node, primitive_type)
+    render_meta, effective_bevel = _render_meta_with_bevel(primitive_type, raw_meta, extra.get("bevel", 0.0))
+    extra["effective_bevel"] = effective_bevel
+    extra["raw_meta"] = tuple(raw_meta)
+    return primitive_type, tuple(raw_meta), tuple(render_meta), scale, extra
 
 
-def _primitive_local_extents(primitive_type, meta, scale):
+def _primitive_local_extents(primitive_type, meta, scale, node=None):
     if primitive_type == "sphere":
         return Vector((meta[1] * scale[0], meta[1] * scale[1], meta[1] * scale[2]))
     if primitive_type == "box":
@@ -2431,10 +3659,26 @@ def _primitive_local_extents(primitive_type, meta, scale):
         return Vector(
             (
                 (meta[1] + meta[2]) * scale[0],
-                meta[2] * scale[1],
-                (meta[1] + meta[2]) * scale[2],
+                (meta[1] + meta[2]) * scale[1],
+                meta[2] * scale[2],
             )
         )
+    if primitive_type == "cone":
+        max_radius = max(float(meta[1]), float(meta[2]), 0.001)
+        return Vector((max_radius * scale[0], max_radius * scale[1], meta[3] * scale[2]))
+    if primitive_type == "capsule":
+        bottom_radius, top_radius = _capsule_end_radii(meta[1], getattr(node, "capsule_taper", 0.0) if node is not None else 0.0)
+        max_radius = max(bottom_radius, top_radius, 0.001)
+        return Vector((max_radius * scale[0], max_radius * scale[1], (meta[2] + max_radius) * scale[2]))
+    if primitive_type == "ngon":
+        return Vector((meta[1] * scale[0], meta[1] * scale[1], meta[2] * scale[2]))
+    if primitive_type == "polygon":
+        points = polygon_point_coords(node, ensure_default=True) if node is not None else default_polygon_points()
+        if not points:
+            return Vector((scale[0], scale[1], meta[3] * scale[2]))
+        max_x = max(abs(float(point[0])) for point in points)
+        max_y = max(abs(float(point[1])) for point in points)
+        return Vector((max_x * scale[0], max_y * scale[1], meta[3] * scale[2]))
     return Vector((1.0, 1.0, 1.0))
 
 
@@ -2952,25 +4196,48 @@ def _pack_warp_info(warp_offset, warp_count):
 
 def _primitive_spec_from_node(node, primitive_index, warps=()):
     location, _rotation, _scale = _node_transform_values(node)
-    primitive_type, meta, scale = _primitive_parameters_from_node(node)
+    primitive_type, raw_meta, render_meta, scale, extra = _primitive_parameters_from_node(node)
     transform = _node_transform_matrix(node)
     world_to_local = transform.inverted_safe()
     rows = [tuple(float(value) for value in world_to_local[index]) for index in range(3)]
     center = location
     rotation = transform.to_3x3()
-    local_extents = _primitive_local_extents(primitive_type, meta, scale)
-    world_extents = Vector((
-        abs(rotation[0][0]) * local_extents[0] + abs(rotation[0][1]) * local_extents[1] + abs(rotation[0][2]) * local_extents[2],
-        abs(rotation[1][0]) * local_extents[0] + abs(rotation[1][1]) * local_extents[1] + abs(rotation[1][2]) * local_extents[2],
-        abs(rotation[2][0]) * local_extents[0] + abs(rotation[2][1]) * local_extents[1] + abs(rotation[2][2]) * local_extents[2],
-    ))
-    bounds_min = tuple(center[axis] - float(world_extents[axis]) for axis in range(3))
-    bounds_max = tuple(center[axis] + float(world_extents[axis]) for axis in range(3))
+    polygon_points = ()
+    if primitive_type == "polygon":
+        polygon_points = effective_polygon_point_data(node, ensure_default=True)
+        half_height = float(raw_meta[3])
+        local_min_x = min(float(point[0]) for point in polygon_points) * float(scale[0])
+        local_max_x = max(float(point[0]) for point in polygon_points) * float(scale[0])
+        local_min_y = min(float(point[1]) for point in polygon_points) * float(scale[1])
+        local_max_y = max(float(point[1]) for point in polygon_points) * float(scale[1])
+        local_corners = (
+            Vector((local_min_x, local_min_y, -half_height * float(scale[2]))),
+            Vector((local_min_x, local_min_y, half_height * float(scale[2]))),
+            Vector((local_min_x, local_max_y, -half_height * float(scale[2]))),
+            Vector((local_min_x, local_max_y, half_height * float(scale[2]))),
+            Vector((local_max_x, local_min_y, -half_height * float(scale[2]))),
+            Vector((local_max_x, local_min_y, half_height * float(scale[2]))),
+            Vector((local_max_x, local_max_y, -half_height * float(scale[2]))),
+            Vector((local_max_x, local_max_y, half_height * float(scale[2]))),
+        )
+        world_corners = [Vector(center) + (rotation @ corner) for corner in local_corners]
+        bounds_min = tuple(min(float(corner[axis]) for corner in world_corners) for axis in range(3))
+        bounds_max = tuple(max(float(corner[axis]) for corner in world_corners) for axis in range(3))
+    else:
+        local_extents = _primitive_local_extents(primitive_type, raw_meta, scale, node=node)
+        world_extents = Vector((
+            abs(rotation[0][0]) * local_extents[0] + abs(rotation[0][1]) * local_extents[1] + abs(rotation[0][2]) * local_extents[2],
+            abs(rotation[1][0]) * local_extents[0] + abs(rotation[1][1]) * local_extents[1] + abs(rotation[1][2]) * local_extents[2],
+            abs(rotation[2][0]) * local_extents[0] + abs(rotation[2][1]) * local_extents[1] + abs(rotation[2][2]) * local_extents[2],
+        ))
+        bounds_min = tuple(center[axis] - float(world_extents[axis]) for axis in range(3))
+        bounds_max = tuple(center[axis] + float(world_extents[axis]) for axis in range(3))
     bounds_min, bounds_max = _apply_warp_stack_to_bounds(bounds_min, bounds_max, warps)
-    return {
+    spec = {
         "primitive_index": int(primitive_index),
         "primitive_type": primitive_type,
-        "meta": meta,
+        "meta": render_meta,
+        "extra": extra,
         "world_to_local": tuple(rows),
         "scale": tuple(scale),
         "center": center,
@@ -2978,6 +4245,20 @@ def _primitive_spec_from_node(node, primitive_index, warps=()):
         "bounds_max": bounds_max,
         "lipschitz": float(_primitive_lipschitz(primitive_type, scale)),
     }
+    if primitive_type == "polygon":
+        spec["polygon_points"] = tuple((float(point[0]), float(point[1])) for point in polygon_points)
+        spec["polygon_control_points"] = tuple(
+            (
+                float(point[0]),
+                float(point[1]),
+                float(point[3]),
+                float(point[4]),
+                float(point[5]),
+                float(point[6]),
+            )
+            for point in effective_polygon_control_point_data(node, ensure_default=True)
+        )
+    return spec
 
 
 def _union_bounds(bounds_a, bounds_b):
@@ -3087,18 +4368,22 @@ def _tight_scene_bounds(root_node, primitive_specs):
     )
 
 
-def _primitive_rows_from_node(node, warps=(), warp_rows=None):
-    _primitive_type, meta, scale = _primitive_parameters_from_node(node)
+def _primitive_rows_from_node(node, warps=(), warp_rows=None, polygon_rows=None):
+    primitive_type, _raw_meta, render_meta, scale, extra = _primitive_parameters_from_node(node, polygon_rows=polygon_rows)
     location, _rotation, _node_scale = _node_transform_values(node)
     transform = _node_transform_matrix(node).inverted_safe()
     rows = [tuple(float(value) for value in transform[index]) for index in range(3)]
     warp_offset, warp_count = _append_warp_rows(warps, warp_rows, primitive_center=location)
+    extra_rows = _primitive_extra_rows(primitive_type, extra)
     return [
-        tuple(meta),
+        tuple(render_meta),
         rows[0],
         rows[1],
         rows[2],
         (scale[0], scale[1], scale[2], _pack_warp_info(warp_offset, warp_count)),
+        extra_rows[0],
+        extra_rows[1],
+        extra_rows[2],
     ]
 
 
@@ -3131,7 +4416,7 @@ def _stack_usage(instructions):
     return max_depth
 
 
-def _emit_node(node, primitive_rows, warp_rows, instructions, primitive_map, primitive_specs, primitive_entries, visiting, warps=()):
+def _emit_node(node, primitive_rows, polygon_rows, warp_rows, instructions, primitive_map, primitive_specs, primitive_entries, visiting, warps=()):
     node_key = node.as_pointer()
     if node_key in visiting:
         raise RuntimeError(f"Cycle detected at node '{node.name}'")
@@ -3146,7 +4431,7 @@ def _emit_node(node, primitive_rows, warp_rows, instructions, primitive_map, pri
             if primitive_index is None:
                 primitive_index = len(primitive_entries)
                 primitive_map[proxy_key] = primitive_index
-                primitive_rows.extend(_primitive_rows_from_node(node, warps=warps, warp_rows=warp_rows))
+                primitive_rows.extend(_primitive_rows_from_node(node, warps=warps, warp_rows=warp_rows, polygon_rows=polygon_rows))
                 primitive_specs.append(_primitive_spec_from_node(node, primitive_index, warps=warps))
                 primitive_entries.append({"node": node, "warps": tuple(warps), "object": getattr(node, "target", None)})
             instruction_index = len(instructions)
@@ -3167,6 +4452,7 @@ def _emit_node(node, primitive_rows, warp_rows, instructions, primitive_map, pri
             return _emit_node(
                 source,
                 primitive_rows,
+                polygon_rows,
                 warp_rows,
                 instructions,
                 primitive_map,
@@ -3186,6 +4472,7 @@ def _emit_node(node, primitive_rows, warp_rows, instructions, primitive_map, pri
             return _emit_node(
                 source,
                 primitive_rows,
+                polygon_rows,
                 warp_rows,
                 instructions,
                 primitive_map,
@@ -3204,6 +4491,7 @@ def _emit_node(node, primitive_rows, warp_rows, instructions, primitive_map, pri
             left_compiled = _emit_node(
                 left,
                 primitive_rows,
+                polygon_rows,
                 warp_rows,
                 instructions,
                 primitive_map,
@@ -3215,6 +4503,7 @@ def _emit_node(node, primitive_rows, warp_rows, instructions, primitive_map, pri
             right_compiled = _emit_node(
                 right,
                 primitive_rows,
+                polygon_rows,
                 warp_rows,
                 instructions,
                 primitive_map,
@@ -3258,17 +4547,19 @@ def _compile_tree(tree):
         raise RuntimeError(f"Tree '{tree.name}' needs the Scene Output connected")
 
     primitive_rows = []
+    polygon_rows = []
     warp_rows = []
     instructions = []
     primitive_map = {}
     primitive_specs = []
     primitive_entries = []
-    root_node = _emit_node(root, primitive_rows, warp_rows, instructions, primitive_map, primitive_specs, primitive_entries, set())
-    return primitive_rows, warp_rows, instructions, primitive_specs, primitive_entries, root_node
+    root_node = _emit_node(root, primitive_rows, polygon_rows, warp_rows, instructions, primitive_map, primitive_specs, primitive_entries, set())
+    return primitive_rows, polygon_rows, warp_rows, instructions, primitive_specs, primitive_entries, root_node
 
 
 def _compile_scene_union(scene):
     primitive_rows = []
+    polygon_rows = []
     warp_rows = []
     instructions = []
     primitive_specs = []
@@ -3279,7 +4570,7 @@ def _compile_scene_union(scene):
     for primitive_index, obj in enumerate(proxies):
         node = find_initializer_node(tree, obj=obj)
         if node is not None:
-            primitive_rows.extend(_primitive_rows_from_node(node, warp_rows=warp_rows))
+            primitive_rows.extend(_primitive_rows_from_node(node, warp_rows=warp_rows, polygon_rows=polygon_rows))
             primitive_specs.append(_primitive_spec_from_node(node, primitive_index))
             primitive_entries.append({"node": node, "warps": (), "object": getattr(node, "target", None)})
         else:
@@ -3287,14 +4578,28 @@ def _compile_scene_union(scene):
             settings = runtime.object_settings(obj)
             temp_node.primitive_type = getattr(settings, "primitive_type", "sphere") if settings is not None else "sphere"
             temp_node.radius = getattr(settings, "radius", 0.5) if settings is not None else 0.5
+            temp_node.cone_top_radius = _cone_top_radius_value(settings) if settings is not None else 0.0
+            temp_node.cone_bottom_radius = _cone_bottom_radius_value(settings) if settings is not None else 0.5
+            temp_node.cylinder_bevel_top = _cylinder_bevel_top_value(settings) if settings is not None else 0.0
+            temp_node.cylinder_bevel_bottom = _cylinder_bevel_bottom_value(settings) if settings is not None else 0.0
             temp_node.size = getattr(settings, "size", (0.5, 0.5, 0.5)) if settings is not None else (0.5, 0.5, 0.5)
             temp_node.height = getattr(settings, "height", 1.0) if settings is not None else 1.0
             temp_node.major_radius = getattr(settings, "major_radius", 0.75) if settings is not None else 0.75
             temp_node.minor_radius = getattr(settings, "minor_radius", 0.25) if settings is not None else 0.25
+            for attribute in _DIRECT_FLOAT_ATTRS:
+                setattr(temp_node, attribute, getattr(settings, attribute, 0.0) if settings is not None else 0.0)
+            for attribute in _DIRECT_VECTOR_ATTRS:
+                setattr(temp_node, attribute, getattr(settings, attribute, (0.0, 0.0, 0.0, 0.0)) if settings is not None else (0.0, 0.0, 0.0, 0.0))
+            for attribute in _DIRECT_BOOL_ATTRS:
+                setattr(temp_node, attribute, getattr(settings, attribute, False) if settings is not None else False)
+            for attribute in _DIRECT_ENUM_ATTRS:
+                setattr(temp_node, attribute, getattr(settings, attribute, "SMOOTH") if settings is not None else "SMOOTH")
+            temp_node.ngon_sides = getattr(settings, "ngon_sides", 6) if settings is not None else 6
+            temp_node.polygon_points = polygon_control_point_data(settings, ensure_default=True) if settings is not None else default_polygon_control_points()
             temp_node.sdf_location = tuple(float(component) for component in obj.location)
             temp_node.sdf_rotation = tuple(float(component) for component in obj.rotation_euler)
             temp_node.sdf_scale = tuple(float(component) for component in obj.scale)
-            primitive_rows.extend(_primitive_rows_from_node(temp_node, warp_rows=warp_rows))
+            primitive_rows.extend(_primitive_rows_from_node(temp_node, warp_rows=warp_rows, polygon_rows=polygon_rows))
             primitive_specs.append(_primitive_spec_from_node(temp_node, primitive_index))
             primitive_entries.append({"node": temp_node, "warps": (), "object": obj})
         primitive_instruction_index = len(instructions)
@@ -3318,7 +4623,7 @@ def _compile_scene_union(scene):
             }
         if primitive_index > 0:
             _append_instruction(instructions, (1.0, 0.0, 0.0, 0.0))
-    return primitive_rows, warp_rows, instructions, primitive_specs, primitive_entries, root_node
+    return primitive_rows, polygon_rows, warp_rows, instructions, primitive_specs, primitive_entries, root_node
 
 
 def refresh_compiled_scene_dynamic(compiled):
@@ -3330,6 +4635,7 @@ def refresh_compiled_scene_dynamic(compiled):
         return compiled
 
     primitive_rows = []
+    polygon_rows = []
     warp_rows = []
     primitive_specs = []
     primitive_nodes = []
@@ -3339,7 +4645,7 @@ def refresh_compiled_scene_dynamic(compiled):
             return compile_scene(scene) if scene is not None else compiled
         warps = _resolve_warp_stack(tuple(entry.get("warps", ())))
         try:
-            primitive_rows.extend(_primitive_rows_from_node(node, warps=warps, warp_rows=warp_rows))
+            primitive_rows.extend(_primitive_rows_from_node(node, warps=warps, warp_rows=warp_rows, polygon_rows=polygon_rows))
             primitive_specs.append(_primitive_spec_from_node(node, primitive_index, warps=warps))
         except ReferenceError:
             return compile_scene(scene) if scene is not None else compiled
@@ -3354,6 +4660,7 @@ def refresh_compiled_scene_dynamic(compiled):
     refreshed.update(
         {
             "primitive_rows": primitive_rows,
+            "polygon_rows": polygon_rows,
             "warp_rows": warp_rows,
             "primitive_specs": primitive_specs,
             "primitive_entries": primitive_entries,
@@ -3364,7 +4671,7 @@ def refresh_compiled_scene_dynamic(compiled):
             "render_bounds": render_bounds,
             "scene_bounds": scene_bounds,
             "rows": rows,
-            "hash": runtime.hash_compiled_rows(primitive_rows, warp_rows, instruction_rows),
+            "hash": runtime.hash_compiled_rows(primitive_rows, polygon_rows, warp_rows, instruction_rows),
         }
     )
     return refreshed
@@ -3506,19 +4813,20 @@ def prune_tree(tree, valid_target_pointers=None):
     changed = False
     pruned = False
 
-    for node in list(tree.nodes):
-        if getattr(node, "bl_idname", "") != runtime.OBJECT_NODE_IDNAME:
-            continue
-        target = getattr(node, "target", None)
-        target_pointer = runtime.object_key(target)
-        if target_pointer and runtime.is_sdf_proxy(target) and (valid_targets is None or target_pointer in valid_targets):
-            continue
-        if not bool(getattr(node, "use_proxy", False)):
-            continue
-        _detach_proxy_binding(node)
-        tree.nodes.remove(node)
-        changed = True
-        pruned = True
+    with suppress_object_node_free_cleanup():
+        for node in list(tree.nodes):
+            if getattr(node, "bl_idname", "") != runtime.OBJECT_NODE_IDNAME:
+                continue
+            target = getattr(node, "target", None)
+            target_pointer = runtime.object_key(target)
+            if target_pointer and runtime.is_sdf_proxy(target) and (valid_targets is None or target_pointer in valid_targets):
+                continue
+            if not bool(getattr(node, "use_proxy", False)):
+                continue
+            _detach_proxy_binding(node)
+            tree.nodes.remove(node)
+            changed = True
+            pruned = True
 
     ensure_graph_output(tree)
     cleanup_changed = cleanup_graph_structure(tree)
@@ -3532,6 +4840,7 @@ def prune_tree(tree, valid_target_pointers=None):
 
 def compile_scene(scene):
     primitive_rows = []
+    polygon_rows = []
     warp_rows = []
     instructions = []
     primitive_specs = []
@@ -3542,13 +4851,13 @@ def compile_scene(scene):
     tree = None if settings is None else getattr(settings, "node_tree", None)
     if tree is not None and getattr(tree, "bl_idname", "") == runtime.TREE_IDNAME:
         try:
-            primitive_rows, warp_rows, instructions, primitive_specs, primitive_entries, root_node = _compile_tree(tree)
+            primitive_rows, polygon_rows, warp_rows, instructions, primitive_specs, primitive_entries, root_node = _compile_tree(tree)
         except RuntimeError as exc:
             message = f"Graph fallback: {exc}"
             primitive_entries = []
 
     if not instructions:
-        primitive_rows, warp_rows, instructions, primitive_specs, primitive_entries, root_node = _compile_scene_union(scene)
+        primitive_rows, polygon_rows, warp_rows, instructions, primitive_specs, primitive_entries, root_node = _compile_scene_union(scene)
 
     stack_depth = _stack_usage(instructions)
     if stack_depth > runtime.MAX_STACK:
@@ -3558,13 +4867,14 @@ def compile_scene(scene):
 
     render_bounds = _tight_scene_bounds(root_node, primitive_specs)
     scene_bounds = _scene_bounds(root_node, primitive_specs)
-    scene_hash = runtime.hash_compiled_rows(primitive_rows, warp_rows, instructions)
+    scene_hash = runtime.hash_compiled_rows(primitive_rows, polygon_rows, warp_rows, instructions)
     topology_hash = runtime.hash_instruction_rows(instructions)
     primitive_nodes = [entry["node"] for entry in primitive_entries]
     return {
         "scene": runtime.scene_identity(scene),
         "scene_structure_signature": scene_structure_signature(scene),
         "primitive_rows": primitive_rows,
+        "polygon_rows": polygon_rows,
         "warp_rows": warp_rows,
         "instruction_rows": instructions,
         "primitive_specs": primitive_specs,
@@ -3617,6 +4927,7 @@ node_categories = [
 
 
 classes = (
+    MathOPSV2PolygonPoint,
     MathOPSV2SDFSocket,
     MathOPSV2TransformSocket,
     MathOPSV2FloatSocket,

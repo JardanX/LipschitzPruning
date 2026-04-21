@@ -11,12 +11,14 @@ _sync_running = False
 _node_selection_signature = None
 _proxy_selection_signature = None
 _scene_proxy_signatures = {}
+_polygon_curve_edit_signatures = {}
 
 
 def _reset_cached_sync_state():
     global _node_selection_signature, _proxy_selection_signature
     _node_selection_signature = None
     _proxy_selection_signature = None
+    _polygon_curve_edit_signatures.clear()
     _scene_proxy_signatures.clear()
 
 
@@ -78,6 +80,21 @@ def _store_scene_proxy_signature(scene, proxy_map=None):
     _scene_proxy_signatures[scene_key] = frozenset(proxy_map.keys())
 
 
+def _has_orphan_initializer_nodes(tree, valid_proxy_keys):
+    if tree is None:
+        return False
+    valid_proxy_keys = set(valid_proxy_keys)
+    for node in sdf_tree.initializer_nodes(tree):
+        if not bool(getattr(node, "use_proxy", False)):
+            continue
+        target = runtime.object_identity(getattr(node, "target", None))
+        target_key = runtime.object_key(target)
+        if target_key and runtime.is_sdf_proxy(target) and target_key in valid_proxy_keys:
+            continue
+        return True
+    return False
+
+
 def _sync_scene_proxy_membership(scene):
     if scene is None:
         return False
@@ -88,20 +105,25 @@ def _sync_scene_proxy_membership(scene):
         return False
     current_signature = frozenset(proxy_map.keys())
     previous_signature = _scene_proxy_signatures.get(scene_key)
-    if previous_signature == current_signature:
+
+    tree = sdf_tree.get_scene_tree(scene, create=False)
+    has_orphans = _has_orphan_initializer_nodes(tree, current_signature)
+    if previous_signature == current_signature and not has_orphans:
         return False
 
     added_keys = current_signature.difference(previous_signature or frozenset())
-    removed = previous_signature is not None and bool(previous_signature.difference(current_signature))
+    removed = has_orphans or (previous_signature is not None and bool(previous_signature.difference(current_signature)))
     if not added_keys and not removed:
         _store_scene_proxy_signature(scene, proxy_map)
         return False
 
     tree = sdf_tree.ensure_scene_tree(scene)
     sdf_tree.ensure_graph_output(tree)
-    changed = _ensure_unique_proxy_ids(scene)
-    changed = sdf_tree.deduplicate_initializer_nodes(tree) or changed
-    changed = sdf_tree.ensure_unique_initializer_ids(tree) or changed
+    changed = False
+    if added_keys:
+        changed = _ensure_unique_proxy_ids(scene)
+        changed = sdf_tree.deduplicate_initializer_nodes(tree) or changed
+        changed = sdf_tree.ensure_unique_initializer_ids(tree) or changed
 
     if removed:
         changed = sdf_tree.prune_tree(tree, set(proxy_map.keys())) or changed
@@ -114,20 +136,21 @@ def _sync_scene_proxy_membership(scene):
         if target_pointer:
             existing_targets.add(target_pointer)
 
-    added_proxies = []
-    for proxy_key in added_keys:
-        obj = proxy_map.get(proxy_key)
-        if obj is None or proxy_key in existing_targets:
-            continue
-        sdf_tree.add_proxy_to_tree(scene, obj)
-        existing_targets.add(proxy_key)
-        added_proxies.append(obj)
+    added_proxies = [
+        obj
+        for proxy_key, obj in proxy_map.items()
+        if proxy_key in added_keys and obj is not None and proxy_key not in existing_targets
+    ]
+    if added_proxies:
+        sdf_tree.add_proxies_to_tree(scene, added_proxies)
+        existing_targets.update(runtime.object_key(obj) for obj in added_proxies if runtime.object_key(obj))
         changed = True
 
     _select_nodes_for_proxies(tree, added_proxies)
 
     _store_scene_proxy_signature(scene, proxy_map)
     if changed:
+        runtime.mark_scene_static_dirty(scene)
         runtime.note_interaction()
         runtime.tag_redraw()
     return changed
@@ -406,28 +429,100 @@ def _sync_proxy_editor_selection():
     return 0.1
 
 
+def _sync_polygon_curve_edit_updates():
+    context = getattr(bpy, "context", None)
+    if context is None:
+        return 0.1
+
+    scene = getattr(context, "scene", None)
+    if scene is None:
+        _polygon_curve_edit_signatures.clear()
+        return 0.1
+
+    edit_objects = []
+    for obj in getattr(context, "objects_in_mode_unique_data", ()) or ():
+        obj = runtime.object_identity(obj)
+        if runtime.is_polygon_curve_proxy(obj):
+            edit_objects.append(obj)
+    if not edit_objects:
+        _polygon_curve_edit_signatures.clear()
+        return 0.03
+
+    changed = False
+    seen_keys = set()
+    tree = sdf_tree.get_scene_tree(scene, create=False)
+    for obj in edit_objects:
+        object_key = runtime.object_key(obj)
+        if not object_key:
+            continue
+        seen_keys.add(object_key)
+        settings = runtime.object_settings(obj)
+        signature = (
+            runtime.scene_key(scene),
+            object_key,
+            sdf_tree.polygon_curve_control_point_data(obj, ensure_default=True),
+            sdf_tree.polygon_curve_is_line(obj),
+            sdf_tree.polygon_curve_interpolation(obj),
+        )
+        if _polygon_curve_edit_signatures.get(object_key) == signature:
+            continue
+        _polygon_curve_edit_signatures[object_key] = signature
+        proxy_id = "" if settings is None else str(getattr(settings, "proxy_id", "") or "")
+        node = None if tree is None else sdf_tree.find_initializer_node(tree, obj=obj, proxy_id=proxy_id)
+        if node is not None:
+            sdf_tree.sync_proxy_to_node(node)
+        changed = True
+
+    stale_keys = [key for key in _polygon_curve_edit_signatures.keys() if key not in seen_keys]
+    for key in stale_keys:
+        _polygon_curve_edit_signatures.pop(key, None)
+
+    if changed:
+        runtime.mark_scene_static_dirty(scene)
+        runtime.note_interaction()
+        runtime.tag_redraw(context)
+    return 0.03
+
+
 def _sync_proxy_transform_updates(scene, depsgraph):
     tree = sdf_tree.get_scene_tree(scene, create=False)
     if tree is None:
         return False
 
-    proxy_updates = []
+    proxy_updates = {}
+    static_proxy_updates = set()
     warp_origin_updates = []
     for update in getattr(depsgraph, "updates", ()):
         id_data = getattr(update, "id", None)
         if isinstance(id_data, bpy.types.Object):
             id_data = runtime.object_identity(id_data)
             if runtime.is_sdf_proxy(id_data):
-                proxy_updates.append(id_data)
+                proxy_key = runtime.object_key(id_data)
+                if proxy_key:
+                    proxy_updates[proxy_key] = id_data
             elif sdf_tree.warp_origin_referenced(tree, id_data):
                 warp_origin_updates.append(id_data)
+        elif isinstance(id_data, bpy.types.Curve):
+            curve_key = runtime.safe_pointer(id_data)
+            if curve_key == 0:
+                continue
+            for obj in scene.objects:
+                if getattr(obj, "type", "") != "CURVE" or not runtime.is_sdf_proxy(obj):
+                    continue
+                if runtime.safe_pointer(getattr(obj, "data", None)) != curve_key:
+                    continue
+                proxy_key = runtime.object_key(obj)
+                if not proxy_key:
+                    continue
+                proxy_updates[proxy_key] = runtime.object_identity(obj)
+                static_proxy_updates.add(proxy_key)
 
     if not proxy_updates and not warp_origin_updates:
         return False
 
     changed = False
     pending_proxy_adds = []
-    for obj in proxy_updates:
+    for obj in proxy_updates.values():
         node = sdf_tree.find_initializer_node(tree, obj=obj)
         if node is None:
             pending_proxy_adds.append(obj)
@@ -440,17 +535,22 @@ def _sync_proxy_transform_updates(scene, depsgraph):
 
     if pending_proxy_adds:
         _ensure_unique_proxy_ids(scene)
-        added_proxies = []
-        for obj in pending_proxy_adds:
-            node = sdf_tree.find_initializer_node(tree, obj=obj)
-            if node is None:
-                tree, node = sdf_tree.add_proxy_to_tree(scene, obj)
-                added_proxies.append(obj)
-                changed = True
-        _select_nodes_for_proxies(tree, added_proxies)
+        tree, added_nodes = sdf_tree.add_proxies_to_tree(scene, pending_proxy_adds)
+        added_proxies = [
+            obj
+            for obj in (runtime.object_identity(getattr(node, "target", None)) for node in added_nodes)
+            if runtime.is_sdf_proxy(obj)
+        ]
+        if added_proxies:
+            _store_scene_proxy_signature(scene)
+            _select_nodes_for_proxies(tree, added_proxies)
+            changed = True
 
-    if changed or warp_origin_updates:
-        runtime.mark_scene_transform_dirty(scene)
+    if changed or warp_origin_updates or static_proxy_updates:
+        if pending_proxy_adds or static_proxy_updates:
+            runtime.mark_scene_static_dirty(scene)
+        else:
+            runtime.mark_scene_transform_dirty(scene)
         runtime.note_interaction()
         runtime.tag_redraw()
     return changed or bool(warp_origin_updates)
@@ -513,6 +613,7 @@ def ensure_scene_graph(scene, include_managed_proxy_imports=False):
         added = True
 
     if added or changed:
+        runtime.mark_scene_static_dirty(scene)
         runtime.note_interaction()
         runtime.tag_redraw()
 
@@ -572,6 +673,7 @@ def register():
     bpy.app.timers.register(_deferred_ensure_all_scene_graphs, first_interval=0.0)
     bpy.app.timers.register(_sync_proxy_editor_selection, first_interval=0.1)
     bpy.app.timers.register(_sync_node_editor_selection, first_interval=0.1)
+    bpy.app.timers.register(_sync_polygon_curve_edit_updates, first_interval=0.03)
 
 
 def unregister():
@@ -592,5 +694,10 @@ def unregister():
     try:
         if bpy.app.timers.is_registered(_sync_node_editor_selection):
             bpy.app.timers.unregister(_sync_node_editor_selection)
+    except Exception:
+        pass
+    try:
+        if bpy.app.timers.is_registered(_sync_polygon_curve_edit_updates):
+            bpy.app.timers.unregister(_sync_polygon_curve_edit_updates)
     except Exception:
         pass

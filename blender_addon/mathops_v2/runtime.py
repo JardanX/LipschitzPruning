@@ -10,7 +10,7 @@ OBJECT_NODE_IDNAME = "MathOPSV2ObjectNode"
 CSG_NODE_IDNAME = "MathOPSV2CSGNode"
 
 MAX_STACK = 256
-PRIMITIVE_TEXELS = 5
+PRIMITIVE_TEXELS = 8
 
 BACKGROUND_COLOR = (0.035, 0.04, 0.05, 1.0)
 
@@ -110,11 +110,24 @@ def object_settings(obj):
         return None
 
 
+def object_primitive_type(obj) -> str:
+    settings = object_settings(obj)
+    return "" if settings is None else str(getattr(settings, "primitive_type", "") or "")
+
+
 def is_sdf_proxy(obj) -> bool:
     try:
         obj = object_identity(obj)
         settings = object_settings(obj)
-        return bool(obj and obj.type == "EMPTY" and settings and settings.enabled)
+        return bool(obj and obj.type in {"EMPTY", "CURVE"} and settings and settings.enabled)
+    except ReferenceError:
+        return False
+
+
+def is_polygon_curve_proxy(obj) -> bool:
+    try:
+        obj = object_identity(obj)
+        return bool(obj and obj.type == "CURVE" and is_sdf_proxy(obj) and object_primitive_type(obj) == "polygon")
     except ReferenceError:
         return False
 

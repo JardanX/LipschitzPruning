@@ -256,6 +256,84 @@ def _sd_box(point, half_size):
     return outside + inside
 
 
+def _sd_round_box_2d(point, bounds, radii):
+    rx = float(radii[0]) if float(point[0]) > 0.0 else float(radii[2])
+    ry = float(radii[1]) if float(point[0]) > 0.0 else float(radii[3])
+    rc = rx if float(point[1]) > 0.0 else ry
+    q = Vector((abs(float(point[0])) - float(bounds[0]) + rc, abs(float(point[1])) - float(bounds[1]) + rc))
+    outside = Vector((max(q[0], 0.0), max(q[1], 0.0))).length
+    inside = min(max(q[0], q[1]), 0.0)
+    return inside + outside - rc
+
+
+def _sd_chamfer_box_2d(point, bounds, radii):
+    rx = float(radii[0]) if float(point[0]) > 0.0 else float(radii[2])
+    ry = float(radii[1]) if float(point[0]) > 0.0 else float(radii[3])
+    rc = rx if float(point[1]) > 0.0 else ry
+    q = Vector((abs(float(point[0])) - float(bounds[0]), abs(float(point[1])) - float(bounds[1])))
+    if rc < 0.001:
+        outside = Vector((max(q[0], 0.0), max(q[1], 0.0))).length
+        inside = min(max(q[0], q[1]), 0.0)
+        return outside + inside
+    d_cham = (q[0] + q[1] + rc) * 0.70710678
+    d_box = max(q[0], q[1])
+    d_value = max(d_box, d_cham)
+    if d_value <= 0.0:
+        return d_value
+    if d_box <= 0.0:
+        return d_cham
+    if q[1] <= -rc or q[0] <= -rc:
+        return Vector((max(q[0], 0.0), max(q[1], 0.0))).length
+    t = (-q[0] + q[1] + rc) / (2.0 * rc)
+    if t <= 0.0:
+        return (q - Vector((0.0, -rc))).length
+    if t >= 1.0:
+        return (q - Vector((-rc, 0.0))).length
+    return d_cham
+
+
+def _sd_advanced_box(point, half_size, corners, edge_top, edge_bottom, taper, corner_mode, edge_mode):
+    taper_z = max(float(half_size[2]), 0.001)
+    zn = _clamp(float(point[2]) / taper_z, -1.0, 1.0)
+    mix_value = (zn + 1.0) * 0.5
+    tap_top = max(float(taper), 0.0)
+    tap_bottom = max(-float(taper), 0.0)
+    tap_factor = max(1.0 - tap_top * mix_value - tap_bottom * (1.0 - mix_value), 0.001)
+    size_xy = Vector((float(half_size[0]) * tap_factor, float(half_size[1]) * tap_factor))
+    slope = math.sqrt((float(half_size[0]) * float(half_size[0])) + (float(half_size[1]) * float(half_size[1]))) * (tap_top + tap_bottom) / (2.0 * taper_z)
+    lipschitz = math.sqrt(1.0 + slope * slope)
+    max_radius = min(float(size_xy[0]), float(size_xy[1]))
+    scaled_corners = tuple(float(value) * max_radius for value in corners)
+    point_xy = Vector((float(point[0]), float(point[1])))
+    d2d = _sd_round_box_2d(point_xy, size_xy, scaled_corners) if corner_mode == "SMOOTH" else _sd_chamfer_box_2d(point_xy, size_xy, scaled_corners)
+    max_face_radius = min(float(size_xy[0]), float(size_xy[1]))
+    dz = abs(float(point[2])) - float(half_size[2])
+    edge_radius = (float(edge_top) if float(point[2]) > 0.0 else float(edge_bottom)) * min(max_face_radius, float(half_size[2]))
+    if edge_radius > 0.001:
+        if edge_mode == "SMOOTH":
+            dd0 = d2d + edge_radius
+            dd1 = dz + edge_radius
+            return (min(max(dd0, dd1), 0.0) + math.hypot(max(dd0, 0.0), max(dd1, 0.0)) - edge_radius) / lipschitz
+        base = max(d2d, dz)
+        cham = (d2d + dz + edge_radius) * 0.70710678
+        d_value = max(base, cham)
+        if d_value <= 0.0:
+            return d_value / lipschitz
+        if d2d <= 0.0 and dz <= 0.0:
+            return cham / lipschitz
+        if dz <= -edge_radius:
+            return d2d / lipschitz
+        if d2d <= -edge_radius:
+            return dz / lipschitz
+        tc2 = (-d2d + dz + edge_radius) / (2.0 * edge_radius)
+        if tc2 <= 0.0:
+            return math.hypot(d2d, dz + edge_radius) / lipschitz
+        if tc2 >= 1.0:
+            return math.hypot(d2d + edge_radius, dz) / lipschitz
+        return cham / lipschitz
+    return _sd_prism(d2d, float(point[2]), float(half_size[2])) / lipschitz
+
+
 def _sd_cylinder(point, radius, half_height):
     radial = math.hypot(float(point[0]), float(point[1]))
     dx = abs(radial) - float(radius)
@@ -265,10 +343,374 @@ def _sd_cylinder(point, radius, half_height):
     return outside + inside
 
 
+def _sd_advanced_cylinder(point, radius, half_height, bevel_top, bevel_bottom, taper, bevel_mode):
+    taper_h = max(float(half_height), 0.001)
+    zn = _clamp(float(point[2]) / taper_h, -1.0, 1.0)
+    mix_value = (zn + 1.0) * 0.5
+    tap_top = max(float(taper), 0.0)
+    tap_bottom = max(-float(taper), 0.0)
+    tap_factor = max(1.0 - tap_top * mix_value - tap_bottom * (1.0 - mix_value), 0.001)
+    scaled_radius = float(radius) * tap_factor
+    slope = float(radius) * (tap_top + tap_bottom) / (2.0 * taper_h)
+    lipschitz = math.sqrt(1.0 + slope * slope)
+    d2d = math.hypot(float(point[0]), float(point[1])) - scaled_radius
+    dz = abs(float(point[2])) - float(half_height)
+    edge_bevel = float(bevel_top) if float(point[2]) > 0.0 else float(bevel_bottom)
+    bevel_radius = min(max(edge_bevel, 0.0), max(min(scaled_radius, float(half_height)) - 0.001, 0.0))
+    if bevel_radius > 0.001:
+        if bevel_mode == "SMOOTH":
+            dd0 = d2d + bevel_radius
+            dd1 = dz + bevel_radius
+            return (min(max(dd0, dd1), 0.0) + math.hypot(max(dd0, 0.0), max(dd1, 0.0)) - bevel_radius) / lipschitz
+        base = max(d2d, dz)
+        cham = (d2d + dz + bevel_radius) * 0.70710678
+        d_value = max(base, cham)
+        if d_value <= 0.0:
+            return d_value / lipschitz
+        if d2d <= 0.0 and dz <= 0.0:
+            return cham / lipschitz
+        if dz <= -bevel_radius:
+            return d2d / lipschitz
+        if d2d <= -bevel_radius:
+            return dz / lipschitz
+        tc2 = (-d2d + dz + bevel_radius) / (2.0 * bevel_radius)
+        if tc2 <= 0.0:
+            return math.hypot(d2d, dz + bevel_radius) / lipschitz
+        if tc2 >= 1.0:
+            return math.hypot(d2d + bevel_radius, dz) / lipschitz
+        return cham / lipschitz
+    return _sd_prism(d2d, float(point[2]), float(half_height)) / lipschitz
+
+
 def _sd_torus(point, radii):
-    qx = math.hypot(float(point[0]), float(point[2])) - float(radii[0])
-    qy = float(point[1])
+    qx = math.hypot(float(point[0]), float(point[1])) - float(radii[0])
+    qy = float(point[2])
     return math.hypot(qx, qy) - float(radii[1])
+
+
+def _sd_capped_torus(point, half_angle, major_radius, minor_radius):
+    px = abs(float(point[0]))
+    py = float(point[1])
+    pz = float(point[2])
+    sc = (math.sin(float(half_angle)), math.cos(float(half_angle)))
+    if (sc[1] * px) > (sc[0] * py):
+        k = (px * sc[0]) + (py * sc[1])
+    else:
+        k = math.hypot(px, py)
+    return math.sqrt((px * px) + (py * py) + (pz * pz) + (float(major_radius) * float(major_radius)) - (2.0 * float(major_radius) * k)) - float(minor_radius)
+
+
+def _sd_cone(point, bottom_radius, top_radius, half_height):
+    radial = math.hypot(float(point[0]), float(point[1]))
+    qx = radial
+    qy = float(point[2])
+    k1x = float(top_radius)
+    k1y = float(half_height)
+    k2x = float(top_radius) - float(bottom_radius)
+    k2y = 2.0 * float(half_height)
+    cax = qx - min(qx, float(bottom_radius) if qy < 0.0 else float(top_radius))
+    cay = abs(qy) - float(half_height)
+    denom = max((k2x * k2x) + (k2y * k2y), 1.0e-12)
+    t = _clamp((((k1x - qx) * k2x) + ((k1y - qy) * k2y)) / denom, 0.0, 1.0)
+    cbx = qx - k1x + (k2x * t)
+    cby = qy - k1y + (k2y * t)
+    sign = -1.0 if (cbx < 0.0 and cay < 0.0) else 1.0
+    return sign * math.sqrt(min((cax * cax) + (cay * cay), (cbx * cbx) + (cby * cby)))
+
+
+def _sd_advanced_cone(point, bottom_radius, top_radius, half_height, bevel, bevel_mode):
+    radial = math.hypot(float(point[0]), float(point[1]))
+    edge_x = float(top_radius) - float(bottom_radius)
+    edge_y = 2.0 * float(half_height)
+    edge_len = max(math.hypot(edge_x, edge_y), 1.0e-12)
+    dside = ((edge_y * (radial - float(bottom_radius))) - (edge_x * (float(point[2]) + float(half_height)))) / edge_len
+    dz = abs(float(point[2])) - float(half_height)
+    edge_radius = min(max(float(bevel), 0.0), max(float(half_height) - 0.001, 0.0))
+    if edge_radius > 0.001:
+        if bevel_mode == "SMOOTH":
+            dd0 = dside + edge_radius
+            dd1 = dz + edge_radius
+            return min(max(dd0, dd1), 0.0) + math.hypot(max(dd0, 0.0), max(dd1, 0.0)) - edge_radius
+        base = max(dside, dz)
+        cham = (dside + dz + edge_radius) * 0.70710678
+        d_value = max(base, cham)
+        if d_value <= 0.0:
+            return d_value
+        if dside <= 0.0 and dz <= 0.0:
+            return cham
+        if dz <= -edge_radius:
+            return dside
+        if dside <= -edge_radius:
+            return dz
+        tc2 = (-dside + dz + edge_radius) / (2.0 * edge_radius)
+        if tc2 <= 0.0:
+            return math.hypot(dside, dz + edge_radius)
+        if tc2 >= 1.0:
+            return math.hypot(dside + edge_radius, dz)
+        return cham
+    return _sd_cone(point, bottom_radius, top_radius, half_height)
+
+
+def _sd_round_cone(point, bottom_radius, top_radius, half_height):
+    radial = math.hypot(float(point[0]), float(point[1]))
+    total_height = max(2.0 * float(half_height), 1.0e-6)
+    qx = radial
+    qy = float(point[2]) + float(half_height)
+    if abs(float(bottom_radius) - float(top_radius)) >= total_height:
+        return (math.hypot(qx, qy) - float(bottom_radius)) if float(bottom_radius) >= float(top_radius) else (math.hypot(qx, qy - total_height) - float(top_radius))
+    slope = (float(bottom_radius) - float(top_radius)) / total_height
+    axis = math.sqrt(max(1.0 - slope * slope, 1.0e-12))
+    k = (-slope * qx) + (axis * qy)
+    if k <= 0.0:
+        return math.hypot(qx, qy) - float(bottom_radius)
+    if k >= axis * total_height:
+        return math.hypot(qx, qy - total_height) - float(top_radius)
+    return (axis * qx) + (slope * qy) - float(bottom_radius)
+
+
+def _capsule_end_radii(radius, taper):
+    tap_top = max(float(taper), 0.0)
+    tap_bottom = max(-float(taper), 0.0)
+    return max(float(radius) * max(1.0 - tap_bottom, 0.0), 0.0), max(float(radius) * max(1.0 - tap_top, 0.0), 0.0)
+
+
+def _sd_capsule(point, radius, half_height, taper=0.0):
+    bottom_radius, top_radius = _capsule_end_radii(radius, taper)
+    return _sd_round_cone(point, bottom_radius, top_radius, half_height)
+
+
+def _sd_regular_polygon_2d(point, radius, sides):
+    sides = max(3, int(sides))
+    angle_step = math.pi / float(sides)
+    inner_radius = float(radius) * math.cos(angle_step)
+    half_edge = float(radius) * math.sin(angle_step)
+    x = -float(point[1])
+    y = float(point[0])
+    sector = angle_step * math.floor((math.atan2(y, x) + angle_step) / angle_step / 2.0) * 2.0
+    cos_sector = math.cos(sector)
+    sin_sector = math.sin(sector)
+    px = (cos_sector * x) + (sin_sector * y)
+    py = (-sin_sector * x) + (cos_sector * y)
+    return math.hypot(px - inner_radius, py - _clamp(py, -half_edge, half_edge)) * (1.0 if (px - inner_radius) >= 0.0 else -1.0)
+
+
+def _sd_star_polygon_2d(point, radius, sides, star):
+    if float(star) < 0.001:
+        return _sd_regular_polygon_2d(point, radius, sides)
+    sides = max(3, int(sides))
+    angle_step = math.pi / float(sides)
+    inner_radius = float(radius) * math.cos(angle_step) * max(1.0 - float(star), 0.01)
+    angle = math.atan2(float(point[1]), float(point[0]))
+    sector = math.floor((angle + angle_step) / (2.0 * angle_step)) * 2.0 * angle_step
+    cos_sector = math.cos(sector)
+    sin_sector = math.sin(sector)
+    qx = (cos_sector * float(point[0])) + (sin_sector * float(point[1]))
+    qy = abs((-sin_sector * float(point[0])) + (cos_sector * float(point[1])))
+    ax = float(radius)
+    ay = 0.0
+    bx = inner_radius * math.cos(angle_step)
+    by = inner_radius * math.sin(angle_step)
+    abx = bx - ax
+    aby = by - ay
+    denom = max((abx * abx) + (aby * aby), 1.0e-12)
+    t = _clamp((((qx - ax) * abx) + ((qy - ay) * aby)) / denom, 0.0, 1.0)
+    projx = ax + (abx * t)
+    projy = ay + (aby * t)
+    dist = math.hypot(qx - projx, qy - projy)
+    cross_value = abx * (qy - ay) - aby * (qx - ax)
+    return -dist if cross_value > 0.0 else dist
+
+
+def _sd_segment_2d(point, start, end):
+    edge = end - start
+    edge_len_sq = edge.dot(edge)
+    if edge_len_sq <= 1.0e-12:
+        return (point - start).length
+    t = _clamp((point - start).dot(edge) / edge_len_sq, 0.0, 1.0)
+    return (point - (start + edge * t)).length
+
+
+def _sd_polygon_2d(point, points):
+    if len(points) < 3:
+        return _MISS_DISTANCE
+    distance_value = _MISS_DISTANCE
+    winding = 0
+    point_2d = Vector((float(point[0]), float(point[1])))
+    vertices = [Vector((float(vertex[0]), float(vertex[1]))) for vertex in points]
+    for index, start in enumerate(vertices):
+        end = vertices[(index + 1) % len(vertices)]
+        distance_value = min(distance_value, _sd_segment_2d(point_2d, start, end))
+        edge = end - start
+        rel = point_2d - start
+        cross_value = (edge[0] * rel[1]) - (edge[1] * rel[0])
+        if start[1] <= point_2d[1] and end[1] > point_2d[1] and cross_value > 0.0:
+            winding += 1
+        if start[1] > point_2d[1] and end[1] <= point_2d[1] and cross_value < 0.0:
+            winding -= 1
+    return -distance_value if winding != 0 else distance_value
+
+
+def _cubic_bezier_point_2d(a, b, c, d, t):
+    inv_t = 1.0 - t
+    return (
+        a * (inv_t * inv_t * inv_t)
+        + b * (3.0 * inv_t * inv_t * t)
+        + c * (3.0 * inv_t * t * t)
+        + d * (t * t * t)
+    )
+
+
+def _sd_bezier_polygon_2d(point, control_points):
+    if len(control_points) < 3:
+        return _MISS_DISTANCE
+    distance_value = _MISS_DISTANCE
+    winding = 0
+    point_2d = Vector((float(point[0]), float(point[1])))
+    steps = 12
+    for index, start in enumerate(control_points):
+        end = control_points[(index + 1) % len(control_points)]
+        p0 = Vector((float(start[0]), float(start[1])))
+        p1 = Vector((float(start[4]), float(start[5])))
+        p2 = Vector((float(end[2]), float(end[3])))
+        p3 = Vector((float(end[0]), float(end[1])))
+        a = p0
+        for step in range(1, steps + 1):
+            t = float(step) / float(steps)
+            b = _cubic_bezier_point_2d(p0, p1, p2, p3, t)
+            distance_value = min(distance_value, _sd_segment_2d(point_2d, a, b))
+            edge = b - a
+            rel = point_2d - a
+            cross_value = (edge[0] * rel[1]) - (edge[1] * rel[0])
+            if a[1] <= point_2d[1] and b[1] > point_2d[1] and cross_value > 0.0:
+                winding += 1
+            if a[1] > point_2d[1] and b[1] <= point_2d[1] and cross_value < 0.0:
+                winding -= 1
+            a = b
+    return -distance_value if winding != 0 else distance_value
+
+
+def _sd_prism(distance_2d, z_value, half_height):
+    dz = abs(float(z_value)) - float(half_height)
+    outside = math.hypot(max(float(distance_2d), 0.0), max(dz, 0.0))
+    inside = min(max(float(distance_2d), dz), 0.0)
+    return outside + inside
+
+
+def _sd_advanced_ngon(point, radius, half_height, sides, corner, edge_top, edge_bottom, taper, edge_mode, star):
+    taper_h = max(float(half_height), 0.001)
+    zn = _clamp(float(point[2]) / taper_h, -1.0, 1.0)
+    mix_value = (zn + 1.0) * 0.5
+    tap_top = max(float(taper), 0.0)
+    tap_bottom = max(-float(taper), 0.0)
+    tap_factor = max(1.0 - tap_top * mix_value - tap_bottom * (1.0 - mix_value), 0.001)
+    scaled_radius = float(radius) * tap_factor
+    slope = float(radius) * (tap_top + tap_bottom) / (2.0 * taper_h)
+    lipschitz = math.sqrt(1.0 + slope * slope)
+    angle_step = math.pi / float(max(3, int(sides)))
+    apothem = scaled_radius * math.cos(angle_step)
+    bevel_radius = float(corner) * apothem
+    inner_radius = scaled_radius - (bevel_radius / max(math.cos(angle_step), 0.001))
+    point_xy = Vector((float(point[0]), float(point[1])))
+    d2d = (_sd_star_polygon_2d(point_xy, inner_radius, sides, star) if float(star) > 0.001 else _sd_regular_polygon_2d(point_xy, inner_radius, sides)) - bevel_radius
+    dz = abs(float(point[2])) - float(half_height)
+    edge_radius = (float(edge_top) if float(point[2]) > 0.0 else float(edge_bottom)) * min(apothem, float(half_height))
+    if edge_radius > 0.001:
+        if edge_mode == "SMOOTH":
+            dd0 = d2d + edge_radius
+            dd1 = dz + edge_radius
+            return (min(max(dd0, dd1), 0.0) + math.hypot(max(dd0, 0.0), max(dd1, 0.0)) - edge_radius) / lipschitz
+        base = max(d2d, dz)
+        cham = (d2d + dz + edge_radius) * 0.70710678
+        d_value = max(base, cham)
+        if d_value <= 0.0:
+            return d_value / lipschitz
+        if d2d <= 0.0 and dz <= 0.0:
+            return cham / lipschitz
+        if dz <= -edge_radius:
+            return d2d / lipschitz
+        if d2d <= -edge_radius:
+            return dz / lipschitz
+        tc2 = (-d2d + dz + edge_radius) / (2.0 * edge_radius)
+        if tc2 <= 0.0:
+            return math.hypot(d2d, dz + edge_radius) / lipschitz
+        if tc2 >= 1.0:
+            return math.hypot(d2d + edge_radius, dz) / lipschitz
+        return cham / lipschitz
+    return _sd_prism(d2d, float(point[2]), float(half_height)) / lipschitz
+
+
+def _sd_advanced_polygon(point, half_height, points, edge_top, edge_bottom, taper, edge_mode):
+    taper_h = max(float(half_height), 0.001)
+    zn = _clamp(float(point[2]) / taper_h, -1.0, 1.0)
+    mix_value = (zn + 1.0) * 0.5
+    tap_top = max(float(taper), 0.0)
+    tap_bottom = max(-float(taper), 0.0)
+    tap_factor = max(1.0 - tap_top * mix_value - tap_bottom * (1.0 - mix_value), 0.001)
+    slope = (tap_top + tap_bottom) / (2.0 * taper_h)
+    lipschitz = math.sqrt(1.0 + slope * slope)
+    d2d = _sd_polygon_2d(Vector((float(point[0]) / tap_factor, float(point[1]) / tap_factor)), points) * tap_factor
+    dz = abs(float(point[2])) - float(half_height)
+    edge_radius = (float(edge_top) if float(point[2]) > 0.0 else float(edge_bottom)) * float(half_height)
+    if edge_radius > 0.001:
+        if edge_mode == "SMOOTH":
+            dd0 = d2d + edge_radius
+            dd1 = dz + edge_radius
+            return (min(max(dd0, dd1), 0.0) + math.hypot(max(dd0, 0.0), max(dd1, 0.0)) - edge_radius) / lipschitz
+        base = max(d2d, dz)
+        cham = (d2d + dz + edge_radius) * 0.70710678
+        d_value = max(base, cham)
+        if d_value <= 0.0:
+            return d_value / lipschitz
+        if d2d <= 0.0 and dz <= 0.0:
+            return cham / lipschitz
+        if dz <= -edge_radius:
+            return d2d / lipschitz
+        if d2d <= -edge_radius:
+            return dz / lipschitz
+        tc2 = (-d2d + dz + edge_radius) / (2.0 * edge_radius)
+        if tc2 <= 0.0:
+            return math.hypot(d2d, dz + edge_radius) / lipschitz
+        if tc2 >= 1.0:
+            return math.hypot(d2d + edge_radius, dz) / lipschitz
+        return cham / lipschitz
+    return _sd_prism(d2d, float(point[2]), float(half_height)) / lipschitz
+
+
+def _sd_advanced_bezier_polygon(point, half_height, control_points, edge_top, edge_bottom, taper, edge_mode):
+    taper_h = max(float(half_height), 0.001)
+    zn = _clamp(float(point[2]) / taper_h, -1.0, 1.0)
+    mix_value = (zn + 1.0) * 0.5
+    tap_top = max(float(taper), 0.0)
+    tap_bottom = max(-float(taper), 0.0)
+    tap_factor = max(1.0 - tap_top * mix_value - tap_bottom * (1.0 - mix_value), 0.001)
+    slope = (tap_top + tap_bottom) / (2.0 * taper_h)
+    lipschitz = math.sqrt(1.0 + slope * slope)
+    d2d = _sd_bezier_polygon_2d(Vector((float(point[0]) / tap_factor, float(point[1]) / tap_factor)), control_points) * tap_factor
+    dz = abs(float(point[2])) - float(half_height)
+    edge_radius = (float(edge_top) if float(point[2]) > 0.0 else float(edge_bottom)) * float(half_height)
+    if edge_radius > 0.001:
+        if edge_mode == "SMOOTH":
+            dd0 = d2d + edge_radius
+            dd1 = dz + edge_radius
+            return (min(max(dd0, dd1), 0.0) + math.hypot(max(dd0, 0.0), max(dd1, 0.0)) - edge_radius) / lipschitz
+        base = max(d2d, dz)
+        cham = (d2d + dz + edge_radius) * 0.70710678
+        d_value = max(base, cham)
+        if d_value <= 0.0:
+            return d_value / lipschitz
+        if d2d <= 0.0 and dz <= 0.0:
+            return cham / lipschitz
+        if dz <= -edge_radius:
+            return d2d / lipschitz
+        if d2d <= -edge_radius:
+            return dz / lipschitz
+        tc2 = (-d2d + dz + edge_radius) / (2.0 * edge_radius)
+        if tc2 <= 0.0:
+            return math.hypot(d2d, dz + edge_radius) / lipschitz
+        if tc2 >= 1.0:
+            return math.hypot(d2d + edge_radius, dz) / lipschitz
+        return cham / lipschitz
+    return _sd_prism(d2d, float(point[2]), float(half_height)) / lipschitz
 
 
 def eval_primitive(compiled, primitive_index, world_point):
@@ -282,18 +724,60 @@ def eval_primitive(compiled, primitive_index, world_point):
     local_point, distance_scale = _primitive_local_point(spec, entry, world_point)
     primitive_type = str(spec.get("primitive_type", "sphere") or "sphere")
     meta = tuple(float(value) for value in spec.get("meta", (0.0, 0.5, 0.0, 0.0)))
+    extra = dict(spec.get("extra", {}))
     scale = _safe_vec(spec.get("scale", (1.0, 1.0, 1.0)))
     min_scale = max(min(float(scale[0]), float(scale[1]), float(scale[2])), 1.0e-6)
+    raw_bevel = max(float(extra.get("bevel", 0.0)), 0.0)
+    bevel = max(float(extra.get("effective_bevel", raw_bevel)), 0.0)
     if primitive_type == "sphere":
-        return _sd_ellipsoid(local_point, Vector((meta[1] * scale[0], meta[1] * scale[1], meta[1] * scale[2]))) * distance_scale
+        return (_sd_ellipsoid(local_point, Vector((meta[1] * scale[0], meta[1] * scale[1], meta[1] * scale[2]))) - bevel) * distance_scale
     if primitive_type == "box":
-        return _sd_box(local_point, Vector((meta[1] * scale[0], meta[2] * scale[1], meta[3] * scale[2]))) * distance_scale
+        distance_value = _sd_advanced_box(
+            local_point,
+            Vector((meta[1] * scale[0], meta[2] * scale[1], meta[3] * scale[2])),
+            tuple(float(value) for value in extra.get("box_corners", (0.0, 0.0, 0.0, 0.0))),
+            float(extra.get("box_edge_top", 0.0)),
+            float(extra.get("box_edge_bottom", 0.0)),
+            float(extra.get("box_taper", 0.0)),
+            str(extra.get("box_corner_mode", "SMOOTH") or "SMOOTH"),
+            str(extra.get("box_edge_mode", "SMOOTH") or "SMOOTH"),
+        ) if any(abs(float(extra.get(name, 0.0))) > 1.0e-6 for name in ("box_edge_top", "box_edge_bottom", "box_taper")) or any(abs(float(value)) > 1.0e-6 for value in extra.get("box_corners", (0.0, 0.0, 0.0, 0.0))) else _sd_box(local_point, Vector((meta[1] * scale[0], meta[2] * scale[1], meta[3] * scale[2])))
+        return (distance_value - bevel) * distance_scale
     if primitive_type == "cylinder":
         scaled_point = Vector((float(local_point[0]) / float(scale[0]), float(local_point[1]) / float(scale[1]), float(local_point[2]) / float(scale[2])))
-        return _sd_cylinder(scaled_point, meta[1], meta[2]) * min_scale * distance_scale
+        bevel_top = max(float(extra.get("cylinder_bevel_top", raw_bevel)), 0.0)
+        bevel_bottom = max(float(extra.get("cylinder_bevel_bottom", raw_bevel)), 0.0)
+        advanced = abs(float(extra.get("cylinder_taper", 0.0))) > 1.0e-6 or bevel_top > 1.0e-6 or bevel_bottom > 1.0e-6
+        distance_value = _sd_advanced_cylinder(scaled_point, meta[1], meta[2], bevel_top, bevel_bottom, float(extra.get("cylinder_taper", 0.0)), str(extra.get("cylinder_bevel_mode", "SMOOTH") or "SMOOTH")) if advanced else _sd_cylinder(scaled_point, meta[1], meta[2])
+        return distance_value * min_scale * distance_scale
     if primitive_type == "torus":
         scaled_point = Vector((float(local_point[0]) / float(scale[0]), float(local_point[1]) / float(scale[1]), float(local_point[2]) / float(scale[2])))
-        return _sd_torus(scaled_point, (meta[1], meta[2])) * min_scale * distance_scale
+        angle = max(0.0, min(float(extra.get("torus_angle", 6.283185307179586)), 6.283185307179586))
+        distance_value = _sd_capped_torus(scaled_point, angle * 0.5, meta[1], meta[2]) if (6.283185307179586 - angle) > 1.0e-6 else _sd_torus(scaled_point, (meta[1], meta[2]))
+        return (distance_value - bevel) * min_scale * distance_scale
+    if primitive_type == "cone":
+        scaled_point = Vector((float(local_point[0]) / float(scale[0]), float(local_point[1]) / float(scale[1]), float(local_point[2]) / float(scale[2])))
+        distance_value = _sd_advanced_cone(scaled_point, meta[1], meta[2], meta[3], raw_bevel, str(extra.get("cone_bevel_mode", "SMOOTH") or "SMOOTH")) if raw_bevel > 1.0e-6 else _sd_cone(scaled_point, meta[1], meta[2], meta[3])
+        return distance_value * min_scale * distance_scale
+    if primitive_type == "capsule":
+        scaled_point = Vector((float(local_point[0]) / float(scale[0]), float(local_point[1]) / float(scale[1]), float(local_point[2]) / float(scale[2])))
+        return _sd_capsule(scaled_point, meta[1], meta[2], float(extra.get("capsule_taper", 0.0))) * min_scale * distance_scale
+    if primitive_type == "ngon":
+        scaled_point = Vector((float(local_point[0]) / float(scale[0]), float(local_point[1]) / float(scale[1]), float(local_point[2]) / float(scale[2])))
+        advanced = any(abs(float(extra.get(name, 0.0))) > 1.0e-6 for name in ("ngon_corner", "ngon_edge_top", "ngon_edge_bottom", "ngon_taper", "ngon_star"))
+        distance_value = _sd_advanced_ngon(scaled_point, meta[1], meta[2], int(round(meta[3])), float(extra.get("ngon_corner", 0.0)), float(extra.get("ngon_edge_top", 0.0)), float(extra.get("ngon_edge_bottom", 0.0)), float(extra.get("ngon_taper", 0.0)), str(extra.get("ngon_edge_mode", "SMOOTH") or "SMOOTH"), float(extra.get("ngon_star", 0.0))) if advanced else _sd_prism(_sd_regular_polygon_2d(scaled_point.xy, meta[1], int(round(meta[3]))), scaled_point[2], meta[2])
+        return (distance_value - bevel) * min_scale * distance_scale
+    if primitive_type == "polygon":
+        scaled_point = Vector((float(local_point[0]) / float(scale[0]), float(local_point[1]) / float(scale[1]), float(local_point[2]) / float(scale[2])))
+        polygon_points = spec.get("polygon_points", ())
+        polygon_control_points = spec.get("polygon_control_points", ())
+        polygon_interpolation = str(extra.get("polygon_interpolation", "VECTOR") or "VECTOR")
+        advanced = any(abs(float(extra.get(name, 0.0))) > 1.0e-6 for name in ("polygon_edge_top", "polygon_edge_bottom", "polygon_taper"))
+        if polygon_interpolation == "BEZIER" and polygon_control_points:
+            distance_value = _sd_advanced_bezier_polygon(scaled_point, meta[3], polygon_control_points, float(extra.get("polygon_edge_top", 0.0)), float(extra.get("polygon_edge_bottom", 0.0)), float(extra.get("polygon_taper", 0.0)), str(extra.get("polygon_edge_mode", "SMOOTH") or "SMOOTH")) if advanced else _sd_prism(_sd_bezier_polygon_2d(scaled_point.xy, polygon_control_points), scaled_point[2], meta[3])
+        else:
+            distance_value = _sd_advanced_polygon(scaled_point, meta[3], polygon_points, float(extra.get("polygon_edge_top", 0.0)), float(extra.get("polygon_edge_bottom", 0.0)), float(extra.get("polygon_taper", 0.0)), str(extra.get("polygon_edge_mode", "SMOOTH") or "SMOOTH")) if advanced else _sd_prism(_sd_polygon_2d(scaled_point.xy, polygon_points), scaled_point[2], meta[3])
+        return (distance_value - bevel) * min_scale * distance_scale
     return _MISS_DISTANCE
 
 

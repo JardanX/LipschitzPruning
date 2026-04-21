@@ -34,6 +34,7 @@ def extract_dual_contour_mesh(compiled, resolution):
     bounds_min, bounds_max = compiled.get("render_bounds") or compiled.get("scene_bounds") or ((-2.0, -2.0, -2.0), (2.0, 2.0, 2.0))
     return native_module.extract_dual_contour_mesh(
         compiled.get("primitive_rows", ()),
+        compiled.get("polygon_rows", ()),
         compiled.get("warp_rows", ()),
         compiled.get("instruction_rows", ()),
         bounds_min,
@@ -50,6 +51,7 @@ def extract_iso_simplex_mesh(compiled, resolution):
     bounds_min, bounds_max = compiled.get("render_bounds") or compiled.get("scene_bounds") or ((-2.0, -2.0, -2.0), (2.0, 2.0, 2.0))
     return native_module.extract_iso_simplex_mesh(
         compiled.get("primitive_rows", ()),
+        compiled.get("polygon_rows", ()),
         compiled.get("warp_rows", ()),
         compiled.get("instruction_rows", ()),
         bounds_min,

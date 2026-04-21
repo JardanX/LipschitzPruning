@@ -34,9 +34,52 @@ float loadScalar(sampler2D textureSampler, int index)
   return texelFetch(textureSampler, linearCoord(textureSize(textureSampler, 0), index), 0).x;
 }
 
+vec4 loadPolygonRow(int index)
+{
+  return texelFetch(polygonData, linearCoord(textureSize(polygonData, 0), index), 0);
+}
+
+vec2 loadPolygonPoint(int index)
+{
+  return loadPolygonRow(index).xy;
+}
+
+vec2 loadBezierPoint(int pointOffset, int index)
+{
+  return loadPolygonRow(pointOffset + index * 2).xy;
+}
+
+vec2 loadBezierHandleRight(int pointOffset, int index)
+{
+  return loadPolygonRow(pointOffset + index * 2).zw;
+}
+
+vec2 loadBezierHandleLeft(int pointOffset, int index)
+{
+  return loadPolygonRow(pointOffset + index * 2 + 1).xy;
+}
+
 vec4 loadSceneRow(int row)
 {
   return texelFetch(sceneData, ivec2(0, row), 0);
+}
+
+vec4 primitiveExtra0(int primitiveIndex)
+{
+  int baseRow = primitiveIndex * PRIMITIVE_STRIDE;
+  return loadSceneRow(baseRow + 5);
+}
+
+vec4 primitiveExtra1(int primitiveIndex)
+{
+  int baseRow = primitiveIndex * PRIMITIVE_STRIDE;
+  return loadSceneRow(baseRow + 6);
+}
+
+vec4 primitiveExtra2(int primitiveIndex)
+{
+  int baseRow = primitiveIndex * PRIMITIVE_STRIDE;
+  return loadSceneRow(baseRow + 7);
 }
 
 #define STORE_FLOAT_IMAGE(textureImage, index, value) imageStore(textureImage, linearCoord(imageSize(textureImage), index), vec4(value, 0.0, 0.0, 0.0))
@@ -367,41 +410,529 @@ float sdBox(vec3 p, vec3 b)
   return length(max(q, vec3(0.0))) + min(max(q.x, max(q.y, q.z)), 0.0);
 }
 
+float sdRoundBox2D(vec2 p, vec2 b, vec4 r)
+{
+  float rx = (p.x > 0.0) ? r.x : r.z;
+  float ry = (p.x > 0.0) ? r.y : r.w;
+  float rc = (p.y > 0.0) ? rx : ry;
+  vec2 q = abs(p) - b + rc;
+  return min(max(q.x, q.y), 0.0) + length(max(q, vec2(0.0))) - rc;
+}
+
+float sdChamferBox2D(vec2 p, vec2 b, vec4 r)
+{
+  float rx = (p.x > 0.0) ? r.x : r.z;
+  float ry = (p.x > 0.0) ? r.y : r.w;
+  float rc = (p.y > 0.0) ? rx : ry;
+  vec2 q = abs(p) - b;
+  if (rc < 0.001) {
+    return length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0);
+  }
+  float dCham = (q.x + q.y + rc) * 0.70710678;
+  float dBox = max(q.x, q.y);
+  float d = max(dBox, dCham);
+  if (d <= 0.0) {
+    return d;
+  }
+  if (dBox <= 0.0) {
+    return dCham;
+  }
+  if (q.y <= -rc || q.x <= -rc) {
+    return length(max(q, vec2(0.0)));
+  }
+  float t = (-q.x + q.y + rc) / (2.0 * rc);
+  if (t <= 0.0) {
+    return length(q - vec2(0.0, -rc));
+  }
+  if (t >= 1.0) {
+    return length(q - vec2(-rc, 0.0));
+  }
+  return dCham;
+}
+
+float sdAdvancedBox(vec3 p, vec3 size, vec4 corners, float edgeTop, float edgeBot, float tapTop, float tapBot, int cornerMode, int edgeMode, float taperZ)
+{
+  float zn = clamp(p.z / max(taperZ, 0.001), -1.0, 1.0);
+  float t = (zn + 1.0) * 0.5;
+  float tapFactor = max(1.0 - tapTop * t - tapBot * (1.0 - t), 0.001);
+  vec2 sz = size.xy * tapFactor;
+  float slope = length(size.xy) * (tapTop + tapBot) / (2.0 * max(taperZ, 0.001));
+  float lipschitz = sqrt(1.0 + slope * slope);
+  float maxR = min(sz.x, sz.y);
+  vec4 r = corners * maxR;
+  float d2d = (cornerMode == 0) ? sdRoundBox2D(p.xy, sz, r) : sdChamferBox2D(p.xy, sz, r);
+  float maxRFace = min(sz.x, sz.y);
+  float dz = abs(p.z) - size.z;
+  float edgeR = (p.z > 0.0) ? edgeTop * min(maxRFace, size.z) : edgeBot * min(maxRFace, size.z);
+  if (edgeR > 0.001) {
+    if (edgeMode == 0) {
+      vec2 dd = vec2(d2d + edgeR, dz + edgeR);
+      return (min(max(dd.x, dd.y), 0.0) + length(max(dd, vec2(0.0))) - edgeR) / lipschitz;
+    }
+    float base = max(d2d, dz);
+    float cham = (d2d + dz + edgeR) * 0.70710678;
+    float dd = max(base, cham);
+    if (dd <= 0.0) {
+      return dd / lipschitz;
+    }
+    if (d2d <= 0.0 && dz <= 0.0) {
+      return cham / lipschitz;
+    }
+    if (dz <= -edgeR) {
+      return d2d / lipschitz;
+    }
+    if (d2d <= -edgeR) {
+      return dz / lipschitz;
+    }
+    float tc2 = (-d2d + dz + edgeR) / (2.0 * edgeR);
+    if (tc2 <= 0.0) {
+      return length(vec2(d2d, dz + edgeR)) / lipschitz;
+    }
+    if (tc2 >= 1.0) {
+      return length(vec2(d2d + edgeR, dz)) / lipschitz;
+    }
+    return cham / lipschitz;
+  }
+  vec2 dd = vec2(d2d, dz);
+  return (length(max(dd, vec2(0.0))) + min(max(dd.x, dd.y), 0.0)) / lipschitz;
+}
+
 float sdCylinder(vec3 p, float r, float halfHeight)
 {
   vec2 d = abs(vec2(length(p.xy), p.z)) - vec2(r, halfHeight);
   return min(max(d.x, d.y), 0.0) + length(max(d, vec2(0.0)));
 }
 
+float sdAdvancedCylinder(vec3 p, float radius, float halfHeight, float bevelTop, float bevelBottom, float taper, int bevelMode)
+{
+  float taperH = max(halfHeight, 0.001);
+  float zn = clamp(p.z / taperH, -1.0, 1.0);
+  float t = (zn + 1.0) * 0.5;
+  float tapTop = max(taper, 0.0);
+  float tapBot = max(-taper, 0.0);
+  float tapFactor = max(1.0 - tapTop * t - tapBot * (1.0 - t), 0.001);
+  float scaledRadius = radius * tapFactor;
+  float slope = radius * (tapTop + tapBot) / (2.0 * taperH);
+  float lipschitz = sqrt(1.0 + slope * slope);
+  float d2d = length(p.xy) - scaledRadius;
+  float dz = abs(p.z) - halfHeight;
+  float edgeBevel = (p.z > 0.0) ? bevelTop : bevelBottom;
+  float edgeR = min(max(edgeBevel, 0.0), max(min(scaledRadius, halfHeight) - 0.001, 0.0));
+  if (edgeR > 0.001) {
+    if (bevelMode == 0) {
+      vec2 dd = vec2(d2d + edgeR, dz + edgeR);
+      return (min(max(dd.x, dd.y), 0.0) + length(max(dd, vec2(0.0))) - edgeR) / lipschitz;
+    }
+    float base = max(d2d, dz);
+    float cham = (d2d + dz + edgeR) * 0.70710678;
+    float dd = max(base, cham);
+    if (dd <= 0.0) {
+      return dd / lipschitz;
+    }
+    if (d2d <= 0.0 && dz <= 0.0) {
+      return cham / lipschitz;
+    }
+    if (dz <= -edgeR) {
+      return d2d / lipschitz;
+    }
+    if (d2d <= -edgeR) {
+      return dz / lipschitz;
+    }
+    float tc2 = (-d2d + dz + edgeR) / (2.0 * edgeR);
+    if (tc2 <= 0.0) {
+      return length(vec2(d2d, dz + edgeR)) / lipschitz;
+    }
+    if (tc2 >= 1.0) {
+      return length(vec2(d2d + edgeR, dz)) / lipschitz;
+    }
+    return cham / lipschitz;
+  }
+  vec2 dd = vec2(d2d, dz);
+  return (length(max(dd, vec2(0.0))) + min(max(dd.x, dd.y), 0.0)) / lipschitz;
+}
+
 float sdTorus(vec3 p, vec2 t)
 {
-  vec2 q = vec2(length(p.xz) - t.x, p.y);
+  vec2 q = vec2(length(p.xy) - t.x, p.z);
   return length(q) - t.y;
+}
+
+float sdCappedTorus(vec3 p, vec2 sc, float ra, float rb)
+{
+  p.x = abs(p.x);
+  float k = (sc.y * p.x > sc.x * p.y) ? dot(p.xy, sc) : length(p.xy);
+  return sqrt(dot(p, p) + ra * ra - 2.0 * ra * k) - rb;
+}
+
+float sdCone(vec3 p, float bottomRadius, float topRadius, float halfHeight)
+{
+  vec2 q = vec2(length(p.xy), p.z);
+  vec2 k1 = vec2(topRadius, halfHeight);
+  vec2 k2 = vec2(topRadius - bottomRadius, 2.0 * halfHeight);
+  vec2 ca = vec2(q.x - min(q.x, (q.y < 0.0) ? bottomRadius : topRadius), abs(q.y) - halfHeight);
+  vec2 cb = q - k1 + k2 * clamp(dot(k1 - q, k2) / max(dot(k2, k2), 1e-12), 0.0, 1.0);
+  float s = (cb.x < 0.0 && ca.y < 0.0) ? -1.0 : 1.0;
+  return s * sqrt(min(dot(ca, ca), dot(cb, cb)));
+}
+
+float sdAdvancedCone(vec3 p, float bottomRadius, float topRadius, float halfHeight, float bevel, int bevelMode)
+{
+  float radial = length(p.xy);
+  vec2 edge = vec2(topRadius - bottomRadius, 2.0 * halfHeight);
+  float edgeLen = max(length(edge), 1e-12);
+  float dside = (edge.y * (radial - bottomRadius) - edge.x * (p.z + halfHeight)) / edgeLen;
+  float dz = abs(p.z) - halfHeight;
+  float edgeR = min(max(bevel, 0.0), max(halfHeight - 0.001, 0.0));
+  if (edgeR > 0.001) {
+    if (bevelMode == 0) {
+      vec2 dd = vec2(dside + edgeR, dz + edgeR);
+      return min(max(dd.x, dd.y), 0.0) + length(max(dd, vec2(0.0))) - edgeR;
+    }
+    float base = max(dside, dz);
+    float cham = (dside + dz + edgeR) * 0.70710678;
+    float dd = max(base, cham);
+    if (dd <= 0.0) {
+      return dd;
+    }
+    if (dside <= 0.0 && dz <= 0.0) {
+      return cham;
+    }
+    if (dz <= -edgeR) {
+      return dside;
+    }
+    if (dside <= -edgeR) {
+      return dz;
+    }
+    float tc2 = (-dside + dz + edgeR) / (2.0 * edgeR);
+    if (tc2 <= 0.0) {
+      return length(vec2(dside, dz + edgeR));
+    }
+    if (tc2 >= 1.0) {
+      return length(vec2(dside + edgeR, dz));
+    }
+    return cham;
+  }
+  return sdCone(p, bottomRadius, topRadius, halfHeight);
+}
+
+float sdRoundCone(vec3 p, float bottomRadius, float topRadius, float halfHeight)
+{
+  vec2 q = vec2(length(p.xy), p.z + halfHeight);
+  float totalHeight = max(2.0 * halfHeight, 1e-6);
+  if (abs(bottomRadius - topRadius) >= totalHeight) {
+    return (bottomRadius >= topRadius) ? (length(q) - bottomRadius) : (length(q - vec2(0.0, totalHeight)) - topRadius);
+  }
+  float slope = (bottomRadius - topRadius) / totalHeight;
+  float axis = sqrt(max(1.0 - slope * slope, 1e-12));
+  float k = -slope * q.x + axis * q.y;
+  if (k <= 0.0) {
+    return length(q) - bottomRadius;
+  }
+  if (k >= axis * totalHeight) {
+    return length(q - vec2(0.0, totalHeight)) - topRadius;
+  }
+  return axis * q.x + slope * q.y - bottomRadius;
+}
+
+vec2 capsuleEndRadii(float radius, float taper)
+{
+  float tapTop = max(taper, 0.0);
+  float tapBot = max(-taper, 0.0);
+  return vec2(radius * max(1.0 - tapBot, 0.0), radius * max(1.0 - tapTop, 0.0));
+}
+
+float sdCapsule(vec3 p, float r, float h, float taper)
+{
+  vec2 radii = capsuleEndRadii(r, taper);
+  return sdRoundCone(p, radii.x, radii.y, h);
+}
+
+float sdRegularPolygon2D(vec2 p, float radius, int sides)
+{
+  float an = WARP_PI / float(max(sides, 3));
+  float innerRadius = radius * cos(an);
+  float halfEdge = radius * sin(an);
+  p = vec2(-p.y, p.x);
+  float bn = an * floor((atan(p.y, p.x) + an) / an / 2.0) * 2.0;
+  vec2 cs = vec2(cos(bn), sin(bn));
+  p = vec2(cs.x * p.x + cs.y * p.y, -cs.y * p.x + cs.x * p.y);
+  return length(p - vec2(innerRadius, clamp(p.y, -halfEdge, halfEdge))) * sign(p.x - innerRadius);
+}
+
+float sdStarPolygon2D(vec2 p, float radius, int sides, float star)
+{
+  if (star < 0.001) {
+    return sdRegularPolygon2D(p, radius, sides);
+  }
+  float an = WARP_PI / float(max(sides, 3));
+  float innerRadius = radius * cos(an) * max(1.0 - star, 0.01);
+  float angle = atan(p.y, p.x);
+  float bn = floor((angle + an) / (2.0 * an)) * 2.0 * an;
+  vec2 cs = vec2(cos(bn), sin(bn));
+  vec2 q = vec2(cs.x * p.x + cs.y * p.y, -cs.y * p.x + cs.x * p.y);
+  q.y = abs(q.y);
+  vec2 a = vec2(radius, 0.0);
+  vec2 b = vec2(innerRadius * cos(an), innerRadius * sin(an));
+  vec2 ab = b - a;
+  float t = clamp(dot(q - a, ab) / max(dot(ab, ab), 1e-12), 0.0, 1.0);
+  float dist = length(q - (a + ab * t));
+  float crossValue = ab.x * (q.y - a.y) - ab.y * (q.x - a.x);
+  return (crossValue > 0.0) ? -dist : dist;
+}
+
+float sdAdvancedNgon(vec3 p, float radius, float halfHeight, int sides, float corner, float edgeTop, float edgeBot, float tapTop, float tapBot, int edgeMode, float taperH, float star)
+{
+  float zn = clamp(p.z / max(taperH, 0.001), -1.0, 1.0);
+  float t = (zn + 1.0) * 0.5;
+  float tapFactor = max(1.0 - tapTop * t - tapBot * (1.0 - t), 0.001);
+  float scaledR = radius * tapFactor;
+  float slope = radius * (tapTop + tapBot) / (2.0 * max(taperH, 0.001));
+  float lipschitz = sqrt(1.0 + slope * slope);
+  float an = WARP_PI / float(max(sides, 3));
+  float apothem = scaledR * cos(an);
+  float bevelR = corner * apothem;
+  float innerR = scaledR - bevelR / max(cos(an), 0.001);
+  float d2d = (star > 0.001) ? sdStarPolygon2D(p.xy, innerR, sides, star) - bevelR : sdRegularPolygon2D(p.xy, innerR, sides) - bevelR;
+  float dz = abs(p.z) - halfHeight;
+  float edgeR = (p.z > 0.0) ? edgeTop * min(apothem, halfHeight) : edgeBot * min(apothem, halfHeight);
+  if (edgeR > 0.001) {
+    if (edgeMode == 0) {
+      vec2 dd = vec2(d2d + edgeR, dz + edgeR);
+      return (min(max(dd.x, dd.y), 0.0) + length(max(dd, vec2(0.0))) - edgeR) / lipschitz;
+    }
+    float base = max(d2d, dz);
+    float cham = (d2d + dz + edgeR) * 0.70710678;
+    float dd = max(base, cham);
+    if (dd <= 0.0) {
+      return dd / lipschitz;
+    }
+    if (d2d <= 0.0 && dz <= 0.0) {
+      return cham / lipschitz;
+    }
+    if (dz <= -edgeR) {
+      return d2d / lipschitz;
+    }
+    if (d2d <= -edgeR) {
+      return dz / lipschitz;
+    }
+    float tc2 = (-d2d + dz + edgeR) / (2.0 * edgeR);
+    if (tc2 <= 0.0) {
+      return length(vec2(d2d, dz + edgeR)) / lipschitz;
+    }
+    if (tc2 >= 1.0) {
+      return length(vec2(d2d + edgeR, dz)) / lipschitz;
+    }
+    return cham / lipschitz;
+  }
+  vec2 dd = vec2(d2d, dz);
+  return (length(max(dd, vec2(0.0))) + min(max(dd.x, dd.y), 0.0)) / lipschitz;
+}
+
+float sdPolygon2D(vec2 p, int pointOffset, int pointCount)
+{
+  if (pointCount < 3) {
+    return 1e20;
+  }
+  float d = 1e20;
+  int winding = 0;
+  for (int i = 0; i < pointCount; i++) {
+    vec2 a = loadPolygonPoint(pointOffset + i);
+    vec2 b = loadPolygonPoint(pointOffset + ((i + 1) %% pointCount));
+    vec2 edge = b - a;
+    vec2 rel = p - a;
+    float edgeLenSq = max(dot(edge, edge), 1e-12);
+    float t = clamp(dot(rel, edge) / edgeLenSq, 0.0, 1.0);
+    d = min(d, length(rel - edge * t));
+    float crossValue = edge.x * rel.y - edge.y * rel.x;
+    if (a.y <= p.y && b.y > p.y && crossValue > 0.0) {
+      winding++;
+    }
+    if (a.y > p.y && b.y <= p.y && crossValue < 0.0) {
+      winding--;
+    }
+  }
+  return (winding != 0) ? -d : d;
+}
+
+vec2 cubicBezierPoint2D(vec2 a, vec2 b, vec2 c, vec2 d, float t)
+{
+  float invT = 1.0 - t;
+  float invT2 = invT * invT;
+  float t2 = t * t;
+  return a * (invT2 * invT) + b * (3.0 * invT2 * t) + c * (3.0 * invT * t2) + d * (t2 * t);
+}
+
+float sdBezierPolygon2D(vec2 p, int pointOffset, int pointCount)
+{
+  if (pointCount < 3) {
+    return 1e20;
+  }
+  const int BEZIER_STEPS = 8;
+  float d = 1e20;
+  int winding = 0;
+  for (int i = 0; i < pointCount; i++) {
+    int j = (i + 1) %% pointCount;
+    vec2 p0 = loadBezierPoint(pointOffset, i);
+    vec2 p1 = loadBezierHandleRight(pointOffset, i);
+    vec2 p2 = loadBezierHandleLeft(pointOffset, j);
+    vec2 p3 = loadBezierPoint(pointOffset, j);
+    vec2 a = p0;
+    for (int step = 1; step <= BEZIER_STEPS; step++) {
+      float t = float(step) / float(BEZIER_STEPS);
+      vec2 b = cubicBezierPoint2D(p0, p1, p2, p3, t);
+      vec2 edge = b - a;
+      vec2 rel = p - a;
+      float edgeLenSq = max(dot(edge, edge), 1e-12);
+      float s = clamp(dot(rel, edge) / edgeLenSq, 0.0, 1.0);
+      d = min(d, length(rel - edge * s));
+      float crossValue = edge.x * rel.y - edge.y * rel.x;
+      if (a.y <= p.y && b.y > p.y && crossValue > 0.0) {
+        winding++;
+      }
+      if (a.y > p.y && b.y <= p.y && crossValue < 0.0) {
+        winding--;
+      }
+      a = b;
+    }
+  }
+  return (winding != 0) ? -d : d;
+}
+
+float sdPolygonInterpolated2D(vec2 p, int pointOffset, int pointCount, int interpolationMode)
+{
+  return (interpolationMode != 0)
+    ? sdBezierPolygon2D(p, pointOffset, pointCount)
+    : sdPolygon2D(p, pointOffset, pointCount);
+}
+
+float sdPrism(float d2d, float zValue, float halfHeight)
+{
+  vec2 d = vec2(d2d, abs(zValue) - halfHeight);
+  return min(max(d.x, d.y), 0.0) + length(max(d, vec2(0.0)));
+}
+
+float sdAdvancedPolygon(vec3 p, float halfHeight, int pointOffset, int pointCount, float edgeTop, float edgeBot, float tapTop, float tapBot, int interpolationMode, int edgeMode, float taperH)
+{
+  float zn = clamp(p.z / max(taperH, 0.001), -1.0, 1.0);
+  float t = (zn + 1.0) * 0.5;
+  float tapFactor = max(1.0 - tapTop * t - tapBot * (1.0 - t), 0.001);
+  float slope = (tapTop + tapBot) / (2.0 * max(taperH, 0.001));
+  float lipschitz = sqrt(1.0 + slope * slope);
+  float d2d = sdPolygonInterpolated2D(p.xy / tapFactor, pointOffset, pointCount, interpolationMode) * tapFactor;
+  float dz = abs(p.z) - halfHeight;
+  float edgeR = (p.z > 0.0) ? edgeTop * halfHeight : edgeBot * halfHeight;
+  if (edgeR > 0.001) {
+    if (edgeMode == 0) {
+      vec2 dd = vec2(d2d + edgeR, dz + edgeR);
+      return (min(max(dd.x, dd.y), 0.0) + length(max(dd, vec2(0.0))) - edgeR) / lipschitz;
+    }
+    float base = max(d2d, dz);
+    float cham = (d2d + dz + edgeR) * 0.70710678;
+    float dd = max(base, cham);
+    if (dd <= 0.0) {
+      return dd / lipschitz;
+    }
+    if (d2d <= 0.0 && dz <= 0.0) {
+      return cham / lipschitz;
+    }
+    if (dz <= -edgeR) {
+      return d2d / lipschitz;
+    }
+    if (d2d <= -edgeR) {
+      return dz / lipschitz;
+    }
+    float tc2 = (-d2d + dz + edgeR) / (2.0 * edgeR);
+    if (tc2 <= 0.0) {
+      return length(vec2(d2d, dz + edgeR)) / lipschitz;
+    }
+    if (tc2 >= 1.0) {
+      return length(vec2(d2d + edgeR, dz)) / lipschitz;
+    }
+    return cham / lipschitz;
+  }
+  vec2 dd = vec2(d2d, dz);
+  return (length(max(dd, vec2(0.0))) + min(max(dd.x, dd.y), 0.0)) / lipschitz;
 }
 
 float evalPrimitive(int primitiveIndex, vec3 worldPoint)
 {
   int baseRow = primitiveIndex * PRIMITIVE_STRIDE;
   vec4 meta = loadSceneRow(baseRow);
+  vec4 extra0 = primitiveExtra0(primitiveIndex);
+  vec4 extra1 = primitiveExtra1(primitiveIndex);
+  vec4 extra2 = primitiveExtra2(primitiveIndex);
   float distanceScale;
   vec3 localPoint = toLocalPoint(primitiveIndex, worldPoint, distanceScale);
   vec3 scale = primitiveScale(primitiveIndex);
   float minScale = max(min(scale.x, min(scale.y, scale.z)), 1e-6);
   int primitiveType = int(meta.x + 0.5);
   float distanceValue = 1e20;
+  float bevel = max(extra0.x, 0.0);
+  float postBevel = bevel;
   if (primitiveType == 0) {
     distanceValue = sdEllipsoid(localPoint, vec3(meta.y) * scale);
   }
   else if (primitiveType == 1) {
-    distanceValue = sdBox(localPoint, meta.yzw * scale);
+    float tapTop = max(extra1.w, 0.0);
+    float tapBot = max(-extra1.w, 0.0);
+    if (extra0.y + extra0.z + extra0.w + extra1.x + extra1.y + extra1.z + tapTop + tapBot > 0.001) {
+      distanceValue = sdAdvancedBox(localPoint, meta.yzw * scale, vec4(extra0.y, extra0.z, extra0.w, extra1.x), extra1.y, extra1.z, tapTop, tapBot, int(extra2.x + 0.5), int(extra2.y + 0.5), meta.w * scale.z);
+    }
+    else {
+      distanceValue = sdBox(localPoint, meta.yzw * scale);
+    }
   }
   else if (primitiveType == 2) {
-    distanceValue = sdCylinder(localPoint / scale, meta.y, meta.z) * minScale;
+    vec3 scaledPoint = localPoint / scale;
+    float bevelTop = max(extra0.x, 0.0);
+    float bevelBottom = max(extra0.y, 0.0);
+    distanceValue = ((max(bevelTop, bevelBottom) + abs(extra0.z)) > 0.001)
+      ? sdAdvancedCylinder(scaledPoint, meta.y, meta.z, bevelTop, bevelBottom, extra0.z, int(extra0.w + 0.5)) * minScale
+      : sdCylinder(scaledPoint, meta.y, meta.z) * minScale;
+    postBevel = 0.0;
   }
   else if (primitiveType == 3) {
-    distanceValue = sdTorus(localPoint / scale, vec2(meta.y, meta.z)) * minScale;
+    float angle = clamp(extra0.y, 0.0, 6.283185307179586);
+    distanceValue = ((6.283185307179586 - angle) > 0.001)
+      ? sdCappedTorus(localPoint / scale, vec2(sin(0.5 * angle), cos(0.5 * angle)), meta.y, meta.z) * minScale
+      : sdTorus(localPoint / scale, vec2(meta.y, meta.z)) * minScale;
+    postBevel = 0.0;
   }
-  return distanceValue * distanceScale;
+  else if (primitiveType == 4) {
+    vec3 scaledPoint = localPoint / scale;
+    distanceValue = (bevel > 0.001)
+      ? sdAdvancedCone(scaledPoint, meta.y, meta.z, meta.w, bevel, int(extra0.y + 0.5)) * minScale
+      : sdCone(scaledPoint, meta.y, meta.z, meta.w) * minScale;
+    postBevel = 0.0;
+  }
+  else if (primitiveType == 5) {
+    distanceValue = sdCapsule(localPoint / scale, meta.y, meta.z, extra0.y) * minScale;
+    postBevel = 0.0;
+  }
+  else if (primitiveType == 6) {
+    vec3 scaledPoint = localPoint / scale;
+    float tapTop = max(extra1.x, 0.0);
+    float tapBot = max(-extra1.x, 0.0);
+    if (extra0.y + extra0.z + extra0.w + tapTop + tapBot + extra1.z > 0.001) {
+      distanceValue = sdAdvancedNgon(scaledPoint, meta.y, meta.z, int(meta.w + 0.5), extra0.y, extra0.z, extra0.w, tapTop, tapBot, int(extra1.y + 0.5), meta.z, extra1.z) * minScale;
+    }
+    else {
+      distanceValue = sdPrism(sdRegularPolygon2D(scaledPoint.xy, meta.y, int(meta.w + 0.5)), scaledPoint.z, meta.z) * minScale;
+    }
+    postBevel = 0.0;
+  }
+  else if (primitiveType == 7) {
+    vec3 scaledPoint = localPoint / scale;
+    float tapTop = max(extra0.w, 0.0);
+    float tapBot = max(-extra0.w, 0.0);
+    if (extra0.y + extra0.z + tapTop + tapBot > 0.001) {
+      distanceValue = sdAdvancedPolygon(scaledPoint, meta.w, int(meta.y + 0.5), int(meta.z + 0.5), extra0.y, extra0.z, tapTop, tapBot, int(extra1.w + 0.5), int(extra1.x + 0.5), meta.w) * minScale;
+    }
+    else {
+      distanceValue = sdPrism(sdPolygonInterpolated2D(scaledPoint.xy, int(meta.y + 0.5), int(meta.z + 0.5), int(extra1.w + 0.5)), scaledPoint.z, meta.w) * minScale;
+    }
+  }
+  return (distanceValue - postBevel) * distanceScale;
 }
 
 float kernel(float x, float k)

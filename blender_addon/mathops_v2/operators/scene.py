@@ -17,6 +17,10 @@ _PRIMITIVE_ICONS = {
     "box": "MESH_CUBE",
     "cylinder": "MESH_CYLINDER",
     "torus": "MESH_TORUS",
+    "cone": "MESH_CONE",
+    "capsule": "MESH_UVSPHERE",
+    "ngon": "MESH_CIRCLE",
+    "polygon": "CURVE_DATA",
 }
 
 _EMPTY_DISPLAY_TYPES = {
@@ -24,6 +28,10 @@ _EMPTY_DISPLAY_TYPES = {
     "box": "PLAIN_AXES",
     "cylinder": "PLAIN_AXES",
     "torus": "PLAIN_AXES",
+    "cone": "PLAIN_AXES",
+    "capsule": "PLAIN_AXES",
+    "ngon": "PLAIN_AXES",
+    "polygon": "PLAIN_AXES",
 }
 
 
@@ -35,22 +43,60 @@ def _configure_proxy_defaults(obj, primitive_type):
     settings.source_node_name = ""
     settings.primitive_type = primitive_type
     settings.radius = 0.5
+    settings.cone_top_radius = 0.0
+    settings.cone_bottom_radius = 0.5
     settings.size = (0.5, 0.5, 0.5)
     settings.height = 1.0
     settings.major_radius = 0.75
     settings.minor_radius = 0.25
+    settings.bevel = 0.0
+    settings.cylinder_bevel_top = 0.0
+    settings.cylinder_bevel_bottom = 0.0
+    settings.cylinder_taper = 0.0
+    settings.cylinder_bevel_mode = "SMOOTH"
+    settings.cone_bevel_mode = "SMOOTH"
+    settings.capsule_taper = 0.0
+    settings.torus_angle = 6.283185307179586
+    settings.box_corners = (0.0, 0.0, 0.0, 0.0)
+    settings.box_edge_top = 0.0
+    settings.box_edge_bottom = 0.0
+    settings.box_taper = 0.0
+    settings.box_corner_mode = "SMOOTH"
+    settings.box_edge_mode = "SMOOTH"
+    settings.ngon_sides = 6
+    settings.ngon_corner = 0.0
+    settings.ngon_edge_top = 0.0
+    settings.ngon_edge_bottom = 0.0
+    settings.ngon_taper = 0.0
+    settings.ngon_edge_mode = "SMOOTH"
+    settings.ngon_star = 0.0
+    sdf_tree.set_polygon_points(settings, sdf_tree.default_polygon_control_points())
+    settings.polygon_interpolation = "VECTOR"
+    settings.polygon_edge_top = 0.0
+    settings.polygon_edge_bottom = 0.0
+    settings.polygon_taper = 0.0
+    settings.polygon_edge_mode = "SMOOTH"
+    settings.polygon_is_line = False
+    settings.polygon_line_thickness = 0.1
 
     obj.rotation_mode = "XYZ"
-    obj.empty_display_type = _EMPTY_DISPLAY_TYPES.get(primitive_type, "PLAIN_AXES")
-    obj.empty_display_size = 0.01
+    if getattr(obj, "type", "") == "EMPTY":
+        obj.empty_display_type = _EMPTY_DISPLAY_TYPES.get(primitive_type, "PLAIN_AXES")
+        obj.empty_display_size = 0.01
     obj.show_name = False
     obj.show_in_front = False
     obj.hide_render = True
+    if primitive_type == "polygon" and getattr(obj, "type", "") == "CURVE":
+        sdf_tree.sync_polygon_curve_proxy(obj, sdf_tree.default_polygon_control_points(), is_line=False, interpolation="VECTOR")
 
 
 def _link_proxy_object(context, primitive_type):
     label = dict((identifier, name) for identifier, name, _description in properties.PRIMITIVE_ITEMS)[primitive_type]
-    obj = bpy.data.objects.new(f"SDF {label}", None)
+    if primitive_type == "polygon":
+        data = bpy.data.curves.new(f"SDF {label}", type="CURVE")
+        obj = bpy.data.objects.new(f"SDF {label}", data)
+    else:
+        obj = bpy.data.objects.new(f"SDF {label}", None)
     _configure_proxy_defaults(obj, primitive_type)
     obj.location = context.scene.cursor.location.copy()
     collection = getattr(context, "collection", None)
@@ -134,7 +180,7 @@ def _ensure_generated_mesh_object(context):
 class MATHOPS_V2_OT_add_sdf_proxy(Operator):
     bl_idname = "mathops_v2.add_sdf_proxy"
     bl_label = "Add SDF Proxy"
-    bl_description = "Add an SDF empty proxy and insert it into the scene graph"
+    bl_description = "Add an SDF proxy object and insert it into the scene graph"
     bl_options = {"REGISTER", "UNDO"}
 
     primitive_type: EnumProperty(name="Primitive", items=properties.PRIMITIVE_ITEMS, default="sphere")
@@ -292,7 +338,7 @@ class MATHOPS_V2_OT_move_sdf_branch(Operator):
 class MATHOPS_V2_OT_create_node_proxy(Operator):
     bl_idname = "mathops_v2.create_node_proxy"
     bl_label = "Create Node Proxy"
-    bl_description = "Create an SDF proxy empty for this node"
+    bl_description = "Create an SDF proxy object for this node"
     bl_options = {"REGISTER", "UNDO"}
 
     tree_name: StringProperty(default="")
