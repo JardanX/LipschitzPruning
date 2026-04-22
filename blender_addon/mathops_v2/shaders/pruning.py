@@ -44,20 +44,7 @@ vec2 loadPolygonPoint(int index)
   return loadPolygonRow(index).xy;
 }
 
-vec2 loadBezierPoint(int pointOffset, int index)
-{
-  return loadPolygonRow(pointOffset + index * 2).xy;
-}
 
-vec2 loadBezierHandleRight(int pointOffset, int index)
-{
-  return loadPolygonRow(pointOffset + index * 2).zw;
-}
-
-vec2 loadBezierHandleLeft(int pointOffset, int index)
-{
-  return loadPolygonRow(pointOffset + index * 2 + 1).xy;
-}
 
 vec4 loadSceneRow(int row)
 {
@@ -735,9 +722,9 @@ float sdPolygon2D(vec2 p, int pointOffset, int pointCount)
   }
   float d = 1e20;
   int winding = 0;
+  vec2 a = loadPolygonPoint(pointOffset + pointCount - 1);
   for (int i = 0; i < pointCount; i++) {
-    vec2 a = loadPolygonPoint(pointOffset + i);
-    vec2 b = loadPolygonPoint(pointOffset + ((i + 1) %% pointCount));
+    vec2 b = loadPolygonPoint(pointOffset + i);
     vec2 edge = b - a;
     vec2 rel = p - a;
     float edgeLenSq = max(dot(edge, edge), 1e-12);
@@ -750,49 +737,79 @@ float sdPolygon2D(vec2 p, int pointOffset, int pointCount)
     if (a.y > p.y && b.y <= p.y && crossValue < 0.0) {
       winding--;
     }
+    a = b;
   }
   return (winding != 0) ? -d : d;
 }
 
-vec2 cubicBezierPoint2D(vec2 a, vec2 b, vec2 c, vec2 d, float t)
+float sdQuadraticBezier2D(vec2 pos, vec2 A, vec2 B, vec2 C)
 {
-  float invT = 1.0 - t;
-  float invT2 = invT * invT;
-  float t2 = t * t;
-  return a * (invT2 * invT) + b * (3.0 * invT2 * t) + c * (3.0 * invT * t2) + d * (t2 * t);
+  vec2 a = B - A;
+  vec2 b = A - 2.0*B + C;
+  vec2 c = a * 2.0;
+  vec2 d = A - pos;
+  float bb = dot(b,b);
+  if (bb < 1e-10) {
+    vec2 e = C - A;
+    float t = clamp(dot(d, e) / max(dot(e,e), 1e-12), 0.0, 1.0);
+    return length(d + e*t);
+  }
+  float kk = 1.0/bb;
+  float kx = kk * dot(a,b);
+  float ky = kk * (2.0*dot(a,a)+dot(d,b)) / 3.0;
+  float kz = kk * dot(d,a);
+  float res = 1e20;
+  float p = ky - kx*kx;
+  float p3 = p*p*p;
+  float q = kx*(2.0*kx*kx - 3.0*ky) + kz;
+  float h = q*q + 4.0*p3;
+  if (h >= 0.0) {
+    h = sqrt(h);
+    vec2 x = (vec2(h,-h)-q)/2.0;
+    vec2 uv = sign(x)*pow(abs(x), vec2(1.0/3.0));
+    float t = clamp(uv.x+uv.y-kx, 0.0, 1.0);
+    vec2 w = d+(c+b*t)*t;
+    res = dot(w,w);
+  } else {
+    float z = sqrt(-p);
+    float v = acos(clamp(q/(p*z*2.0), -1.0, 1.0)) / 3.0;
+    float m = cos(v);
+    float n = sin(v)*1.732050808;
+    vec3 t = clamp(vec3(m+m,-n-m,n-m)*z-kx, 0.0, 1.0);
+    vec2 w0 = d+(c+b*t.x)*t.x;
+    vec2 w1 = d+(c+b*t.y)*t.y;
+    res = min(dot(w0,w0), dot(w1,w1));
+  }
+  return sqrt(res);
 }
 
-float sdBezierPolygon2D(vec2 p, int pointOffset, int pointCount)
+vec2 sdBezierQuadEndPoint(int pointOffset, int segCount, int i)
 {
-  if (pointCount < 3) {
+  int next = (i + 1 < segCount) ? (i + 1) : 0;
+  return loadPolygonRow(pointOffset + next).xy;
+}
+
+float sdBezierPolygon2D(vec2 p, int pointOffset, int segCount)
+{
+  if (segCount < 3) {
     return 1e20;
   }
-  const int BEZIER_STEPS = 8;
   float d = 1e20;
   int winding = 0;
-  for (int i = 0; i < pointCount; i++) {
-    int j = (i + 1) %% pointCount;
-    vec2 p0 = loadBezierPoint(pointOffset, i);
-    vec2 p1 = loadBezierHandleRight(pointOffset, i);
-    vec2 p2 = loadBezierHandleLeft(pointOffset, j);
-    vec2 p3 = loadBezierPoint(pointOffset, j);
-    vec2 a = p0;
-    for (int step = 1; step <= BEZIER_STEPS; step++) {
-      float t = float(step) / float(BEZIER_STEPS);
-      vec2 b = cubicBezierPoint2D(p0, p1, p2, p3, t);
-      vec2 edge = b - a;
-      vec2 rel = p - a;
-      float edgeLenSq = max(dot(edge, edge), 1e-12);
-      float s = clamp(dot(rel, edge) / edgeLenSq, 0.0, 1.0);
-      d = min(d, length(rel - edge * s));
-      float crossValue = edge.x * rel.y - edge.y * rel.x;
-      if (a.y <= p.y && b.y > p.y && crossValue > 0.0) {
-        winding++;
-      }
-      if (a.y > p.y && b.y <= p.y && crossValue < 0.0) {
-        winding--;
-      }
-      a = b;
+  for (int i = 0; i < segCount; i++) {
+    vec4 row = loadPolygonRow(pointOffset + i);
+    vec2 start = row.xy;
+    vec2 ctrl = row.zw;
+    vec2 endPt = sdBezierQuadEndPoint(pointOffset, segCount, i);
+    d = min(d, sdQuadraticBezier2D(p, start, ctrl, endPt));
+    vec2 edge = endPt - start;
+    vec2 rel = p - start;
+    float cv = edge.x * rel.y - edge.y * rel.x;
+    if (start.y <= p.y && endPt.y > p.y && cv > 0.0) {
+      winding++;
+    }
+    if (start.y > p.y && endPt.y <= p.y && cv < 0.0) {
+      winding--;
     }
   }
   return (winding != 0) ? -d : d;

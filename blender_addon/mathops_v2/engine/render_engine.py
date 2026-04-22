@@ -58,6 +58,9 @@ class MathOPSV2RenderEngine(RenderEngine):
             self.update_stats("MathOPS V2", f"Error: {exc}")
         return None
 
+    def update_render_passes(self, scene, blender_scene):
+        self.register_pass(scene, blender_scene, "Combined", 4, "RGBA", "COLOR")
+
 
 classes = (MathOPSV2RenderEngine,)
 

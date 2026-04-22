@@ -12,6 +12,7 @@ _node_selection_signature = None
 _proxy_selection_signature = None
 _scene_proxy_signatures = {}
 _polygon_curve_edit_signatures = {}
+_POLYGON_CURVE_EDIT_SYNC_INTERVAL = 0.01
 
 
 def _reset_cached_sync_state():
@@ -446,7 +447,7 @@ def _sync_polygon_curve_edit_updates():
             edit_objects.append(obj)
     if not edit_objects:
         _polygon_curve_edit_signatures.clear()
-        return 0.03
+        return _POLYGON_CURVE_EDIT_SYNC_INTERVAL
 
     changed = False
     seen_keys = set()
@@ -481,7 +482,7 @@ def _sync_polygon_curve_edit_updates():
         runtime.mark_scene_static_dirty(scene)
         runtime.note_interaction()
         runtime.tag_redraw(context)
-    return 0.03
+    return _POLYGON_CURVE_EDIT_SYNC_INTERVAL
 
 
 def _sync_proxy_transform_updates(scene, depsgraph):
@@ -673,7 +674,8 @@ def register():
     bpy.app.timers.register(_deferred_ensure_all_scene_graphs, first_interval=0.0)
     bpy.app.timers.register(_sync_proxy_editor_selection, first_interval=0.1)
     bpy.app.timers.register(_sync_node_editor_selection, first_interval=0.1)
-    bpy.app.timers.register(_sync_polygon_curve_edit_updates, first_interval=0.03)
+    bpy.app.timers.register(_sync_polygon_curve_edit_updates, first_interval=_POLYGON_CURVE_EDIT_SYNC_INTERVAL)
+
 
 
 def unregister():

@@ -70,20 +70,7 @@ vec2 loadPolygonPoint(int index)
   return loadPolygonRow(index).xy;
 }
 
-vec2 loadBezierPoint(int pointOffset, int index)
-{
-  return loadPolygonRow(pointOffset + index * 2).xy;
-}
 
-vec2 loadBezierHandleRight(int pointOffset, int index)
-{
-  return loadPolygonRow(pointOffset + index * 2).zw;
-}
-
-vec2 loadBezierHandleLeft(int pointOffset, int index)
-{
-  return loadPolygonRow(pointOffset + index * 2 + 1).xy;
-}
 
 vec3 inferno(float t)
 {
@@ -174,6 +161,16 @@ vec3 pruningBoundsMinValue()
 vec3 pruningBoundsMaxValue()
 {
   return mathops.pruningBoundsMaxEnabled.xyz;
+}
+
+vec3 pruningCellSizeValue()
+{
+  return (pruningBoundsMaxValue() - pruningBoundsMinValue()) / float(max(pruningGridSizeValue(), 1));
+}
+
+float pruningCellRadiusValue()
+{
+  return length(pruningCellSizeValue()) * 0.5;
 }
 
 vec3 renderBoundsMinValue()
@@ -764,9 +761,9 @@ float sdPolygon2D(vec2 p, int pointOffset, int pointCount)
   }
   float d = 1e20;
   int winding = 0;
+  vec2 a = loadPolygonPoint(pointOffset + pointCount - 1);
   for (int i = 0; i < pointCount; i++) {
-    vec2 a = loadPolygonPoint(pointOffset + i);
-    vec2 b = loadPolygonPoint(pointOffset + ((i + 1) %% pointCount));
+    vec2 b = loadPolygonPoint(pointOffset + i);
     vec2 edge = b - a;
     vec2 rel = p - a;
     float edgeLenSq = max(dot(edge, edge), 1e-12);
@@ -779,49 +776,79 @@ float sdPolygon2D(vec2 p, int pointOffset, int pointCount)
     if (a.y > p.y && b.y <= p.y && crossValue < 0.0) {
       winding--;
     }
+    a = b;
   }
   return (winding != 0) ? -d : d;
 }
 
-vec2 cubicBezierPoint2D(vec2 a, vec2 b, vec2 c, vec2 d, float t)
+float sdQuadraticBezier2D(vec2 pos, vec2 A, vec2 B, vec2 C)
 {
-  float invT = 1.0 - t;
-  float invT2 = invT * invT;
-  float t2 = t * t;
-  return a * (invT2 * invT) + b * (3.0 * invT2 * t) + c * (3.0 * invT * t2) + d * (t2 * t);
+  vec2 a = B - A;
+  vec2 b = A - 2.0*B + C;
+  vec2 c = a * 2.0;
+  vec2 d = A - pos;
+  float bb = dot(b,b);
+  if (bb < 1e-10) {
+    vec2 e = C - A;
+    float t = clamp(dot(d, e) / max(dot(e,e), 1e-12), 0.0, 1.0);
+    return length(d + e*t);
+  }
+  float kk = 1.0/bb;
+  float kx = kk * dot(a,b);
+  float ky = kk * (2.0*dot(a,a)+dot(d,b)) / 3.0;
+  float kz = kk * dot(d,a);
+  float res = 1e20;
+  float p = ky - kx*kx;
+  float p3 = p*p*p;
+  float q = kx*(2.0*kx*kx - 3.0*ky) + kz;
+  float h = q*q + 4.0*p3;
+  if (h >= 0.0) {
+    h = sqrt(h);
+    vec2 x = (vec2(h,-h)-q)/2.0;
+    vec2 uv = sign(x)*pow(abs(x), vec2(1.0/3.0));
+    float t = clamp(uv.x+uv.y-kx, 0.0, 1.0);
+    vec2 w = d+(c+b*t)*t;
+    res = dot(w,w);
+  } else {
+    float z = sqrt(-p);
+    float v = acos(clamp(q/(p*z*2.0), -1.0, 1.0)) / 3.0;
+    float m = cos(v);
+    float n = sin(v)*1.732050808;
+    vec3 t = clamp(vec3(m+m,-n-m,n-m)*z-kx, 0.0, 1.0);
+    vec2 w0 = d+(c+b*t.x)*t.x;
+    vec2 w1 = d+(c+b*t.y)*t.y;
+    res = min(dot(w0,w0), dot(w1,w1));
+  }
+  return sqrt(res);
 }
 
-float sdBezierPolygon2D(vec2 p, int pointOffset, int pointCount)
+vec2 sdBezierQuadEndPoint(int pointOffset, int segCount, int i)
 {
-  if (pointCount < 3) {
+  int next = (i + 1 < segCount) ? (i + 1) : 0;
+  return loadPolygonRow(pointOffset + next).xy;
+}
+
+float sdBezierPolygon2D(vec2 p, int pointOffset, int segCount)
+{
+  if (segCount < 3) {
     return 1e20;
   }
-  const int BEZIER_STEPS = 8;
   float d = 1e20;
   int winding = 0;
-  for (int i = 0; i < pointCount; i++) {
-    int j = (i + 1) %% pointCount;
-    vec2 p0 = loadBezierPoint(pointOffset, i);
-    vec2 p1 = loadBezierHandleRight(pointOffset, i);
-    vec2 p2 = loadBezierHandleLeft(pointOffset, j);
-    vec2 p3 = loadBezierPoint(pointOffset, j);
-    vec2 a = p0;
-    for (int step = 1; step <= BEZIER_STEPS; step++) {
-      float t = float(step) / float(BEZIER_STEPS);
-      vec2 b = cubicBezierPoint2D(p0, p1, p2, p3, t);
-      vec2 edge = b - a;
-      vec2 rel = p - a;
-      float edgeLenSq = max(dot(edge, edge), 1e-12);
-      float s = clamp(dot(rel, edge) / edgeLenSq, 0.0, 1.0);
-      d = min(d, length(rel - edge * s));
-      float crossValue = edge.x * rel.y - edge.y * rel.x;
-      if (a.y <= p.y && b.y > p.y && crossValue > 0.0) {
-        winding++;
-      }
-      if (a.y > p.y && b.y <= p.y && crossValue < 0.0) {
-        winding--;
-      }
-      a = b;
+  for (int i = 0; i < segCount; i++) {
+    vec4 row = loadPolygonRow(pointOffset + i);
+    vec2 start = row.xy;
+    vec2 ctrl = row.zw;
+    vec2 endPt = sdBezierQuadEndPoint(pointOffset, segCount, i);
+    d = min(d, sdQuadraticBezier2D(p, start, ctrl, endPt));
+    vec2 edge = endPt - start;
+    vec2 rel = p - start;
+    float cv = edge.x * rel.y - edge.y * rel.x;
+    if (start.y <= p.y && endPt.y > p.y && cv > 0.0) {
+      winding++;
+    }
+    if (start.y > p.y && endPt.y <= p.y && cv < 0.0) {
+      winding--;
     }
   }
   return (winding != 0) ? -d : d;
@@ -1034,159 +1061,6 @@ float evalPrimitiveLocalDistance(int primitiveType,
   return distanceValue - postBevel;
 }
 
-vec4 normalizeDistanceGradient(float distanceValue, vec3 gradient)
-{
-  float lenSq = dot(gradient, gradient);
-  if (lenSq > 1e-12) {
-    gradient *= inversesqrt(lenSq);
-  }
-  else {
-    gradient = vec3(0.0);
-  }
-  return vec4(distanceValue, gradient);
-}
-
-vec4 negateDistanceGradient(vec4 value)
-{
-  return vec4(-value.x, -value.yzw);
-}
-
-vec4 sdgEllipsoid(vec3 p, vec3 r)
-{
-  vec3 pr = p / r;
-  float k0 = length(pr);
-  vec3 pr2 = p / (r * r);
-  float k1 = length(pr2);
-  float dist = k0 * (k0 - 1.0) / max(k1, 1e-8);
-  vec3 grad = pr2 / max(k1, 1e-8);
-  return vec4(dist, grad);
-}
-
-vec4 sdgBox(vec3 p, vec3 b)
-{
-  vec3 w = abs(p) - b;
-  vec3 s = sign(p);
-  float g = max(w.x, max(w.y, w.z));
-  vec3 q = max(w, vec3(0.0));
-  float l = length(q);
-  vec4 f = (g > 0.0)
-      ? vec4(l, q / max(l, 1e-8))
-      : vec4(g,
-             vec3(
-               (w.x == g) ? 1.0 : 0.0,
-               (w.y == g) ? 1.0 : 0.0,
-               (w.z == g) ? 1.0 : 0.0));
-  return vec4(f.x, f.yzw * s);
-}
-
-vec4 sdgCylinder(vec3 p, vec3 size)
-{
-  vec2 e = max(size.xy, vec2(0.001));
-  vec2 pn = p.xy / e;
-  float rn = max(length(pn), 1e-6);
-  vec2 g = pn / (e * rn);
-  float gl = max(length(g), 1e-6);
-  float radial = (rn - 1.0) / gl;
-  float vertical = abs(p.z) - size.z;
-
-  vec3 du = vec3(g / gl, 0.0);
-  vec3 dv = vec3(0.0, 0.0, sign(p.z));
-
-  vec2 dd = vec2(radial, vertical);
-  vec2 hh = max(dd, vec2(0.0));
-  float fl = length(hh);
-  float fg = max(dd.x, dd.y);
-
-  if (fg <= 0.0) {
-    return vec4(fg, (dd.x > dd.y) ? du : dv);
-  }
-  return vec4(fl, (hh.x * du + hh.y * dv) / max(fl, 1e-8));
-}
-
-vec4 sdgCone(vec3 p, float r, float h)
-{
-  vec2 k = vec2(-r, 2.0 * h);
-  float m = dot(k, k);
-  float l = length(p.xy);
-  vec2 q = vec2(-l, h - p.z);
-  vec2 a = vec2(l - min(l, (p.z < 0.0) ? r : 0.0), abs(p.z) - h);
-  float tRaw = dot(q, k) / m;
-  vec2 b = k * clamp(tRaw, 0.0, 1.0) - q;
-  float s = (b.x < 0.0 && a.y < 0.0) ? -1.0 : 1.0;
-  float la = dot(a, a);
-  float lb = dot(b, b);
-  float dist = s * sqrt(min(la, lb));
-
-  vec2 radial = p.xy / max(l, 1e-8);
-  vec2 closest;
-  if (la < lb) {
-    float rCap = (p.z < 0.0) ? r : 0.0;
-    closest = vec2(min(l, rCap), sign(p.z) * h);
-  }
-  else {
-    float tc = clamp(tRaw, 0.0, 1.0);
-    closest = vec2(tc * r, h - 2.0 * tc * h);
-  }
-
-  vec2 delta = vec2(l, p.z) - closest;
-  float dl2 = length(delta);
-  vec3 grad;
-  if (dl2 > 1e-6) {
-    grad = s * vec3(radial * delta.x, delta.y) / dl2;
-  }
-  else {
-    grad = s * vec3(radial * k.y, -k.x) / sqrt(m);
-  }
-  return vec4(dist, grad);
-}
-
-vec4 sdgCapsule(vec3 p, float r, float h)
-{
-  vec3 ba = vec3(0.0, 0.0, 2.0 * h);
-  vec3 pa = vec3(p.x, p.y, p.z + h);
-  float t = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
-  vec3 q = pa - t * ba;
-  float d = length(q);
-  return vec4(d - r, q / max(d, 1e-8));
-}
-
-vec4 sdgTorus(vec3 p, vec2 t)
-{
-  float h = length(p.xy);
-  vec3 raw = p * vec3(h - t.x, h - t.x, h);
-  float rl = length(raw);
-  vec3 grad = (rl > 1e-8) ? raw / rl : vec3(0.0, 0.0, sign(p.z));
-  vec2 q = vec2(h - t.x, p.z);
-  float d = length(q) - t.y;
-  return vec4(d, grad);
-}
-
-vec4 sdgCappedTorus(vec3 p, vec2 sc, float ra, float rb)
-{
-  vec3 ap = vec3(abs(p.x), p.y, p.z);
-  float k = (sc.y * ap.x > sc.x * ap.y) ? dot(ap.xy, sc) : length(ap.xy);
-  float d = sqrt(dot(p, p) + ra * ra - 2.0 * ra * k) - rb;
-
-  vec3 grad;
-  if (sc.y * ap.x > sc.x * ap.y) {
-    grad = vec3(p.x - sign(p.x) * ra * sc.x,
-                p.y - ra * sc.y,
-                p.z);
-  }
-  else {
-    float lxy = max(length(p.xy), 1e-8);
-    grad = vec3(p.x * (1.0 - ra / lxy),
-                p.y * (1.0 - ra / lxy),
-                p.z);
-  }
-  return vec4(d, grad / max(length(grad), 1e-8));
-}
-
-vec4 makeDistanceGradient2D(float distanceValue, vec2 gradient)
-{
-  return vec4(distanceValue, gradient.x, gradient.y, 0.0);
-}
-
 float sabsDerivative(float x, float k)
 {
   if (k <= 0.0001) {
@@ -1224,558 +1098,12 @@ float foldFiniteGridAxisDerivative(float axisValue, float origin, float primitiv
   return 1.0 + pullRDeriv - pullLDeriv;
 }
 
-vec3 restoreRotationScaleGradient(vec3 gradient, vec4 rotation, vec3 scale)
-{
-  return rotateByQuaternion(rotation, gradient / safeArrayScale(scale));
-}
-
-vec4 sdgBox2D(vec2 p, vec2 b)
-{
-  vec2 w = abs(p) - b;
-  vec2 s = sign(p);
-  float g = max(w.x, w.y);
-  vec2 q = max(w, vec2(0.0));
-  float l = length(q);
-  vec2 grad = (g > 0.0)
-    ? q / max(l, 1e-8)
-    : vec2((w.x == g) ? 1.0 : 0.0, (w.y == g) ? 1.0 : 0.0);
-  return makeDistanceGradient2D((g > 0.0) ? l : g, grad * s);
-}
-
-vec4 sdgRoundBox2D(vec2 p, vec2 b, vec4 r)
-{
-  float rx = (p.x > 0.0) ? r.x : r.z;
-  float ry = (p.x > 0.0) ? r.y : r.w;
-  float rc = (p.y > 0.0) ? rx : ry;
-  vec4 dg = sdgBox2D(p, b - vec2(rc));
-  dg.x -= rc;
-  return dg;
-}
-
-vec4 sdgChamferBox2D(vec2 p, vec2 b, vec4 r)
-{
-  float rx = (p.x > 0.0) ? r.x : r.z;
-  float ry = (p.x > 0.0) ? r.y : r.w;
-  float rc = (p.y > 0.0) ? rx : ry;
-  if (rc < 0.001) {
-    return sdgBox2D(p, b);
-  }
-  vec2 s = sign(p);
-  vec2 q = abs(p) - b;
-  float dCham = (q.x + q.y + rc) * 0.70710678;
-  vec2 gCham = vec2(0.70710678) * s;
-  float dBox = max(q.x, q.y);
-  float d = max(dBox, dCham);
-  if (d <= 0.0) {
-    if (dBox > dCham) {
-      vec2 gBox = vec2((q.x >= q.y) ? 1.0 : 0.0, (q.y > q.x) ? 1.0 : 0.0) * s;
-      return makeDistanceGradient2D(dBox, gBox);
-    }
-    return makeDistanceGradient2D(dCham, gCham);
-  }
-  if (dBox <= 0.0) {
-    return makeDistanceGradient2D(dCham, gCham);
-  }
-  if (q.y <= -rc || q.x <= -rc) {
-    vec2 qq = max(q, vec2(0.0));
-    float l = length(qq);
-    vec2 grad = (l > 1e-8) ? qq / l : vec2(0.0);
-    return makeDistanceGradient2D(l, grad * s);
-  }
-  float t = (-q.x + q.y + rc) / (2.0 * rc);
-  if (t <= 0.0) {
-    vec2 delta = q - vec2(0.0, -rc);
-    float l = length(delta);
-    vec2 grad = (l > 1e-8) ? delta / l : vec2(1.0, 0.0);
-    return makeDistanceGradient2D(l, grad * s);
-  }
-  if (t >= 1.0) {
-    vec2 delta = q - vec2(-rc, 0.0);
-    float l = length(delta);
-    vec2 grad = (l > 1e-8) ? delta / l : vec2(0.0, 1.0);
-    return makeDistanceGradient2D(l, grad * s);
-  }
-  return makeDistanceGradient2D(dCham, gCham);
-}
-
-vec4 sdgRegularPolygon2D(vec2 p, float radius, int sides)
-{
-  float an = WARP_PI / float(max(sides, 3));
-  float innerRadius = radius * cos(an);
-  float halfEdge = radius * sin(an);
-  vec2 u = vec2(-p.y, p.x);
-  float bn = an * floor((atan(u.y, u.x) + an) / an / 2.0) * 2.0;
-  vec2 cs = vec2(cos(bn), sin(bn));
-  vec2 q = vec2(cs.x * u.x + cs.y * u.y, -cs.y * u.x + cs.x * u.y);
-  vec2 closest = vec2(innerRadius, clamp(q.y, -halfEdge, halfEdge));
-  vec2 delta = q - closest;
-  float l = length(delta);
-  float signValue = (q.x >= innerRadius) ? 1.0 : -1.0;
-  vec2 gradQ = (l > 1e-8) ? (signValue * delta / l) : vec2(signValue, 0.0);
-  vec2 gradU = vec2(cs.x * gradQ.x - cs.y * gradQ.y, cs.y * gradQ.x + cs.x * gradQ.y);
-  vec2 gradP = vec2(gradU.y, -gradU.x);
-  return makeDistanceGradient2D(l * signValue, gradP);
-}
-
-vec4 sdgStarPolygon2D(vec2 p, float radius, int sides, float star)
-{
-  if (star < 0.001) {
-    return sdgRegularPolygon2D(p, radius, sides);
-  }
-  float an = WARP_PI / float(max(sides, 3));
-  float innerRadius = radius * cos(an) * max(1.0 - star, 0.01);
-  float angle = atan(p.y, p.x);
-  float bn = floor((angle + an) / (2.0 * an)) * 2.0 * an;
-  vec2 cs = vec2(cos(bn), sin(bn));
-  vec2 q0 = vec2(cs.x * p.x + cs.y * p.y, -cs.y * p.x + cs.x * p.y);
-  vec2 q = vec2(q0.x, abs(q0.y));
-  vec2 a = vec2(radius, 0.0);
-  vec2 b = vec2(innerRadius * cos(an), innerRadius * sin(an));
-  vec2 ab = b - a;
-  float t = clamp(dot(q - a, ab) / max(dot(ab, ab), 1e-12), 0.0, 1.0);
-  vec2 closest = a + ab * t;
-  vec2 delta = q - closest;
-  float l = length(delta);
-  float signValue = (ab.x * (q.y - a.y) - ab.y * (q.x - a.x) > 0.0) ? -1.0 : 1.0;
-  vec2 gradQ = (l > 1e-8) ? (signValue * delta / l) : vec2(signValue, 0.0);
-  vec2 gradQ0 = vec2(gradQ.x, gradQ.y * ((q0.y >= 0.0) ? 1.0 : -1.0));
-  vec2 gradP = vec2(cs.x * gradQ0.x - cs.y * gradQ0.y, cs.y * gradQ0.x + cs.x * gradQ0.y);
-  return makeDistanceGradient2D(signValue * l, gradP);
-}
-
-vec4 sdgPolygon2D(vec2 p, int pointOffset, int pointCount)
-{
-  if (pointCount < 3) {
-    return vec4(1e20, 0.0, 0.0, 0.0);
-  }
-  float bestLenSq = 1e20;
-  vec2 bestDelta = vec2(1.0, 0.0);
-  int winding = 0;
-  for (int i = 0; i < pointCount; i++) {
-    vec2 a = loadPolygonPoint(pointOffset + i);
-    vec2 b = loadPolygonPoint(pointOffset + ((i + 1) %% pointCount));
-    vec2 edge = b - a;
-    vec2 rel = p - a;
-    float edgeLenSq = max(dot(edge, edge), 1e-12);
-    float t = clamp(dot(rel, edge) / edgeLenSq, 0.0, 1.0);
-    vec2 delta = rel - edge * t;
-    float lenSq = dot(delta, delta);
-    if (lenSq < bestLenSq) {
-      bestLenSq = lenSq;
-      bestDelta = delta;
-    }
-    float crossValue = edge.x * rel.y - edge.y * rel.x;
-    if (a.y <= p.y && b.y > p.y && crossValue > 0.0) {
-      winding++;
-    }
-    if (a.y > p.y && b.y <= p.y && crossValue < 0.0) {
-      winding--;
-    }
-  }
-  float l = sqrt(bestLenSq);
-  float signValue = (winding != 0) ? -1.0 : 1.0;
-  vec2 grad = (l > 1e-8) ? (signValue * bestDelta / l) : vec2(signValue, 0.0);
-  return makeDistanceGradient2D(signValue * l, grad);
-}
-
-vec4 sdgExtrude2DGrad(vec4 dg2d, float pz, float halfH)
-{
-  float dz = abs(pz) - halfH;
-  vec2 dd = vec2(dg2d.x, dz);
-  vec2 hh = max(dd, vec2(0.0));
-  float fl = length(hh);
-  float fg = max(dd.x, dd.y);
-  vec3 gz = vec3(0.0, 0.0, sign(pz));
-  if (fg <= 0.0) {
-    return (dd.x > dd.y) ? dg2d : vec4(fg, gz);
-  }
-  return vec4(fl, (hh.x * dg2d.yzw + hh.y * gz) / max(fl, 1e-8));
-}
-
-vec4 sdgRoundExtrude2DGrad(vec4 dg2d, float pz, float halfH, float edgeR, vec3 gEdgeR)
-{
-  float dz = abs(pz) - halfH;
-  vec3 gz = vec3(0.0, 0.0, sign(pz));
-  vec2 dd = vec2(dg2d.x + edgeR, dz + edgeR);
-  if (max(dd.x, dd.y) <= 0.0) {
-    return (dd.x > dd.y) ? dg2d : vec4(dz, gz);
-  }
-  vec2 hh = max(dd, vec2(0.0));
-  float fl = max(length(hh), 1e-8);
-  float cx = hh.x / fl;
-  float cy = hh.y / fl;
-  float cr = cx + cy - 1.0;
-  return vec4(fl - edgeR, cx * dg2d.yzw + cy * gz + cr * gEdgeR);
-}
-
-vec4 sdgChamferExtrude2DGrad(vec4 dg2d, float pz, float halfH, float edgeR, vec3 gEdgeR)
-{
-  float dz = abs(pz) - halfH;
-  vec3 gz = vec3(0.0, 0.0, sign(pz));
-  float base = max(dg2d.x, dz);
-  float cham = (dg2d.x + dz + edgeR) * 0.70710678;
-  vec4 dgCham = vec4(cham, (dg2d.yzw + gz + gEdgeR) * 0.70710678);
-  float dd = max(base, cham);
-  if (dd <= 0.0) {
-    if (base > cham) {
-      return (dg2d.x > dz) ? dg2d : vec4(dz, gz);
-    }
-    return dgCham;
-  }
-  if (dg2d.x <= 0.0 && dz <= 0.0) {
-    return dgCham;
-  }
-  if (dz <= -edgeR) {
-    return dg2d;
-  }
-  if (dg2d.x <= -edgeR) {
-    return vec4(dz, gz);
-  }
-  float tc2 = (-dg2d.x + dz + edgeR) / (2.0 * edgeR);
-  if (tc2 <= 0.0) {
-    vec2 q = vec2(dg2d.x, dz + edgeR);
-    float l = max(length(q), 1e-8);
-    return vec4(l, (q.x * dg2d.yzw + q.y * (gz + gEdgeR)) / l);
-  }
-  if (tc2 >= 1.0) {
-    vec2 q = vec2(dg2d.x + edgeR, dz);
-    float l = max(length(q), 1e-8);
-    return vec4(l, (q.x * (dg2d.yzw + gEdgeR) + q.y * gz) / l);
-  }
-  return dgCham;
-}
-
 float taperFactorDerivative(float pz, float taperH, float tapTop, float tapBot)
 {
   if (taperH <= 0.001 || abs(pz) >= taperH) {
     return 0.0;
   }
   return -(tapTop - tapBot) / (2.0 * taperH);
-}
-
-vec4 sdgAdvancedBox(vec3 p, vec3 size, vec4 corners, float edgeTop, float edgeBot, float tapTop, float tapBot, int cornerMode, int edgeMode, float taperZ)
-{
-  float taperH = max(taperZ, 0.001);
-  float zn = clamp(p.z / taperH, -1.0, 1.0);
-  float t = (zn + 1.0) * 0.5;
-  float tapFactor = max(1.0 - tapTop * t - tapBot * (1.0 - t), 0.001);
-  float tapDeriv = taperFactorDerivative(p.z, taperH, tapTop, tapBot);
-  float lipschitz = sqrt(1.0 + pow(length(size.xy) * (tapTop + tapBot) / (2.0 * taperH), 2.0));
-  float baseMaxR = min(size.x, size.y);
-  vec2 u = p.xy / tapFactor;
-  vec4 base2d = (cornerMode == 0)
-    ? sdgRoundBox2D(u, size.xy, corners * baseMaxR)
-    : sdgChamferBox2D(u, size.xy, corners * baseMaxR);
-  float baseValue = base2d.x;
-  vec4 dg2d = vec4(tapFactor * baseValue, base2d.y, base2d.z, tapDeriv * (baseValue - dot(base2d.yz, u)));
-  float faceExtent = baseMaxR * tapFactor;
-  float edgeScale = (faceExtent <= size.z) ? 1.0 : 0.0;
-  float edgeCoeff = (p.z > 0.0) ? edgeTop : edgeBot;
-  float edgeR = edgeCoeff * min(faceExtent, size.z);
-  vec3 gEdgeR = vec3(0.0, 0.0, edgeCoeff * baseMaxR * tapDeriv * edgeScale);
-  vec4 dg = (edgeR > 0.001)
-    ? ((edgeMode == 0) ? sdgRoundExtrude2DGrad(dg2d, p.z, size.z, edgeR, gEdgeR)
-                       : sdgChamferExtrude2DGrad(dg2d, p.z, size.z, edgeR, gEdgeR))
-    : sdgExtrude2DGrad(dg2d, p.z, size.z);
-  return vec4(dg.x / lipschitz, dg.yzw / lipschitz);
-}
-
-vec4 sdgAdvancedCylinder(vec3 p, float radius, float halfHeight, float bevelTop, float bevelBottom, float taper, int bevelMode)
-{
-  float taperH = max(halfHeight, 0.001);
-  float tapTop = max(taper, 0.0);
-  float tapBot = max(-taper, 0.0);
-  float zn = clamp(p.z / taperH, -1.0, 1.0);
-  float t = (zn + 1.0) * 0.5;
-  float tapFactor = max(1.0 - tapTop * t - tapBot * (1.0 - t), 0.001);
-  float tapDeriv = taperFactorDerivative(p.z, taperH, tapTop, tapBot);
-  float lipschitz = sqrt(1.0 + pow(radius * (tapTop + tapBot) / (2.0 * taperH), 2.0));
-  vec2 u = p.xy / tapFactor;
-  float ul = length(u);
-  float baseValue = ul - radius;
-  vec2 baseGrad = (ul > 1e-8) ? (u / ul) : vec2(0.0);
-  vec4 dg2d = vec4(tapFactor * baseValue, baseGrad.x, baseGrad.y, tapDeriv * (baseValue - dot(baseGrad, u)));
-  float edgeBevel = (p.z > 0.0) ? bevelTop : bevelBottom;
-  float edgeR = min(max(edgeBevel, 0.0), max(min(radius * tapFactor, halfHeight) - 0.001, 0.0));
-  vec4 dg = (edgeR > 0.001)
-    ? ((bevelMode == 0) ? sdgRoundExtrude2DGrad(dg2d, p.z, halfHeight, edgeR, vec3(0.0))
-                        : sdgChamferExtrude2DGrad(dg2d, p.z, halfHeight, edgeR, vec3(0.0)))
-    : sdgExtrude2DGrad(dg2d, p.z, halfHeight);
-  return vec4(dg.x / lipschitz, dg.yzw / lipschitz);
-}
-
-vec4 sdgAdvancedNgon(vec3 p, float radius, float halfHeight, int sides, float corner, float edgeTop, float edgeBot, float tapTop, float tapBot, int edgeMode, float taperH, float star)
-{
-  float taper = max(taperH, 0.001);
-  float zn = clamp(p.z / taper, -1.0, 1.0);
-  float t = (zn + 1.0) * 0.5;
-  float tapFactor = max(1.0 - tapTop * t - tapBot * (1.0 - t), 0.001);
-  float tapDeriv = taperFactorDerivative(p.z, taper, tapTop, tapBot);
-  float lipschitz = sqrt(1.0 + pow(radius * (tapTop + tapBot) / (2.0 * taper), 2.0));
-  float an = WARP_PI / float(max(sides, 3));
-  float apothemBase = radius * cos(an);
-  float bevelBase = corner * apothemBase;
-  float innerRadiusBase = radius * max(1.0 - corner, 0.0);
-  vec2 u = p.xy / tapFactor;
-  vec4 base2d = (star > 0.001)
-    ? sdgStarPolygon2D(u, innerRadiusBase, sides, star)
-    : sdgRegularPolygon2D(u, innerRadiusBase, sides);
-  float baseValue = base2d.x - bevelBase;
-  vec4 dg2d = vec4(tapFactor * baseValue, base2d.y, base2d.z, tapDeriv * (baseValue - dot(base2d.yz, u)));
-  float faceExtent = apothemBase * tapFactor;
-  float edgeScale = (faceExtent <= halfHeight) ? 1.0 : 0.0;
-  float edgeCoeff = (p.z > 0.0) ? edgeTop : edgeBot;
-  float edgeR = edgeCoeff * min(faceExtent, halfHeight);
-  vec3 gEdgeR = vec3(0.0, 0.0, edgeCoeff * apothemBase * tapDeriv * edgeScale);
-  vec4 dg = (edgeR > 0.001)
-    ? ((edgeMode == 0) ? sdgRoundExtrude2DGrad(dg2d, p.z, halfHeight, edgeR, gEdgeR)
-                       : sdgChamferExtrude2DGrad(dg2d, p.z, halfHeight, edgeR, gEdgeR))
-    : sdgExtrude2DGrad(dg2d, p.z, halfHeight);
-  return vec4(dg.x / lipschitz, dg.yzw / lipschitz);
-}
-
-vec4 sdgAdvancedPolygon(vec3 p, float halfHeight, int pointOffset, int pointCount, float edgeTop, float edgeBot, float tapTop, float tapBot, int edgeMode, float taperH)
-{
-  float taper = max(taperH, 0.001);
-  float zn = clamp(p.z / taper, -1.0, 1.0);
-  float t = (zn + 1.0) * 0.5;
-  float tapFactor = max(1.0 - tapTop * t - tapBot * (1.0 - t), 0.001);
-  float tapDeriv = taperFactorDerivative(p.z, taper, tapTop, tapBot);
-  float lipschitz = sqrt(1.0 + pow((tapTop + tapBot) / (2.0 * taper), 2.0));
-  vec2 u = p.xy / tapFactor;
-  vec4 base2d = sdgPolygon2D(u, pointOffset, pointCount);
-  float baseValue = base2d.x;
-  vec4 dg2d = vec4(tapFactor * baseValue, base2d.y, base2d.z, tapDeriv * (baseValue - dot(base2d.yz, u)));
-  float edgeR = ((p.z > 0.0) ? edgeTop : edgeBot) * halfHeight;
-  vec4 dg = (edgeR > 0.001)
-    ? ((edgeMode == 0) ? sdgRoundExtrude2DGrad(dg2d, p.z, halfHeight, edgeR, vec3(0.0))
-                       : sdgChamferExtrude2DGrad(dg2d, p.z, halfHeight, edgeR, vec3(0.0)))
-    : sdgExtrude2DGrad(dg2d, p.z, halfHeight);
-  return vec4(dg.x / lipschitz, dg.yzw / lipschitz);
-}
-
-vec3 primitiveGradientToWorld(int baseRow, vec3 localGradient)
-{
-  vec4 row0 = loadRow(baseRow + 1);
-  vec4 row1 = loadRow(baseRow + 2);
-  vec4 row2 = loadRow(baseRow + 3);
-  return row0.xyz * localGradient.x + row1.xyz * localGradient.y + row2.xyz * localGradient.z;
-}
-
-vec3 invertMirrorWarpGradient(vec3 gradient, vec3 point, int flags, float blend, vec3 origin)
-{
-  if ((flags & MIRROR_AXIS_X) != 0) {
-    float side = ((flags & MIRROR_SIDE_X) != 0) ? 1.0 : -1.0;
-    gradient.x *= sabsDerivative(side * (point.x - origin.x), blend);
-  }
-  if ((flags & MIRROR_AXIS_Y) != 0) {
-    float side = ((flags & MIRROR_SIDE_Y) != 0) ? 1.0 : -1.0;
-    gradient.y *= sabsDerivative(side * (point.y - origin.y), blend);
-  }
-  if ((flags & MIRROR_AXIS_Z) != 0) {
-    float side = ((flags & MIRROR_SIDE_Z) != 0) ? 1.0 : -1.0;
-    gradient.z *= sabsDerivative(side * (point.z - origin.z), blend);
-  }
-  return gradient;
-}
-
-vec3 invertGridWarpGradient(vec3 gradient, vec3 point, ivec3 counts, vec3 spacing, float blend, vec3 origin, vec4 rotation, vec3 scale, vec3 branchCenter, vec3 offsetLocation, vec4 offsetRotation, vec3 offsetScale)
-{
-  vec3 arrayPoint = worldToArrayLocal(point, origin, rotation, scale, branchCenter);
-  vec3 offsetCenter = branchCenter + offsetLocation;
-  vec3 gradArray = restoreRotationScaleGradient(gradient, offsetRotation, offsetScale);
-  gradArray.x *= foldFiniteGridAxisDerivative(arrayPoint.x, offsetCenter.x, offsetCenter.x, spacing.x, counts.x, blend);
-  gradArray.y *= foldFiniteGridAxisDerivative(arrayPoint.y, offsetCenter.y, offsetCenter.y, spacing.y, counts.y, blend);
-  gradArray.z *= foldFiniteGridAxisDerivative(arrayPoint.z, offsetCenter.z, offsetCenter.z, spacing.z, counts.z, blend);
-  return restoreRotationScaleGradient(gradArray, rotation, scale);
-}
-
-vec3 invertRadialWarpGradient(vec3 gradient, vec3 point, float radius, int count, float blend, vec3 repeatOrigin, vec3 fieldOrigin, vec4 rotation, vec3 scale, vec3 branchCenter, vec3 offsetLocation, vec4 offsetRotation, vec3 offsetScale)
-{
-  vec3 arrayPoint = worldToArrayLocal(point, fieldOrigin, rotation, scale, branchCenter);
-  vec3 gradArray = restoreRotationScaleGradient(gradient, offsetRotation, offsetScale);
-  if (count > 1 && radius > 1e-6) {
-    vec3 q = arrayPoint - repeatOrigin;
-    vec3 primitiveCenter = branchCenter + offsetLocation;
-    vec3 baseOffset = primitiveCenter - repeatOrigin + vec3(radius, 0.0, 0.0);
-    float baseAngle = atan(baseOffset.y, baseOffset.x);
-    float baseRadius = max(length(baseOffset.xy), 1e-4);
-    float sector = (2.0 * WARP_PI) / float(count);
-    float angle = atan(q.y, q.x);
-    float angleRel = mod(angle - baseAngle + WARP_PI, 2.0 * WARP_PI) - WARP_PI;
-    float normA = angleRel / sector;
-    float id = round(normA);
-    float local = normA - id;
-    float arc = sector * baseRadius;
-    float dR = (0.5 - local) * arc;
-    float dL = (0.5 + local) * arc;
-    float foldDeriv = sabsDerivative(dR, blend) + sabsDerivative(dL, blend) - 1.0;
-    local += ((dR - sabs(dR, blend)) - (dL - sabs(dL, blend))) / arc;
-    float foldA = local * sector + baseAngle;
-    vec2 eFoldR = vec2(cos(foldA), sin(foldA));
-    vec2 eFoldT = vec2(-eFoldR.y, eFoldR.x);
-    float gR = dot(gradArray.xy, eFoldR);
-    float gT = dot(gradArray.xy, eFoldT);
-    float qr = length(q.xy);
-    vec2 eR = (qr > 1e-8) ? (q.xy / qr) : vec2(cos(angle), sin(angle));
-    vec2 eT = vec2(-eR.y, eR.x);
-    gradArray.xy = gR * eR + (gT * foldDeriv) * eT;
-  }
-  return restoreRotationScaleGradient(gradArray, rotation, scale);
-}
-
-vec4 evalPrimitiveGradient(int primitiveIndex, vec3 worldPoint)
-{
-  int baseRow = primitiveIndex * PRIMITIVE_STRIDE;
-  vec4 meta = loadRow(baseRow);
-  vec4 extra0 = primitiveExtra0(primitiveIndex);
-  vec4 extra1 = primitiveExtra1(primitiveIndex);
-  vec4 extra2 = primitiveExtra2(primitiveIndex);
-  vec4 scaleRow = loadRow(baseRow + 4);
-  vec3 scale = max(scaleRow.xyz, vec3(1e-6));
-  int packedWarpInfo = int(scaleRow.w + 0.5);
-  int warpOffset = packedWarpInfo / MIRROR_WARP_PACK_SCALE;
-  int warpCount = packedWarpInfo - warpOffset * MIRROR_WARP_PACK_SCALE;
-  float distanceScale;
-  vec3 localPoint = toLocalPoint(primitiveIndex, worldPoint, distanceScale);
-  float minScale = max(min(scale.x, min(scale.y, scale.z)), 1e-6);
-  int primitiveType = int(meta.x + 0.5);
-  float baseDistance = evalPrimitiveLocalDistance(primitiveType, meta, extra0, extra1, extra2, localPoint, scale, minScale) * distanceScale;
-
-  vec3 localGradient = vec3(0.0);
-  if (primitiveType == 0) {
-    localGradient = sdgEllipsoid(localPoint, vec3(meta.y) * scale).yzw;
-  }
-  else if (primitiveType == 1) {
-    float tapTop = max(extra1.w, 0.0);
-    float tapBot = max(-extra1.w, 0.0);
-    vec4 dg = (extra0.y + extra0.z + extra0.w + extra1.x + extra1.y + extra1.z + tapTop + tapBot > 0.001)
-      ? sdgAdvancedBox(localPoint, meta.yzw * scale, vec4(extra0.y, extra0.z, extra0.w, extra1.x), extra1.y, extra1.z, tapTop, tapBot, int(extra2.x + 0.5), int(extra2.y + 0.5), meta.w * scale.z)
-      : sdgBox(localPoint, meta.yzw * scale);
-    localGradient = dg.yzw;
-  }
-  else if (primitiveType == 2) {
-    vec3 scaledPoint = localPoint / scale;
-    float bevelTop = max(extra0.x, 0.0);
-    float bevelBottom = max(extra0.y, 0.0);
-    vec4 dg = ((max(bevelTop, bevelBottom) + abs(extra0.z)) > 0.001)
-      ? sdgAdvancedCylinder(scaledPoint, meta.y, meta.z, bevelTop, bevelBottom, extra0.z, int(extra0.w + 0.5))
-      : sdgCylinder(scaledPoint, vec3(meta.y, meta.y, meta.z));
-    localGradient = dg.yzw * (vec3(minScale) / scale);
-  }
-  else if (primitiveType == 3) {
-    float angle = clamp(extra0.y, 0.0, 6.283185307179586);
-    localGradient = (((6.283185307179586 - angle) > 0.001)
-      ? sdgCappedTorus(localPoint / scale, vec2(sin(0.5 * angle), cos(0.5 * angle)), meta.y, meta.z)
-      : sdgTorus(localPoint / scale, vec2(meta.y, meta.z))).yzw * (vec3(minScale) / scale);
-  }
-  else if (primitiveType == 4) {
-    localGradient = sdgCone(localPoint / scale, meta.y, meta.z).yzw * (vec3(minScale) / scale);
-  }
-  else if (primitiveType == 5) {
-    localGradient = sdgCapsule(localPoint / scale, meta.y, meta.z).yzw * (vec3(minScale) / scale);
-  }
-  else if (primitiveType == 6) {
-    vec3 scaledPoint = localPoint / scale;
-    float tapTop = max(extra1.x, 0.0);
-    float tapBot = max(-extra1.x, 0.0);
-    vec4 dg = (extra0.y + extra0.z + extra0.w + tapTop + tapBot + extra1.z > 0.001)
-      ? sdgAdvancedNgon(scaledPoint, meta.y, meta.z, int(meta.w + 0.5), extra0.y, extra0.z, extra0.w, tapTop, tapBot, int(extra1.y + 0.5), meta.z, extra1.z)
-      : sdgExtrude2DGrad(sdgRegularPolygon2D(scaledPoint.xy, meta.y, int(meta.w + 0.5)), scaledPoint.z, meta.z);
-    localGradient = dg.yzw * (vec3(minScale) / scale);
-  }
-  else if (primitiveType == 7) {
-    vec3 scaledPoint = localPoint / scale;
-    float tapTop = max(extra0.w, 0.0);
-    float tapBot = max(-extra0.w, 0.0);
-    vec4 dg = (extra0.y + extra0.z + tapTop + tapBot > 0.001)
-      ? sdgAdvancedPolygon(scaledPoint, meta.w, int(meta.y + 0.5), int(meta.z + 0.5), extra0.y, extra0.z, tapTop, tapBot, int(extra1.x + 0.5), meta.w)
-      : sdgExtrude2DGrad(sdgPolygon2D(scaledPoint.xy, int(meta.y + 0.5), int(meta.z + 0.5)), scaledPoint.z, meta.w);
-    localGradient = dg.yzw * (vec3(minScale) / scale);
-  }
-
-  vec3 worldGradient = primitiveGradientToWorld(baseRow, localGradient);
-  for (int index = warpCount - 1; index >= 0; index--) {
-    float prefixScale;
-    vec3 preWarpPoint = applyWarpStack(baseRow, worldPoint, index, prefixScale);
-    int warpRow = primitiveCountValue() * PRIMITIVE_STRIDE + warpOffset + index * WARP_ROWS_PER_ENTRY;
-    vec4 warp0 = loadRow(warpRow);
-    vec4 warp1 = loadRow(warpRow + 1);
-    vec4 warp2 = loadRow(warpRow + 2);
-    vec4 warp3 = loadRow(warpRow + 3);
-    vec4 warp4 = loadRow(warpRow + 4);
-    vec4 warp5 = loadRow(warpRow + 5);
-    vec4 warp6 = loadRow(warpRow + 6);
-    vec4 warp7 = loadRow(warpRow + 7);
-    vec4 warp8 = loadRow(warpRow + 8);
-    int warpKind = int(warp0.x + 0.5);
-    if (warpKind == WARP_KIND_MIRROR) {
-      worldGradient = invertMirrorWarpGradient(worldGradient, preWarpPoint, int(warp0.y + 0.5), max(warp0.z, 0.0), warp1.xyz);
-      continue;
-    }
-    if (warpKind == WARP_KIND_GRID) {
-      worldGradient = invertGridWarpGradient(worldGradient, preWarpPoint, ivec3(int(warp0.y + 0.5), int(warp0.z + 0.5), int(warp0.w + 0.5)), abs(warp1.xyz), max(warp1.w, 0.0), warp2.xyz, unpackWarpRotation(warp3.xyz), warp4.xyz, warp5.xyz, warp6.xyz, unpackWarpRotation(warp7.xyz), warp8.xyz);
-      continue;
-    }
-    if (warpKind == WARP_KIND_RADIAL) {
-      worldGradient = invertRadialWarpGradient(worldGradient, preWarpPoint, max(warp0.w, 0.0), int(warp0.y + 0.5), max(warp0.z, 0.0), warp1.xyz, warp2.xyz, unpackWarpRotation(warp3.xyz), warp4.xyz, warp5.xyz, warp6.xyz, unpackWarpRotation(warp7.xyz), warp8.xyz);
-    }
-  }
-
-  worldGradient *= distanceScale;
-  return normalizeDistanceGradient(baseDistance, worldGradient);
-}
-
-vec4 applySignedOpGradient(int op, vec4 lhs, vec4 rhs, float blend)
-{
-  if (op == 1) {
-    if (blend <= 1e-6) {
-      return (lhs.x <= rhs.x) ? lhs : rhs;
-    }
-    float h = clamp(0.5 + 0.5 * (rhs.x - lhs.x) / blend, 0.0, 1.0);
-    return vec4(
-      mix(rhs.x, lhs.x, h) - blend * h * (1.0 - h),
-      mix(rhs.yzw, lhs.yzw, h));
-  }
-  if (blend <= 1e-6) {
-    return (lhs.x >= rhs.x) ? lhs : rhs;
-  }
-  float h = clamp(0.5 - 0.5 * (rhs.x - lhs.x) / blend, 0.0, 1.0);
-  return vec4(
-    mix(rhs.x, lhs.x, h) + blend * h * (1.0 - h),
-    mix(rhs.yzw, lhs.yzw, h));
-}
-
-vec4 applyOpGradient(int op, vec4 lhs, vec4 rhs, float blend)
-{
-  if (op == 1) {
-    if (blend <= 1e-6) {
-      return (lhs.x <= rhs.x) ? lhs : rhs;
-    }
-    float h = clamp(0.5 + 0.5 * (rhs.x - lhs.x) / blend, 0.0, 1.0);
-    return vec4(
-      mix(rhs.x, lhs.x, h) - blend * h * (1.0 - h),
-      mix(rhs.yzw, lhs.yzw, h));
-  }
-  if (op == 2) {
-    if (blend <= 1e-6) {
-      return (lhs.x >= -rhs.x) ? lhs : negateDistanceGradient(rhs);
-    }
-    float h = clamp(0.5 - 0.5 * (rhs.x + lhs.x) / blend, 0.0, 1.0);
-    return vec4(
-      mix(lhs.x, -rhs.x, h) + blend * h * (1.0 - h),
-      mix(lhs.yzw, -rhs.yzw, h));
-  }
-  if (op == 3) {
-    if (blend <= 1e-6) {
-      return (lhs.x >= rhs.x) ? lhs : rhs;
-    }
-    float h = clamp(0.5 - 0.5 * (rhs.x - lhs.x) / blend, 0.0, 1.0);
-    return vec4(
-      mix(rhs.x, lhs.x, h) + blend * h * (1.0 - h),
-      mix(rhs.yzw, lhs.yzw, h));
-  }
-  return rhs;
 }
 
 float evalPrimitive(int primitiveIndex, vec3 worldPoint)
@@ -1821,42 +1149,6 @@ float evalInstructionRange(vec3 worldPoint, int instructionBase, int instruction
   }
   if (stackPointer == 0) {
     return 1e20;
-  }
-  return stack[stackPointer - 1];
-}
-
-vec4 evalInstructionRangeGradient(vec3 worldPoint, int instructionBase, int instructionCount, out bool valid)
-{
-  valid = true;
-  vec4 stack[MAX_STACK];
-  int stackPointer = 0;
-  for (int index = 0; index < instructionCount; index++) {
-    vec4 instruction = loadRow(instructionBase + index);
-    int kind = int(instruction.x + 0.5);
-    vec4 value;
-    if (kind == 0) {
-      value = evalPrimitiveGradient(int(instruction.y + 0.5), worldPoint);
-    }
-    else {
-      if (stackPointer < 2) {
-        valid = false;
-        return vec4(1e20, vec3(0.0));
-      }
-      vec4 rhs = stack[stackPointer - 1];
-      vec4 lhs = stack[stackPointer - 2];
-      stackPointer -= 2;
-      value = applyOpGradient(kind, lhs, rhs, max(instruction.w, 0.0));
-    }
-    if (stackPointer >= MAX_STACK) {
-      valid = false;
-      return vec4(1e20, vec3(0.0));
-    }
-    stack[stackPointer] = value;
-    stackPointer++;
-  }
-  if (stackPointer == 0) {
-    valid = false;
-    return vec4(1e20, vec3(0.0));
   }
   return stack[stackPointer - 1];
 }
@@ -2026,56 +1318,6 @@ float evalActiveSceneForCell(vec3 worldPoint, int cellIndex, out bool nearField)
   return (stackPointer == 0) ? 1e20 : stack[stackPointer - 1];
 }
 
-vec4 evalActiveSceneGradientForCell(vec3 worldPoint, int cellIndex, out bool valid)
-{
-  int activeCount = int(loadScalar(pruneCellCounts, cellIndex) + 0.5);
-  if (activeCount <= 0) {
-    valid = false;
-    return vec4(1e20, vec3(0.0));
-  }
-
-  valid = true;
-  vec4 stack[MAX_STACK];
-  int stackPointer = 0;
-  int cellOffset = int(loadScalar(pruneCellOffsets, cellIndex) + 0.5);
-  int instructionBase = instructionBaseValue();
-  for (int index = 0; index < activeCount; index++) {
-    float activeNode = loadScalar(pruneActiveNodes, cellOffset + index);
-    int instructionIndex = activeNodeIndex(activeNode);
-    vec4 instruction = loadRow(instructionBase + instructionIndex);
-    int kind = int(instruction.x + 0.5);
-    vec4 value;
-    if (kind == 0) {
-      value = evalPrimitiveGradient(int(instruction.y + 0.5), worldPoint);
-    }
-    else {
-      if (stackPointer < 2) {
-        valid = false;
-        return vec4(1e20, vec3(0.0));
-      }
-      vec4 rhs = stack[stackPointer - 1];
-      vec4 lhs = stack[stackPointer - 2];
-      stackPointer -= 2;
-      value = applySignedOpGradient(kind, lhs, rhs, max(instruction.w, 0.0));
-    }
-    if (!activeNodeSign(activeNode)) {
-      value = negateDistanceGradient(value);
-    }
-    if (stackPointer >= MAX_STACK) {
-      valid = false;
-      return vec4(1e20, vec3(0.0));
-    }
-    stack[stackPointer] = value;
-    stackPointer++;
-  }
-
-  if (stackPointer == 0) {
-    valid = false;
-    return vec4(1e20, vec3(0.0));
-  }
-  return stack[stackPointer - 1];
-}
-
 float evalScene(vec3 worldPoint)
 {
   bool nearField;
@@ -2111,39 +1353,21 @@ float evalSceneTrace(vec3 worldPoint, out bool exactSample, out bool nearField, 
 
   float activeDistance = evalActiveScene(worldPoint, nearField, activeCount, cellValue);
   if (pruningEnabledValue() && activeCount >= 0) {
+    float exactBand = max(surfaceEpsilonValue() * 8.0, pruningCellRadiusValue() * 2.0);
     if (!nearField) {
-      exactSample = false;
-      return cellValue;
+      if (abs(cellValue) > exactBand) {
+        exactSample = false;
+        return cellValue;
+      }
     }
     if (activeCount > 0) {
+      if (abs(activeDistance) <= exactBand) {
+        return evalSceneExact(worldPoint);
+      }
       return activeDistance;
     }
   }
   return evalSceneExact(worldPoint);
-}
-
-vec3 estimateSurfaceNormal(vec3 worldPoint, vec3 rayDirection, int cellIndex)
-{
-  bool valid = false;
-  vec4 gradientValue = vec4(1e20, vec3(0.0));
-  if (pruningEnabledValue() && cellIndex >= 0) {
-    gradientValue = evalActiveSceneGradientForCell(worldPoint, cellIndex, valid);
-  }
-  if (!valid) {
-    int instructionBase = instructionBaseValue();
-    gradientValue = evalInstructionRangeGradient(worldPoint, instructionBase, instructionCountValue(), valid);
-  }
-  if (valid) {
-    float lenSq = dot(gradientValue.yzw, gradientValue.yzw);
-    if (lenSq > 1e-12) {
-      vec3 normal = gradientValue.yzw * inversesqrt(lenSq);
-      if (dot(normal, -rayDirection) < 0.0) {
-        normal = -normal;
-      }
-      return normal;
-    }
-  }
-  return -rayDirection;
 }
 
 void computeRay(vec2 uv, out vec3 rayOrigin, out vec3 rayDirection)
@@ -2349,7 +1573,6 @@ void main()
 
   bool hit = false;
   vec3 worldPoint = rayOrigin;
-  int hitCellIndex = -1;
   int maxSteps = maxStepsValue();
   int stepsTaken = 0;
   float travelPrev = travel;
@@ -2375,17 +1598,22 @@ void main()
     bool signChange = exactSample && prevExact && (distPrev < 1e19) && (distPrev > 0.0) && (dist < 0.0);
     if (exactSample && (absDist < adaptiveEpsilon || signChange)) {
       hit = true;
-      float denom = distPrev - dist;
-      if (denom > 1e-8) {
-        float alpha = distPrev / denom;
-        if (alpha > 0.0 && alpha < 1.0 && distPrev < 1e19) {
-          worldPoint = rayOrigin + rayDirection * mix(travelPrev, travel, alpha);
+      if (prevExact && distPrev < 1e19) {
+        float denom = distPrev - dist;
+        if (denom > 1e-8) {
+          float alpha = distPrev / denom;
+          if (alpha > 0.0 && alpha < 1.0) {
+            worldPoint = rayOrigin + rayDirection * mix(travelPrev, travel, alpha);
+          }
+          else {
+            float cosTheta = denom / max(travel - travelPrev, 1e-8);
+            float nearFactor = clamp(5.0 / max(travel, 0.1), 0.0, 1.0);
+            float minCos = mix(0.9, 0.25, nearFactor);
+            worldPoint += rayDirection * dist / clamp(cosTheta, minCos, 1.0);
+          }
         }
         else {
-          float cosTheta = denom / max(travel - travelPrev, 1e-8);
-          float nearFactor = clamp(5.0 / max(travel, 0.1), 0.0, 1.0);
-          float minCos = mix(0.9, 0.25, nearFactor);
-          worldPoint += rayDirection * dist / clamp(cosTheta, minCos, 1.0);
+          worldPoint += rayDirection * dist;
         }
       }
       else {
@@ -2393,15 +1621,11 @@ void main()
       }
 
       {
-        float epsSnap = surfaceEpsilonValue() * 0.5;
         float d0 = evalSceneExact(worldPoint);
+        float epsSnap = surfaceEpsilonValue() * 0.5;
         float d1 = evalSceneExact(worldPoint + rayDirection * epsSnap);
         float cosEst = clamp((d0 - d1) / epsSnap, 0.1, 1.0);
         worldPoint += rayDirection * d0 / cosEst;
-      }
-
-      if (pruningEnabledValue()) {
-        hitCellIndex = pruningCellIndex(worldPoint);
       }
       break;
     }

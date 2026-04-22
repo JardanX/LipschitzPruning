@@ -257,17 +257,26 @@ def set_polygon_points(owner, coords):
         return False
 
     with suppress_polygon_point_item_updates():
-        while len(points) > 0:
+        while len(points) > len(target):
             points.remove(len(points) - 1)
-        for x, y, corner, handle_left_x, handle_left_y, handle_right_x, handle_right_y in target:
-            item = points.add()
-            item.co = (float(x), float(y))
+        while len(points) < len(target):
+            points.add()
+        for item, (x, y, corner, handle_left_x, handle_left_y, handle_right_x, handle_right_y) in zip(points, target):
+            target_co = (float(x), float(y))
+            if _float_seq_changed(tuple(getattr(item, "co", target_co)), target_co):
+                item.co = target_co
             if hasattr(item, "corner"):
-                item.corner = float(corner)
+                target_corner = float(corner)
+                if abs(float(getattr(item, "corner", target_corner)) - target_corner) > 1.0e-6:
+                    item.corner = target_corner
             if hasattr(item, "handle_left"):
-                item.handle_left = (float(handle_left_x), float(handle_left_y))
+                target_left = (float(handle_left_x), float(handle_left_y))
+                if _float_seq_changed(tuple(getattr(item, "handle_left", target_left)), target_left):
+                    item.handle_left = target_left
             if hasattr(item, "handle_right"):
-                item.handle_right = (float(handle_right_x), float(handle_right_y))
+                target_right = (float(handle_right_x), float(handle_right_y))
+                if _float_seq_changed(tuple(getattr(item, "handle_right", target_right)), target_right):
+                    item.handle_right = target_right
     active_index = min(max(int(getattr(owner, "polygon_active_index", 0)), 0), max(len(points) - 1, 0))
     if hasattr(owner, "polygon_active_index") and int(getattr(owner, "polygon_active_index", 0)) != active_index:
         owner.polygon_active_index = active_index
@@ -320,14 +329,44 @@ def _expanded_polygon_line_points(points, half_thickness):
     return tuple(expanded)
 
 
-def _bezier_point(p0, p1, p2, p3, t):
-    inv_t = 1.0 - t
-    return (
-        (inv_t * inv_t * inv_t * p0)
-        + (3.0 * inv_t * inv_t * t * p1)
-        + (3.0 * inv_t * t * t * p2)
-        + (t * t * t * p3)
-    )
+def _point_segment_distance_2d(point, start, end):
+    edge = end - start
+    edge_len_sq = edge.length_squared
+    if edge_len_sq <= 1.0e-12:
+        return (point - start).length
+    factor = max(0.0, min(1.0, (point - start).dot(edge) / edge_len_sq))
+    return (point - (start + edge * factor)).length
+
+
+def _split_bezier_segment_2d(p0, p1, p2, p3):
+    p01 = (p0 + p1) * 0.5
+    p12 = (p1 + p2) * 0.5
+    p23 = (p2 + p3) * 0.5
+    p012 = (p01 + p12) * 0.5
+    p123 = (p12 + p23) * 0.5
+    midpoint = (p012 + p123) * 0.5
+    return (p0, p01, p012, midpoint), (midpoint, p123, p23, p3)
+
+
+def _append_bezier_quad_rows(rows, p0, p1, p2, p3, flatness_limit, max_depth, depth=0):
+    flatness = max(_point_segment_distance_2d(p1, p0, p3), _point_segment_distance_2d(p2, p0, p3))
+    if depth >= max_depth or flatness <= flatness_limit:
+        ctrl = (-p0 + 3.0*p1 + 3.0*p2 - p3) * 0.25
+        rows.append((float(p0.x), float(p0.y), float(ctrl.x), float(ctrl.y)))
+        return
+    left, right = _split_bezier_segment_2d(p0, p1, p2, p3)
+    _append_bezier_quad_rows(rows, *left, flatness_limit, max_depth, depth=depth + 1)
+    _append_bezier_quad_rows(rows, *right, flatness_limit, max_depth, depth=depth + 1)
+
+
+def _append_bezier_segment_points(sampled, p0, p1, p2, p3, flatness_limit, max_depth, depth=0):
+    flatness = max(_point_segment_distance_2d(p1, p0, p3), _point_segment_distance_2d(p2, p0, p3))
+    if depth >= max_depth or flatness <= flatness_limit:
+        sampled.append((float(p3.x), float(p3.y), 0.0))
+        return
+    left, right = _split_bezier_segment_2d(p0, p1, p2, p3)
+    _append_bezier_segment_points(sampled, *left, flatness_limit, max_depth, depth=depth + 1)
+    _append_bezier_segment_points(sampled, *right, flatness_limit, max_depth, depth=depth + 1)
 
 
 def _sample_polygon_control_points(control_points, interpolation, is_line=False, resolution=1):
@@ -338,6 +377,7 @@ def _sample_polygon_control_points(control_points, interpolation, is_line=False,
         return tuple((float(point[0]), float(point[1]), float(point[2])) for point in control_points)
 
     steps = max(int(resolution), 1)
+    max_depth = max((steps - 1).bit_length(), 0)
     count = len(control_points)
     segment_count = max(count - 1, 0) if is_line else count
     sampled = [(float(control_points[0][0]), float(control_points[0][1]), float(control_points[0][2]))]
@@ -352,17 +392,18 @@ def _sample_polygon_control_points(control_points, interpolation, is_line=False,
         q1 = float(start[6])
         q2 = float(end[4])
         q3 = float(end[1])
-        for step in range(1, steps + 1):
-            if not is_line and index == segment_count - 1 and step == steps:
-                continue
-            t = float(step) / float(steps)
-            sampled.append(
-                (
-                    float(_bezier_point(p0, p1, p2, p3, t)),
-                    float(_bezier_point(q0, q1, q2, q3, t)),
-                    0.0,
-                )
-            )
+        point0 = Vector((p0, q0))
+        point1 = Vector((p1, q1))
+        point2 = Vector((p2, q2))
+        point3 = Vector((p3, q3))
+        segment_span = max((point3 - point0).length, (point1 - point0).length * 0.5, (point3 - point2).length * 0.5, 1.0e-6)
+        flatness_limit = max(segment_span / float(max(steps * 4, 1)), 1.0e-4)
+        _append_bezier_segment_points(sampled, point0, point1, point2, point3, flatness_limit, max_depth)
+    if not is_line and len(sampled) > 1:
+        first = sampled[0]
+        last = sampled[-1]
+        if (abs(first[0] - last[0]) <= 1.0e-6) and (abs(first[1] - last[1]) <= 1.0e-6):
+            sampled.pop()
     return tuple(sampled)
 
 
@@ -371,10 +412,10 @@ def _polygon_curve_resolution(obj, interpolation="VECTOR"):
         obj = runtime.object_identity(obj)
         curve = None if obj is None else getattr(obj, "data", None)
         if curve is not None and hasattr(curve, "resolution_u"):
-            return min(max(int(getattr(curve, "resolution_u", 1)), 1), 12)
+            return min(max(int(getattr(curve, "resolution_u", 1)), 1), 64)
     except ReferenceError:
         pass
-    return 12 if str(interpolation or "VECTOR").strip().upper() == "BEZIER" else 1
+    return 32 if str(interpolation or "VECTOR").strip().upper() == "BEZIER" else 1
 
 
 def _polygon_sample_cache_key(owner, target):
@@ -399,7 +440,7 @@ def effective_polygon_point_data(owner, ensure_default=False):
         resolution = _polygon_curve_resolution(target, interpolation)
     else:
         interpolation = _polygon_interpolation(owner)
-        resolution = 16 if interpolation == "BEZIER" else 1
+        resolution = 32 if interpolation == "BEZIER" else 1
     is_line = bool(getattr(owner, "polygon_is_line", False))
     line_thickness = max(float(getattr(owner, "polygon_line_thickness", 0.1)) * 0.5, 0.0)
     cache_key = _polygon_sample_cache_key(owner, target)
@@ -3445,17 +3486,37 @@ def _node_transform_matrix(node):
 
 
 def _append_polygon_rows(node, polygon_rows):
+    point_offset = len(polygon_rows)
     use_bezier = (
         not bool(getattr(node, "polygon_is_line", False))
         and _polygon_interpolation(node) == "BEZIER"
     )
-    point_offset = len(polygon_rows)
     if use_bezier:
         control_points = effective_polygon_control_point_data(node, ensure_default=True)
-        for x, y, _corner, handle_left_x, handle_left_y, handle_right_x, handle_right_y in control_points:
-            polygon_rows.append((float(x), float(y), float(handle_right_x), float(handle_right_y)))
-            polygon_rows.append((float(handle_left_x), float(handle_left_y), 0.0, 0.0))
-        return point_offset, len(control_points), control_points
+        count = len(control_points)
+        is_line = bool(getattr(node, "polygon_is_line", False))
+        segment_count = max(count - 1, 0) if is_line else count
+        resolution = max(int(getattr(node, "polygon_resolution", 8)), 1)
+        max_depth = min(max((resolution - 1).bit_length(), 0), 3)
+        for index in range(segment_count):
+            start = control_points[index]
+            end = control_points[(index + 1) % count] if not is_line else control_points[index + 1]
+            p0x, p0y = float(start[0]), float(start[1])
+            p1x, p1y = float(start[5]), float(start[6])
+            p2x, p2y = float(end[3]), float(end[4])
+            p3x, p3y = float(end[0]), float(end[1])
+            point0 = Vector((p0x, p0y))
+            point1 = Vector((p1x, p1y))
+            point2 = Vector((p2x, p2y))
+            point3 = Vector((p3x, p3y))
+            segment_span = max((point3 - point0).length, (point1 - point0).length * 0.5, (point3 - point2).length * 0.5, 1.0e-6)
+            flatness_limit = max(segment_span / float(max(resolution * 2, 1)), 1.0e-4)
+            start_row_count = len(polygon_rows)
+            _append_bezier_quad_rows(polygon_rows, point0, point1, point2, point3, flatness_limit, max_depth)
+            if len(polygon_rows) == start_row_count:
+                ctrl = (-point0 + 3.0*point1 + 3.0*point2 - point3) * 0.25
+                polygon_rows.append((p0x, p0y, float(ctrl.x), float(ctrl.y)))
+        return point_offset, len(polygon_rows) - point_offset, control_points
     points = effective_polygon_point_data(node, ensure_default=True)
     for x, y, _corner in points:
         polygon_rows.append((float(x), float(y), 0.0, 0.0))

@@ -1,4 +1,4 @@
-from . import matcap, overlay
+from . import matcap, mesh_renderer, overlay
 
 
 def register():

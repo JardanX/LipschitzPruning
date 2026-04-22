@@ -345,6 +345,18 @@ class MathOPSV2SceneSettings(bpy.types.PropertyGroup):
     native_show_axis_z: BoolProperty(default=False, options={"HIDDEN"})
     native_grid_scale: FloatProperty(default=1.0, min=0.001, max=1000.0, options={"HIDDEN"})
     native_grid_subdivisions: bpy.props.IntProperty(default=1, min=1, max=100, options={"HIDDEN"})
+    show_meshes: BoolProperty(
+        name="Show Meshes",
+        default=True,
+        description="Render polygon mesh objects alongside SDF in the viewport",
+        update=_tag_redraw,
+    )
+    mesh_backface_culling: BoolProperty(
+        name="Backface Culling",
+        default=True,
+        description="Cull back-facing polygons on mesh objects",
+        update=_tag_redraw,
+    )
 
 
 classes = (

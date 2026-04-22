@@ -770,13 +770,8 @@ def eval_primitive(compiled, primitive_index, world_point):
     if primitive_type == "polygon":
         scaled_point = Vector((float(local_point[0]) / float(scale[0]), float(local_point[1]) / float(scale[1]), float(local_point[2]) / float(scale[2])))
         polygon_points = spec.get("polygon_points", ())
-        polygon_control_points = spec.get("polygon_control_points", ())
-        polygon_interpolation = str(extra.get("polygon_interpolation", "VECTOR") or "VECTOR")
         advanced = any(abs(float(extra.get(name, 0.0))) > 1.0e-6 for name in ("polygon_edge_top", "polygon_edge_bottom", "polygon_taper"))
-        if polygon_interpolation == "BEZIER" and polygon_control_points:
-            distance_value = _sd_advanced_bezier_polygon(scaled_point, meta[3], polygon_control_points, float(extra.get("polygon_edge_top", 0.0)), float(extra.get("polygon_edge_bottom", 0.0)), float(extra.get("polygon_taper", 0.0)), str(extra.get("polygon_edge_mode", "SMOOTH") or "SMOOTH")) if advanced else _sd_prism(_sd_bezier_polygon_2d(scaled_point.xy, polygon_control_points), scaled_point[2], meta[3])
-        else:
-            distance_value = _sd_advanced_polygon(scaled_point, meta[3], polygon_points, float(extra.get("polygon_edge_top", 0.0)), float(extra.get("polygon_edge_bottom", 0.0)), float(extra.get("polygon_taper", 0.0)), str(extra.get("polygon_edge_mode", "SMOOTH") or "SMOOTH")) if advanced else _sd_prism(_sd_polygon_2d(scaled_point.xy, polygon_points), scaled_point[2], meta[3])
+        distance_value = _sd_advanced_polygon(scaled_point, meta[3], polygon_points, float(extra.get("polygon_edge_top", 0.0)), float(extra.get("polygon_edge_bottom", 0.0)), float(extra.get("polygon_taper", 0.0)), str(extra.get("polygon_edge_mode", "SMOOTH") or "SMOOTH")) if advanced else _sd_prism(_sd_polygon_2d(scaled_point.xy, polygon_points), scaled_point[2], meta[3])
         return (distance_value - bevel) * min_scale * distance_scale
     return _MISS_DISTANCE
 

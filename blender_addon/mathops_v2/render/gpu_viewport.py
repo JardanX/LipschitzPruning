@@ -9,7 +9,7 @@ from .. import runtime
 from ..nodes import sdf_tree
 from ..shaders import pruning as pruning_shader
 from ..shaders import raymarch
-from . import grid, matcap, overlay, pruning
+from . import grid, matcap, mesh_renderer, overlay, pruning
 
 
 _COUNTERS_ACTIVE_BASE = 0
@@ -29,6 +29,7 @@ _OUTLINE_COLOR_ACTIVE = 3
 class MathOPSV2GPUViewport:
     def __init__(self):
         self._draw_shader = None
+        self._normal_shader = None
         self._blit_shader = None
         self._outline_shader = None
         self._compute_shader = None
@@ -41,9 +42,11 @@ class MathOPSV2GPUViewport:
         self._outline_data_texture = None
         self._outline_signature = None
         self._offscreen = None
+        self._normal_offscreen = None
         self._offscreen_color_texture = None
         self._offscreen_outline_texture = None
         self._offscreen_position_texture = None
+        self._offscreen_normal_texture = None
         self._offscreen_depth_texture = None
         self._compiled_scene = None
         self._compiled_scene_scene_key = 0
@@ -52,6 +55,7 @@ class MathOPSV2GPUViewport:
         self._compiled_scene_dynamic_signature = None
         self._dummy_scalar_texture = None
         self._grid_renderer = grid.MathOPSV2GridRenderer()
+        self._mesh_renderer = mesh_renderer.MathOPSV2MeshRenderer()
         self._topology_key = None
         self._content_key = None
         self._resource_key = None
@@ -77,6 +81,7 @@ class MathOPSV2GPUViewport:
 
     def free(self):
         self._draw_shader = None
+        self._normal_shader = None
         self._blit_shader = None
         self._outline_shader = None
         self._compute_shader = None
@@ -89,9 +94,11 @@ class MathOPSV2GPUViewport:
         self._outline_data_texture = None
         self._outline_signature = None
         self._offscreen = None
+        self._normal_offscreen = None
         self._offscreen_color_texture = None
         self._offscreen_outline_texture = None
         self._offscreen_position_texture = None
+        self._offscreen_normal_texture = None
         self._offscreen_depth_texture = None
         self._compiled_scene = None
         self._compiled_scene_scene_key = 0
@@ -101,6 +108,8 @@ class MathOPSV2GPUViewport:
         self._dummy_scalar_texture = None
         if self._grid_renderer is not None:
             self._grid_renderer.free()
+        if self._mesh_renderer is not None:
+            self._mesh_renderer.free()
         self._topology_key = None
         self._content_key = None
         self._resource_key = None
@@ -330,92 +339,35 @@ class MathOPSV2GPUViewport:
         self._draw_shader = gpu.shader.create_from_info(shader_info)
         return self._draw_shader
 
-    def _ensure_blit_shader(self):
-        if self._blit_shader is not None:
-            return self._blit_shader
+    def _ensure_normal_shader(self):
+        if self._normal_shader is not None:
+            return self._normal_shader
 
-        interface = gpu.types.GPUStageInterfaceInfo("mathops_v2_blit_interface")
+        interface = gpu.types.GPUStageInterfaceInfo("mathops_v2_normal_interface")
         interface.smooth("VEC2", "uvInterp")
 
         shader_info = gpu.types.GPUShaderCreateInfo()
-        shader_info.typedef_source(raymarch.UNIFORMS_SOURCE)
-        shader_info.uniform_buf(0, "MathOPSV2ViewParams", "mathops")
         shader_info.vertex_in(0, "VEC2", "position")
         shader_info.vertex_out(interface)
         shader_info.fragment_out(0, "VEC4", "FragColor")
-        shader_info.sampler(0, "FLOAT_2D", "colorTex")
-        shader_info.sampler(1, "FLOAT_2D", "depthTex")
-        shader_info.sampler(2, "FLOAT_2D", "posTex")
-        shader_info.sampler(3, "FLOAT_2D", "matcapDiffuse")
-        shader_info.sampler(4, "FLOAT_2D", "matcapSpecular")
-        shader_info.depth_write("ANY")
+        shader_info.sampler(0, "FLOAT_2D", "posTex")
         shader_info.vertex_source(raymarch.VERTEX_SOURCE)
         shader_info.fragment_source(
             """
-int viewFlagsValue()
-{
-  return int(mathops.cameraPosition.w + 0.5);
-}
-
-bool orthographicViewValue()
-{
-  return (viewFlagsValue() & 1) != 0;
-}
-
-vec3 viewIncidentVector(vec3 viewPos)
-{
-  return orthographicViewValue() ? vec3(0.0, 0.0, 1.0) : normalize(-viewPos);
-}
-
-bool disableSurfaceShadingValue()
-{
-  return (viewFlagsValue() & 2) != 0;
-}
-
-int debugModeValue()
-{
-  return int(mathops.instructionDebugSpecular.y + 0.5);
-}
-
-bool showSpecularValue()
-{
-  return mathops.instructionDebugSpecular.w > 0.5;
-}
-
-float gammaValue()
-{
-  return max(0.001, mathops.viewRow3.w);
-}
-
 vec4 loadPos(ivec2 p)
 {
   p = clamp(p, ivec2(0), textureSize(posTex, 0) - ivec2(1));
   return texelFetch(posTex, p, 0);
 }
 
-vec2 matcapUV(vec3 normalView, vec3 viewDirView)
+void main()
 {
-  float a = 1.0 / max(1.0 + viewDirView.z, 0.001);
-  float b = -viewDirView.x * viewDirView.y * a;
-  vec3 basisX = vec3(
-    1.0 - viewDirView.x * viewDirView.x * a,
-    b,
-    -viewDirView.x
-  );
-  vec3 basisY = vec3(
-    b,
-    1.0 - viewDirView.y * viewDirView.y * a,
-    -viewDirView.y
-  );
-  vec2 uv = vec2(dot(basisX, normalView), dot(basisY, normalView));
-  return clamp(uv * 0.496 + 0.5, vec2(0.0), vec2(1.0));
-}
-
-vec3 reconstructScreenSpaceNormal(ivec2 pixel)
-{
+  ivec2 texSize = textureSize(posTex, 0);
+  ivec2 pixel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), texSize - ivec2(1));
   vec4 c = loadPos(pixel);
   if (c.w < 0.5) {
-    return vec3(0.0, 0.0, 1.0);
+    FragColor = vec4(0.0);
+    return;
   }
 
   vec3 pc = c.xyz;
@@ -477,7 +429,93 @@ vec3 reconstructScreenSpaceNormal(ivec2 pixel)
   if (any(isnan(n))) {
     n = vec3(0.0, 0.0, 1.0);
   }
-  return n;
+  FragColor = vec4(n, 1.0);
+}
+"""
+        )
+        self._normal_shader = gpu.shader.create_from_info(shader_info)
+        return self._normal_shader
+
+    def _ensure_blit_shader(self):
+        if self._blit_shader is not None:
+            return self._blit_shader
+
+        interface = gpu.types.GPUStageInterfaceInfo("mathops_v2_blit_interface")
+        interface.smooth("VEC2", "uvInterp")
+
+        shader_info = gpu.types.GPUShaderCreateInfo()
+        shader_info.typedef_source(raymarch.UNIFORMS_SOURCE)
+        shader_info.uniform_buf(0, "MathOPSV2ViewParams", "mathops")
+        shader_info.vertex_in(0, "VEC2", "position")
+        shader_info.vertex_out(interface)
+        shader_info.fragment_out(0, "VEC4", "FragColor")
+        shader_info.sampler(0, "FLOAT_2D", "colorTex")
+        shader_info.sampler(1, "FLOAT_2D", "depthTex")
+        shader_info.sampler(2, "FLOAT_2D", "posTex")
+        shader_info.sampler(3, "FLOAT_2D", "normalTex")
+        shader_info.sampler(4, "FLOAT_2D", "matcapDiffuse")
+        shader_info.sampler(5, "FLOAT_2D", "matcapSpecular")
+        shader_info.depth_write("ANY")
+        shader_info.vertex_source(raymarch.VERTEX_SOURCE)
+        shader_info.fragment_source(
+            """
+int viewFlagsValue()
+{
+  return int(mathops.cameraPosition.w + 0.5);
+}
+
+bool orthographicViewValue()
+{
+  return (viewFlagsValue() & 1) != 0;
+}
+
+vec3 viewIncidentVector(vec3 viewPos)
+{
+  return orthographicViewValue() ? vec3(0.0, 0.0, 1.0) : normalize(-viewPos);
+}
+
+vec4 loadPos(ivec2 p)
+{
+  p = clamp(p, ivec2(0), textureSize(posTex, 0) - ivec2(1));
+  return texelFetch(posTex, p, 0);
+}
+
+bool disableSurfaceShadingValue()
+{
+  return (viewFlagsValue() & 2) != 0;
+}
+
+int debugModeValue()
+{
+  return int(mathops.instructionDebugSpecular.y + 0.5);
+}
+
+bool showSpecularValue()
+{
+  return mathops.instructionDebugSpecular.w > 0.5;
+}
+
+float gammaValue()
+{
+  return max(0.001, mathops.viewRow3.w);
+}
+
+vec2 matcapUV(vec3 normalView, vec3 viewDirView)
+{
+  float a = 1.0 / max(1.0 + viewDirView.z, 0.001);
+  float b = -viewDirView.x * viewDirView.y * a;
+  vec3 basisX = vec3(
+    1.0 - viewDirView.x * viewDirView.x * a,
+    b,
+    -viewDirView.x
+  );
+  vec3 basisY = vec3(
+    b,
+    1.0 - viewDirView.y * viewDirView.y * a,
+    -viewDirView.y
+  );
+  vec2 uv = vec2(dot(basisX, normalView), dot(basisY, normalView));
+  return clamp(uv * 0.496 + 0.5, vec2(0.0), vec2(1.0));
 }
 
 void main()
@@ -489,28 +527,33 @@ void main()
     return;
   }
 
+  vec4 normalTexel = texture(normalTex, uvInterp);
+  if (normalTexel.w < 0.5) {
+    return;
+  }
+
+  vec3 normal = normalize(normalTexel.xyz);
   ivec2 texSize = textureSize(posTex, 0);
   ivec2 pixel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), texSize - ivec2(1));
   vec4 pos = loadPos(pixel);
   if (pos.w < 0.5) {
     return;
   }
-
-  vec3 normal = reconstructScreenSpaceNormal(pixel);
-  vec3 normalView = normalize(vec3(
-    dot(mathops.viewRow0.xyz, normal),
-    dot(mathops.viewRow1.xyz, normal),
-    dot(mathops.viewRow2.xyz, normal)
-  ));
   vec3 viewPos = vec3(
     dot(mathops.viewRow0, vec4(pos.xyz, 1.0)),
     dot(mathops.viewRow1, vec4(pos.xyz, 1.0)),
     dot(mathops.viewRow2, vec4(pos.xyz, 1.0))
   );
-  vec3 viewDirView = viewIncidentVector(viewPos);
-  if (dot(normalView, viewDirView) < 0.0) {
+  vec3 normalView = normalize(vec3(
+    dot(mathops.viewRow0.xyz, normal),
+    dot(mathops.viewRow1.xyz, normal),
+    dot(mathops.viewRow2.xyz, normal)
+  ));
+  if (dot(normalView, viewIncidentVector(viewPos)) < 0.0) {
+    normal = -normal;
     normalView = -normalView;
   }
+  vec3 viewDirView = viewIncidentVector(viewPos);
   vec2 uv = matcapUV(normalView, viewDirView);
   vec3 shaded = texture(matcapDiffuse, uv).rgb;
   if (showSpecularValue()) {
@@ -641,23 +684,28 @@ void main()
         height = max(1, int(height))
         if (
             self._offscreen is not None
+            and self._normal_offscreen is not None
             and self._offscreen_color_texture is not None
             and self._offscreen_outline_texture is not None
             and self._offscreen_position_texture is not None
+            and self._offscreen_normal_texture is not None
             and self._offscreen_depth_texture is not None
         ):
             if self._offscreen_color_texture.width == width and self._offscreen_color_texture.height == height:
                 return True
             self._offscreen = None
+            self._normal_offscreen = None
             self._offscreen_color_texture = None
             self._offscreen_outline_texture = None
             self._offscreen_position_texture = None
+            self._offscreen_normal_texture = None
             self._offscreen_depth_texture = None
 
         try:
             self._offscreen_color_texture = gpu.types.GPUTexture((width, height), format="RGBA16F")
             self._offscreen_outline_texture = gpu.types.GPUTexture((width, height), format="R32F")
             self._offscreen_position_texture = gpu.types.GPUTexture((width, height), format="RGBA32F")
+            self._offscreen_normal_texture = gpu.types.GPUTexture((width, height), format="RGBA16F")
             try:
                 self._offscreen_outline_texture.filter_mode(False)
             except Exception:
@@ -666,17 +714,24 @@ void main()
                 self._offscreen_position_texture.filter_mode(False)
             except Exception:
                 pass
+            try:
+                self._offscreen_normal_texture.filter_mode(False)
+            except Exception:
+                pass
             self._offscreen_depth_texture = gpu.types.GPUTexture((width, height), format="DEPTH24_STENCIL8")
             self._offscreen = gpu.types.GPUFrameBuffer(
                 color_slots=(self._offscreen_color_texture, self._offscreen_outline_texture, self._offscreen_position_texture),
                 depth_slot=self._offscreen_depth_texture,
             )
+            self._normal_offscreen = gpu.types.GPUFrameBuffer(color_slots=(self._offscreen_normal_texture,))
             return True
         except Exception:
             self._offscreen = None
+            self._normal_offscreen = None
             self._offscreen_color_texture = None
             self._offscreen_outline_texture = None
             self._offscreen_position_texture = None
+            self._offscreen_normal_texture = None
             self._offscreen_depth_texture = None
             return False
 
@@ -711,6 +766,19 @@ void main()
         shader.uniform_sampler("polygonData", polygon_texture)
         batch.draw(shader)
 
+    def _draw_normal_pass(self):
+        if self._normal_offscreen is None or self._offscreen_position_texture is None:
+            return
+        shader = self._ensure_normal_shader()
+        batch = self._ensure_batch()
+        with self._normal_offscreen.bind():
+            gpu.state.depth_test_set("NONE")
+            gpu.state.depth_mask_set(False)
+            gpu.state.blend_set("NONE")
+            self._clear_texture(self._offscreen_normal_texture, "FLOAT", (0.0, 0.0, 0.0, 0.0))
+            shader.uniform_sampler("posTex", self._offscreen_position_texture)
+            batch.draw(shader)
+
     def _blit_offscreen(self, context, settings, params_ubo):
         shader = self._ensure_blit_shader()
         batch = self._ensure_batch()
@@ -719,6 +787,7 @@ void main()
         shader.uniform_sampler("colorTex", self._offscreen_color_texture)
         shader.uniform_sampler("depthTex", self._offscreen_depth_texture)
         shader.uniform_sampler("posTex", self._offscreen_position_texture)
+        shader.uniform_sampler("normalTex", self._offscreen_normal_texture)
         shader.uniform_sampler("matcapDiffuse", diffuse_texture)
         shader.uniform_sampler("matcapSpecular", specular_texture)
         batch.draw(shader)
@@ -1022,7 +1091,6 @@ void main()
         return self._params_ubo
 
     def draw(self, context, depsgraph):
-        del depsgraph
         scene = context.scene
         settings = runtime.scene_settings(scene)
         if settings is None:
@@ -1070,6 +1138,7 @@ void main()
             self._clear_texture(self._offscreen_color_texture, "FLOAT", runtime.scene_background_color(scene))
             self._clear_texture(self._offscreen_outline_texture, "FLOAT", (0.0,))
             self._clear_texture(self._offscreen_position_texture, "FLOAT", (0.0, 0.0, 0.0, 0.0))
+            self._clear_texture(self._offscreen_normal_texture, "FLOAT", (0.0, 0.0, 0.0, 0.0))
             self._offscreen.clear(depth=1.0, stencil=0)
             self._draw_scene_pass(
                 context,
@@ -1081,6 +1150,15 @@ void main()
                 inv_view_projection,
                 view_projection,
             )
+
+            if bool(getattr(settings, "show_meshes", True)):
+                self._mesh_renderer.draw(
+                    context, depsgraph,
+                    bool(getattr(settings, "mesh_backface_culling", True)),
+                    view_projection,
+                )
+
+        self._draw_normal_pass()
 
         gpu.state.depth_test_set("ALWAYS")
         gpu.state.depth_mask_set(True)
